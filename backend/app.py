@@ -181,6 +181,123 @@ def api_usuarios(request: Request):
              "tracks": r[4], "eventos": r[5]} for r in filas]
 
 
+@app.post("/api/usuarios")
+async def api_usuario_crear(request: Request):
+    """Crea un usuario nuevo (admin): {username, password, rol?}."""
+    u = _auth(request)
+    if not u:
+        return _pedir_auth()
+    if u["rol"] != "admin":
+        return JSONResponse({"error": "requiere rol admin"}, status_code=403)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    username = str(body.get("username", "")).strip()
+    password = str(body.get("password", ""))
+    rol = "admin" if body.get("rol") == "admin" else "user"
+    if len(username) < 3 or len(password) < 4:
+        return JSONResponse({"error": "usuario ≥3 y contraseña ≥4 caracteres"},
+                            status_code=400)
+    con = get_db()
+    if con.execute("SELECT 1 FROM usuarios WHERE username=?",
+                   (username,)).fetchone():
+        con.close()
+        return JSONResponse({"error": "el usuario ya existe"}, status_code=409)
+    con.execute("INSERT INTO usuarios(username,pass_hash,rol,creado) VALUES(?,?,?,?)",
+                (username, _hash_pass(password), rol, time.time()))
+    con.commit()
+    con.close()
+    return {"ok": True, "usuario": username, "rol": rol}
+
+
+@app.post("/api/usuarios/{uid}/password")
+async def api_usuario_password(uid: int, request: Request):
+    """Cambia la contraseña de un usuario. Admin puede cambiar la de
+    cualquiera ({password}); un usuario normal solo la suya
+    ({password_actual, password})."""
+    u = _auth(request)
+    if not u:
+        return _pedir_auth()
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    con = get_db()
+    fila = con.execute("SELECT pass_hash, rol FROM usuarios WHERE id=?",
+                       (uid,)).fetchone()
+    if not fila:
+        con.close()
+        return JSONResponse({"error": "usuario no existe"}, status_code=404)
+    es_mismo = int(u["id"]) == int(uid)
+    if u["rol"] != "admin" and not es_mismo:
+        con.close()
+        return JSONResponse({"error": "solo puedes cambiar tu propia contraseña"},
+                            status_code=403)
+    nueva = str(body.get("password", ""))
+    if len(nueva) < 4:
+        con.close()
+        return JSONResponse({"error": "contraseña ≥4 caracteres"},
+                            status_code=400)
+    # Un usuario normal debe confirmar la actual; el admin no (reset)
+    if u["rol"] != "admin":
+        actual = str(body.get("password_actual", ""))
+        if not _verif_pass(actual, fila[0]):
+            con.close()
+            return JSONResponse({"error": "contraseña actual incorrecta"},
+                                status_code=401)
+    con.execute("UPDATE usuarios SET pass_hash=? WHERE id=?",
+                (_hash_pass(nueva), uid))
+    # invalidar sesiones previas del usuario (salvo la actual del admin)
+    con.execute("DELETE FROM sesiones WHERE user_id=? AND token NOT IN "
+                "(SELECT token FROM sesiones WHERE user_id=? LIMIT 1)",
+                (uid, uid))
+    con.commit()
+    con.close()
+    return {"ok": True, "usuario_id": uid}
+
+
+@app.delete("/api/usuarios/{uid}")
+def api_usuario_borrar(uid: int, request: Request):
+    """Borra un usuario y sus datos (solo admin; no a sí mismo ni al último admin)."""
+    u = _auth(request)
+    if not u:
+        return _pedir_auth()
+    if u["rol"] != "admin":
+        return JSONResponse({"error": "requiere rol admin"}, status_code=403)
+    if int(u["id"]) == int(uid):
+        return JSONResponse({"error": "no puedes borrarte a ti mismo"},
+                            status_code=400)
+    con = get_db()
+    fila = con.execute("SELECT username FROM usuarios WHERE id=?", (uid,)).fetchone()
+    if not fila:
+        con.close()
+        return JSONResponse({"error": "no existe"}, status_code=404)
+    n_admin = con.execute("SELECT COUNT(*) FROM usuarios WHERE rol='admin'").fetchone()[0]
+    con.close()
+    if n_admin <= 1:
+        # comprobar si el borrado es admin
+        con = get_db()
+        rol = con.execute("SELECT rol FROM usuarios WHERE id=?", (uid,)).fetchone()[0]
+        con.close()
+        if rol == "admin":
+            return JSONResponse({"error": "debe quedar al menos un admin"},
+                                status_code=400)
+    import shutil
+    for carpeta in (os.path.join(DATA, "eventos", str(uid)),
+                    os.path.join(DATA, "temps", str(uid))):
+        if os.path.isdir(carpeta):
+            shutil.rmtree(carpeta, ignore_errors=True)
+    con = get_db()
+    con.execute("DELETE FROM tracks WHERE user_id=?", (str(uid),))
+    con.execute("DELETE FROM eventos WHERE user_id=?", (str(uid),))
+    con.execute("DELETE FROM sesiones WHERE user_id=?", (uid,))
+    con.execute("DELETE FROM usuarios WHERE id=?", (uid,))
+    con.commit()
+    con.close()
+    return {"ok": True, "borrado": fila[0]}
+
+
 # ── Índice geo (grid hash sobre la BD de EuroCams) ─────────────────────────
 CELL = 0.02
 camaras = []
