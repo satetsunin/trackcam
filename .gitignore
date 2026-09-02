@@ -1,0 +1,12 @@
+# Datos locales — nunca a GitHub
+data/
+venv/
+__pycache__/
+*.db
+*.db-wal
+*.db-shm
+*.pyc
+apk/.gradle/
+apk/app/build/
+# Túnel Cloudflare: el token vive en ~/.cloudflared/ (fuera del repo). Por si acaso:
+tunel/*.env

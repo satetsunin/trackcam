@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Foreground del icono del launcher: pin GPS blanco sobre fondo verde -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M54,26 C40.75,26 30,36.75 30,50 C30,64.5 54,86 54,86 C54,86 78,64.5 78,50 C78,36.75 67.25,26 54,26 Z M54,38 C47.4,38 42,43.4 42,50 C42,56.6 47.4,62 54,62 C60.6,62 66,56.6 66,50 C66,43.4 60.6,38 54,38 Z" />
+</vector>

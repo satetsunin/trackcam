@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TrackCam — track, eventos y almacenamiento</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  html,body{margin:0;height:100%;font-family:system-ui,sans-serif;background:#f3f4f6}
+  #map{position:absolute;inset:0}
+  #bar{position:absolute;top:10px;left:10px;z-index:1000;background:rgba(255,255,255,.93);
+       border-radius:8px;padding:8px 12px;box-shadow:0 2px 8px rgba(0,0,0,.2);font-size:13px}
+  #bar b{color:#1a365d}
+  #panel{position:absolute;top:10px;right:10px;bottom:10px;width:380px;z-index:1000;
+         background:rgba(255,255,255,.96);border-radius:10px;box-shadow:0 4px 16px rgba(0,0,0,.25);
+         display:flex;flex-direction:column;overflow:hidden}
+  #panel h3{margin:0;padding:10px 14px;background:#1a365d;color:#fff;font-size:14px;
+            display:flex;justify-content:space-between;align-items:center}
+  #panel h3 button{background:#e53e3e;border:0;color:#fff;border-radius:6px;padding:2px 10px;cursor:pointer}
+  #stats{padding:8px 14px;font-size:12px;border-bottom:1px solid #e2e8f0;background:#f8fafc}
+  #stats .mb{font-weight:bold;color:#2b6cb0}
+  #lista{flex:1;overflow-y:auto;padding:8px}
+  .ev{border:1px solid #e2e8f0;border-radius:8px;margin-bottom:8px;overflow:hidden}
+  .ev .cab{display:flex;justify-content:space-between;align-items:center;padding:6px 10px;
+           background:#f7fafc;font-size:12px;cursor:pointer}
+  .ev .cab b{color:#1a365d;font-size:12px}
+  .ev .cab .fecha{color:#718096}
+  .ev video{width:100%;max-height:200px;background:#000;display:block}
+  .ev .fotos{display:flex;gap:4px;flex-wrap:wrap;padding:6px}
+  .ev .fotos img{width:56px;height:56px;object-fit:cover;border-radius:4px}
+  .ev .acc{padding:6px 10px;display:flex;gap:8px}
+  .ev .acc a,.ev .acc button{font-size:11px;padding:3px 10px;border-radius:6px;border:1px solid #cbd5e0;
+       background:#fff;cursor:pointer;color:#2d3748;text-decoration:none}
+  .ev .acc button.del{background:#fff5f5;border-color:#fc8181;color:#c53030}
+  .vacio{color:#a0aec0;font-size:12px;text-align:center;padding:20px}
+  #btnLimpiar{position:absolute;bottom:10px;left:10px;z-index:1000;font-size:11px;padding:5px 12px;
+       border-radius:6px;border:1px solid #feb2b2;background:#fff5f5;color:#c53030;cursor:pointer}
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div id="bar">🎥 <b>TrackCam</b> — <span id="status">cargando…</span></div>
+<button id="btnLimpiar" title="Borra los temporales de cámaras a ≤500 m que no generaron evento">🧹 Limpiar temporales</button>
+<div id="panel">
+  <h3>🗄️ Almacenamiento <button id="btnCerrar">✕</button></h3>
+  <div id="stats"></div>
+  <div id="lista"><div class="vacio">Sin eventos todavía</div></div>
+</div>
+
+<script>
+const map = L.map('map').setView([43.2701, -2.9560], 15);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '© OpenStreetMap'}).addTo(map);
+
+let poly = L.polyline([], {color:'#c05621', weight:4}).addTo(map);
+let markers = L.layerGroup().addTo(map);
+let eventos = [];
+let abiertos = new Set();
+
+function fmtMB(b) { return (b/1048576).toFixed(1) + ' MB'; }
+function fmtFecha(ts) { return new Date(ts*1000).toLocaleString('es-ES', {day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}); }
+
+async function carga() {
+  const [t, ev, st] = await Promise.all([
+    fetch('/api/track').then(r=>r.json()),
+    fetch('/api/eventos').then(r=>r.json()),
+    fetch('/api/estado').then(r=>r.json()),
+  ]);
+  const pts = t.features.map(f => [f.geometry.coordinates[1], f.geometry.coordinates[0]]);
+  poly.setLatLngs(pts);
+  markers.clearLayers();
+  eventos = ev;
+  ev.forEach(e => {
+    const m = L.marker([e.lat, e.lon], {icon: L.divIcon({className:'', html:'<div style="background:#e53e3e;width:14px;height:14px;border-radius:50%;border:2px solid #fff;box-shadow:0 0 6px rgba(229,62,62,.8)"></div>', iconSize:[18,18], iconAnchor:[9,9]})}).addTo(markers);
+    m.bindPopup(`<b>${e.cam_nombre}</b><br>${fmtFecha(e.ts_inicio)}<br>${e.n_fotos} fotos · <a href="/api/evento/${e.id}/video" target="_blank">ver vídeo</a>`);
+    m.on('click', () => verEvento(e.id));
+  });
+  if (pts.length) map.fitBounds(poly.getBounds(), {padding:[30,30], maxZoom:16});
+
+  document.getElementById('status').textContent =
+    `${st.puntos_track} pts · ${st.eventos} eventos · ${st.camaras_activas} activas · ${st.camaras_capturando} capturando`;
+
+  document.getElementById('stats').innerHTML =
+    `📦 Eventos: <span class="mb">${st.eventos}</span> (${fmtMB(st.tam_eventos)})<br>` +
+    `🧹 Temporales: <span class="mb">${fmtMB(st.tam_temps)}</span> · BD: ${fmtMB(st.tam_tracks_db)}<br>` +
+    `📸 Descargas: ${st.descargas_ok} ok / ${st.descargas_fallo} fallo · 📷 ${st.camaras_cargadas} cámaras`;
+
+  renderLista();
+}
+
+function renderLista() {
+  const lista = document.getElementById('lista');
+  if (!eventos.length) { lista.innerHTML = '<div class="vacio">Sin eventos todavía</div>'; return; }
+  lista.innerHTML = eventos.slice().reverse().map(e => {
+    const abierto = abiertos.has(e.id);
+    return `<div class="ev">
+      <div class="cab" onclick="toggleEv('${e.id}')">
+        <b>${e.cam_nombre}</b>
+        <span class="fecha">${fmtFecha(e.ts_inicio)} · ${e.n_fotos} 📷</span>
+      </div>
+      ${abierto ? `<video controls src="/api/evento/${e.id}/video"></video>
+        <div class="fotos"></div>
+        <div class="acc">
+          <a href="/api/evento/${e.id}/video" download="trackcam-${e.id}.mp4">⬇ MP4</a>
+          <button onclick="borrarEv('${e.id}')" class="del">🗑 Borrar</button>
+        </div>` : ''}
+    </div>`;
+  }).join('');
+  // cargar fotos de los abiertos
+  eventos.forEach(e => {
+    if (!abiertos.has(e.id)) return;
+    const cont = lista.querySelector(`.ev:has(.cab[onclick*="${e.id}"]) .fotos`);
+  });
+  // fotos por separado (query más simple)
+  eventos.filter(e => abiertos.has(e.id)).forEach(e => {
+    const evEl = [...document.querySelectorAll('.ev')].find(x => x.querySelector('.cab')?.textContent.includes(e.cam_nombre) && x.querySelector('.cab')?.textContent.includes(fmtFecha(e.ts_inicio)));
+    if (!evEl) return;
+    const fotos = evEl.querySelector('.fotos');
+    if (!fotos || fotos.dataset.cargado) return;
+    fotos.dataset.cargado = '1';
+    for (let i = 0; i < Math.min(e.n_fotos, 12); i++)
+      fotos.innerHTML += `<img src="/api/evento/${e.id}/foto/foto_${String(i).padStart(3,'0')}.jpg" loading="lazy">`;
+  });
+}
+
+window.toggleEv = function(id) {
+  if (abiertos.has(id)) abiertos.delete(id); else abiertos.add(id);
+  renderLista();
+};
+window.verEvento = function(id) {
+  abiertos.add(id); renderLista();
+  const e = eventos.find(x => x.id === id);
+  if (e) map.setView([e.lat, e.lon], 16);
+};
+window.borrarEv = async function(id) {
+  if (!confirm('¿Borrar este evento (vídeo + fotos)?')) return;
+  await fetch('/api/evento/' + id, {method:'DELETE'});
+  abiertos.delete(id);
+  carga();
+};
+
+document.getElementById('btnCerrar').onclick = () => document.getElementById('panel').style.display = 'none';
+document.getElementById('btnLimpiar').onclick = async () => {
+  if (!confirm('¿Borrar todos los temporales (cámaras a ≤500 m sin evento)?')) return;
+  const r = await fetch('/api/limpiar_temps', {method:'POST'}).then(r=>r.json());
+  alert(`🧹 Temporales limpiados: ${r.borrados_mb} MB`);
+  carga();
+};
+
+carga();
+setInterval(carga, 15000);
+</script>
+</body>
+</html>

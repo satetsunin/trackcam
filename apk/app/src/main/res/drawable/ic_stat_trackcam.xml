@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Icono de la notificación (blanco, silueta de pin GPS) -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M12,2 C7.58,2 4,5.58 4,10 C4,14.42 12,22 12,22 C12,22 20,14.42 20,10 C20,5.58 16.42,2 12,2 Z M12,7.5 A2.5,2.5 0 1,0 12.001,7.5 Z" />
+</vector>

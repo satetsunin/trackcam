@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">TrackCam</string>
+    <string name="subtitulo">Envío de posición GPS al servidor de cámaras</string>
+
+    <!-- Pantalla principal -->
+    <string name="lbl_url">URL del servidor</string>
+    <string name="hint_url">https://track.satetsunin.com/track</string>
+    <string name="lbl_intervalo">Intervalo de envío</string>
+    <string name="lbl_bateria">Mitigación de batería</string>
+    <string name="btn_start">INICIAR TRACKEO</string>
+    <string name="btn_stop">DETENER TRACKEO</string>
+    <string name="btn_bateria_xiaomi">Abrir ajustes de batería (Redmi)</string>
+    <string name="btn_bateria_generico">Abrir ajustes de optimización de batería</string>
+    <string name="btn_exencion">Solicitar exención de optimización</string>
+    <string name="err_url">Introduce la URL del servidor (p. ej. https://track.satetsunin.com/track)</string>
+    <string name="err_start">No se pudo arrancar el servicio</string>
+    <string name="err_location_perm">Permiso de ubicación denegado: actívalo en Ajustes → Aplicaciones → TrackCam</string>
+    <string name="err_settings">No se pudieron abrir los ajustes en este dispositivo</string>
+    <string name="toast_intervalo">Intervalo aplicado</string>
+    <string name="toast_bateria">Importante: desactiva la optimización de batería o el trackeo se detendrá al bloquear el teléfono</string>
+
+    <!-- Estado -->
+    <string name="estado_detenido">Detenido</string>
+    <string name="estado_enviando">Enviando última posición…</string>
+    <string name="estado_trackeando">Trackeando · último envío hace %1$s</string>
+    <string name="ahora_mismo">ahora</string>
+
+    <!-- Conexión -->
+    <string name="conexion_ninguno">Último envío: —</string>
+    <string name="conexion_ok">Último envío: OK a las %1$s</string>
+    <string name="conexion_fail">Último envío: FALLIDO a las %1$s · %2$d pendientes</string>
+
+    <!-- Posición -->
+    <string name="posicion">Posición: %1$s, %2$s · precisión %3$d m · vel %4$d m/s</string>
+    <string name="posicion_nula">Posición: sin fijar todavía</string>
+
+    <!-- Batería -->
+    <string name="bateria_ok">Optimización de batería: desactivada ✓</string>
+    <string name="bateria_activa">Optimización de batería: ACTIVA — la app puede detenerse en segundo plano</string>
+    <string name="bateria_ya_exenta">La app ya está exenta de la optimización de batería</string>
+
+    <!-- Notificación del servicio -->
+    <string name="notif_channel_name">Estado de TrackCam</string>
+    <string name="notif_channel_desc">Notificación persistente mientras el trackeo GPS está activo</string>
+    <string name="notif_title">TrackCam activo</string>
+    <string name="notif_waiting">Enviando última posición…</string>
+    <string name="notif_sent_ok">Último envío OK %1$s</string>
+    <string name="notif_sent_fail">Último envío FALLIDO %1$s · %2$d pendientes</string>
+    <string name="notif_stop">Detener</string>
+
+    <!-- Selector de intervalo -->
+    <string-array name="intervalos">
+        <item>1 s</item>
+        <item>2 s</item>
+        <item>5 s</item>
+        <item>10 s</item>
+        <item>30 s</item>
+        <item>60 s</item>
+    </string-array>
+</resources>

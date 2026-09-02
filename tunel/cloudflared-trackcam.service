@@ -1,0 +1,13 @@
+[Unit]
+Description=Cloudflare Tunnel trackcam (track.satetsunin.com -> localhost:8099)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+EnvironmentFile=%h/.cloudflared/trackcam.env
+ExecStart=%h/.local/bin/cloudflared tunnel --no-autoupdate --protocol http2 run --token ${TUNNEL_TOKEN}
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

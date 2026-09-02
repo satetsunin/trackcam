@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="20dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/app_name"
+            android:textColor="@color/primary"
+            android:textSize="26sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="8dp"
+            android:text="@string/subtitulo"
+            android:textSize="13sp" />
+
+        <!-- URL del servidor -->
+        <TextView
+            style="@style/Label"
+            android:text="@string/lbl_url" />
+
+        <EditText
+            android:id="@+id/etUrl"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:autofillHints="url"
+            android:hint="@string/hint_url"
+            android:inputType="textUri"
+            android:singleLine="true" />
+
+        <!-- Intervalo -->
+        <TextView
+            style="@style/Label"
+            android:text="@string/lbl_intervalo" />
+
+        <Spinner
+            android:id="@+id/spInterval"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content" />
+
+        <!-- Arranque / parada -->
+        <Button
+            android:id="@+id/btnToggle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:text="@string/btn_start" />
+
+        <!-- Estado -->
+        <TextView
+            android:id="@+id/tvEstado"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="@string/estado_detenido"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/tvConexion"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="@string/conexion_ninguno" />
+
+        <TextView
+            android:id="@+id/tvPosicion"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="@string/posicion_nula" />
+
+        <!-- Separador -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginTop="20dp"
+            android:background="#DDDDDD" />
+
+        <!-- Mitigación de batería (crítico en Redmi/Xiaomi) -->
+        <TextView
+            style="@style/Label"
+            android:text="@string/lbl_bateria" />
+
+        <TextView
+            android:id="@+id/tvBateria"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="@string/bateria_activa" />
+
+        <Button
+            android:id="@+id/btnBateria"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="@string/btn_bateria_generico" />
+
+        <Button
+            android:id="@+id/btnExencion"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/btn_exencion" />
+
+    </LinearLayout>
+</ScrollView>
