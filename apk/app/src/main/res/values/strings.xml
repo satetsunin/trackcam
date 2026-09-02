@@ -18,6 +18,7 @@
     <string name="err_login_credenciales">Usuario o contraseña incorrectos</string>
     <string name="err_login_red">No se pudo contactar con el servidor. Comprueba la URL y tu conexión.</string>
     <string name="err_login_respuesta">Respuesta inesperada del servidor</string>
+    <string name="err_login_cf">Cloudflare pide autenticación: pulsa primero \"🔐 Autenticar con Cloudflare\" y vuelve a intentarlo</string>
     <string name="err_login_server">Error del servidor (HTTP %1$d)</string>
     <string name="sesion_expirada">La sesión ha expirado. Inicia sesión de nuevo.</string>
 

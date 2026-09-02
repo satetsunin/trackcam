@@ -41,6 +41,7 @@ class LoginActivity : AppCompatActivity() {
         // Códigos de resultado del intento de login
         private const val OUT_RED = -1     // fallo de red / timeout
         private const val OUT_PARSE = -2   // respuesta inesperada del servidor
+        private const val OUT_CF = -3      // Cloudflare Access pide login (302)
     }
 
     private lateinit var etUrl: EditText
@@ -175,16 +176,23 @@ class LoginActivity : AppCompatActivity() {
         }
     }
 
-    /** POST {username,password} a /api/login → {token, usuario}. En hilo IO. */
+    /** POST {username,password} a /api/login → {token, usuario}. En hilo IO.
+     *  Incluye las cookies de Cloudflare Access (si el túnel está protegido),
+     *  porque sin ellas el servidor responde 302 (HTML) en vez de JSON. */
     private fun attemptLogin(user: String, pass: String): LoginOutcome {
         val url = TrackPrefs.loginUrl(this)
+        val cfCookies = TrackPrefs.cfCookies(this)
         val body = JSONObject()
             .put("username", user)
             .put("password", pass)
             .toString()
         return try {
-            val request = Request.Builder()
+            val rb = Request.Builder()
                 .url(url)
+            if (cfCookies.isNotEmpty()) {
+                rb.addHeader("Cookie", cfCookies)
+            }
+            val request = rb
                 .post(body.toRequestBody(JSON_MEDIA))
                 .build()
             httpClient.newCall(request).execute().use { resp ->
@@ -200,7 +208,12 @@ class LoginActivity : AppCompatActivity() {
                         LoginOutcome(resp.code, token, name)
                     }
                 } else {
-                    LoginOutcome(resp.code)
+                    // 302/HTML de Cloudflare Access = aún sin sesión CF
+                    if (resp.code == 302 || resp.code == 307) {
+                        LoginOutcome(OUT_CF)
+                    } else {
+                        LoginOutcome(resp.code)
+                    }
                 }
             }
         } catch (e: IOException) {
@@ -220,6 +233,7 @@ class LoginActivity : AppCompatActivity() {
             }
             out.status == 401 -> showError(getString(R.string.err_login_credenciales))
             out.status == 400 -> showError(getString(R.string.err_login_campos))
+            out.status == OUT_CF -> showError(getString(R.string.err_login_cf))
             out.status == OUT_RED -> showError(getString(R.string.err_login_red))
             out.status == OUT_PARSE -> showError(getString(R.string.err_login_respuesta))
             else -> showError(getString(R.string.err_login_server, out.status))
