@@ -97,4 +97,70 @@ object TrackPrefs {
     fun setAskedBackgroundOnce(ctx: Context, asked: Boolean) {
         prefs(ctx).edit().putBoolean("asked_bg_location", asked).apply()
     }
+
+    // ── Servicios de ubicación (GPS / WiFi / red / movimiento) ──────────
+
+    /** Todos activados por defecto (el usuario desmarca los que no quiera). */
+    fun servGps(ctx: Context): Boolean =
+        prefs(ctx).getBoolean("serv_gps", true)
+
+    fun setServGps(ctx: Context, on: Boolean) {
+        prefs(ctx).edit().putBoolean("serv_gps", on).apply()
+    }
+
+    fun servWifi(ctx: Context): Boolean =
+        prefs(ctx).getBoolean("serv_wifi", true)
+
+    fun setServWifi(ctx: Context, on: Boolean) {
+        prefs(ctx).edit().putBoolean("serv_wifi", on).apply()
+    }
+
+    fun servRed(ctx: Context): Boolean =
+        prefs(ctx).getBoolean("serv_red", true)
+
+    fun setServRed(ctx: Context, on: Boolean) {
+        prefs(ctx).edit().putBoolean("serv_red", on).apply()
+    }
+
+    fun servMovimiento(ctx: Context): Boolean =
+        prefs(ctx).getBoolean("serv_movimiento", true)
+
+    fun setServMovimiento(ctx: Context, on: Boolean) {
+        prefs(ctx).edit().putBoolean("serv_movimiento", on).apply()
+    }
+
+    /** true si hay al menos un servicio de ubicación activo. */
+    fun algunServicio(ctx: Context): Boolean =
+        servGps(ctx) || servWifi(ctx) || servRed(ctx) || servMovimiento(ctx)
+
+    // ── Sesión Cloudflare Access (WebView) ──────────────────────────────
+
+    /** true = el usuario completó el SSO de Cloudflare en el WebView. */
+    fun cfAuthed(ctx: Context): Boolean =
+        prefs(ctx).getBoolean("cf_authed", false)
+
+    fun setCfAuthed(ctx: Context, authed: Boolean) {
+        prefs(ctx).edit().putBoolean("cf_authed", authed).apply()
+    }
+
+    /** Cookies de Cloudflare para el host del servidor (CF_Authorization…). */
+    fun cfCookies(ctx: Context): String {
+        val host = baseUrl(ctx)
+            .removePrefix("https://").removePrefix("http://").substringBefore('/')
+        return try {
+            android.webkit.CookieManager.getInstance().getCookie(host).orEmpty()
+        } catch (e: Exception) {
+            ""
+        }
+    }
+
+    /** Limpia las cookies de Cloudflare (logout). */
+    fun clearCfSession(ctx: Context) {
+        setCfAuthed(ctx, false)
+        try {
+            android.webkit.CookieManager.getInstance().removeAllCookies(null)
+        } catch (e: Exception) {
+            // sin cookies que limpiar
+        }
+    }
 }

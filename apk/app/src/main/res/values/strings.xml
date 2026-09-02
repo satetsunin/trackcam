@@ -40,6 +40,27 @@
     <string name="toast_bg_location">Para trackeo 24/7 activa \"Permitir siempre\" en los permisos de ubicación</string>
     <string name="toast_ota_permiso">Activa \"Permitir instalar apps desconocidas\" para poder actualizar la app</string>
 
+    <!-- Servicios de ubicación -->
+    <string name="lbl_servicios">Servicios de ubicación (marca los que uses)</string>
+    <string name="srv_gps">📡 GPS (precisión por satélite — más batería)</string>
+    <string name="srv_wifi">📶 WiFi (posición por redes cercanas)</string>
+    <string name="srv_red">📱 Red móvil (antenas de telefonía)</string>
+    <string name="srv_movimiento">🚶 Detección de movimiento (no envía si estás parado)</string>
+
+    <!-- Autenticación Cloudflare (WebView integrado) -->
+    <string name="lbl_paso_cf">Paso 2 — Autenticación Cloudflare (navegador integrado)</string>
+    <string name="lbl_paso_login">Paso 3 — Inicia sesión en el servidor</string>
+    <string name="btn_autenticar_cf">🔐 Autenticar con Cloudflare</string>
+    <string name="cf_pendiente">Pendiente: pulsa el botón y autentícate con tu cuenta Cloudflare</string>
+    <string name="cf_ok">✓ Cloudflare autenticado — ya puedes iniciar sesión abajo</string>
+    <string name="auth_titulo">Autenticación Cloudflare</string>
+    <string name="auth_iniciando">Abriendo el servidor…</string>
+    <string name="auth_cargando">Cargando: %1$s</string>
+    <string name="auth_ok">✓ Sesión de Cloudflare establecida</string>
+    <string name="auth_sin_cookie">Aún no hay sesión — completa el login de Cloudflare en el navegador</string>
+    <string name="auth_btn_continuar">✓ He terminado</string>
+    <string name="auth_btn_cancelar">Cancelar</string>
+
     <!-- Estado -->
     <string name="estado_detenido">Detenido</string>
     <string name="estado_enviando">Enviando última posición…</string>

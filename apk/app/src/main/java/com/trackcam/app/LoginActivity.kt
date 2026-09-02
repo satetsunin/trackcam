@@ -8,6 +8,7 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -35,6 +36,8 @@ class LoginActivity : AppCompatActivity() {
         const val EXTRA_MOTIVO = "extra_motivo"
         const val MOTIVO_SESION_EXPIRADA = "sesion_expirada"
 
+        private const val RC_CF_AUTH = 2001
+
         // Códigos de resultado del intento de login
         private const val OUT_RED = -1     // fallo de red / timeout
         private const val OUT_PARSE = -2   // respuesta inesperada del servidor
@@ -44,6 +47,8 @@ class LoginActivity : AppCompatActivity() {
     private lateinit var etUser: EditText
     private lateinit var etPass: EditText
     private lateinit var btnLogin: Button
+    private lateinit var btnCf: Button
+    private lateinit var tvCfEstado: TextView
     private lateinit var tvError: TextView
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -68,6 +73,8 @@ class LoginActivity : AppCompatActivity() {
         etUser = findViewById(R.id.etUser)
         etPass = findViewById(R.id.etPass)
         btnLogin = findViewById(R.id.btnLogin)
+        btnCf = findViewById(R.id.btnCf)
+        tvCfEstado = findViewById(R.id.tvCfEstado)
         tvError = findViewById(R.id.tvError)
 
         // Ya hay sesión guardada → panel de control directo
@@ -78,12 +85,14 @@ class LoginActivity : AppCompatActivity() {
 
         etUrl.setText(TrackPrefs.baseUrl(this))
         etUser.setText(TrackPrefs.username(this).orEmpty())
+        actualizarEstadoCf()
 
         // Venimos de un 401 (sesión caducada): avisamos en el login
         if (intent.getStringExtra(EXTRA_MOTIVO) == MOTIVO_SESION_EXPIRADA) {
             showError(getString(R.string.sesion_expirada))
         }
 
+        btnCf.setOnClickListener { abrirAuthCloudflare() }
         btnLogin.setOnClickListener { login() }
         etPass.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_DONE) {
@@ -93,6 +102,41 @@ class LoginActivity : AppCompatActivity() {
                 false
             }
         }
+    }
+
+    /** Abre el navegador integrado (WebView) para el SSO de Cloudflare. */
+    private fun abrirAuthCloudflare() {
+        val base = etUrl.text?.toString()?.trim().orEmpty()
+        if (base.isEmpty()) {
+            showError(getString(R.string.err_url))
+            return
+        }
+        hideError()
+        TrackPrefs.setBaseUrl(this, base)
+        etUrl.setText(TrackPrefs.baseUrl(this)) // normalizada (sin /track)
+        val host = TrackPrefs.baseUrl(this)
+            .removePrefix("https://").removePrefix("http://").substringBefore('/')
+        startActivityForResult(
+            Intent(this, AuthWebViewActivity::class.java)
+                .putExtra(AuthWebViewActivity.EXTRA_URL, TrackPrefs.baseUrl(this) + "/api/estado")
+                .putExtra(AuthWebViewActivity.EXTRA_HOST, host),
+            RC_CF_AUTH
+        )
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == RC_CF_AUTH) {
+            actualizarEstadoCf()
+        }
+    }
+
+    private fun actualizarEstadoCf() {
+        val ok = TrackPrefs.cfAuthed(this)
+        tvCfEstado.text = getString(if (ok) R.string.cf_ok else R.string.cf_pendiente)
+        tvCfEstado.setTextColor(
+            ContextCompat.getColor(this, if (ok) R.color.ok_green else R.color.warn_red)
+        )
     }
 
     override fun onDestroy() {

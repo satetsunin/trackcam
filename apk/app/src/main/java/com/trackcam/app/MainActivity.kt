@@ -43,6 +43,10 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnBateria: Button
     private lateinit var btnExencion: Button
     private lateinit var btnLogout: Button
+    private lateinit var chkGps: android.widget.CheckBox
+    private lateinit var chkWifi: android.widget.CheckBox
+    private lateinit var chkRed: android.widget.CheckBox
+    private lateinit var chkMovimiento: android.widget.CheckBox
 
     private val intervalValues = intArrayOf(1, 2, 5, 10, 30, 60)
 
@@ -71,6 +75,20 @@ class MainActivity : AppCompatActivity() {
         btnBateria = findViewById(R.id.btnBateria)
         btnExencion = findViewById(R.id.btnExencion)
         btnLogout = findViewById(R.id.btnLogout)
+        chkGps = findViewById(R.id.chkGps)
+        chkWifi = findViewById(R.id.chkWifi)
+        chkRed = findViewById(R.id.chkRed)
+        chkMovimiento = findViewById(R.id.chkMovimiento)
+
+        // Servicios de ubicación: cargar estado guardado y persistir cambios
+        chkGps.isChecked = TrackPrefs.servGps(this)
+        chkWifi.isChecked = TrackPrefs.servWifi(this)
+        chkRed.isChecked = TrackPrefs.servRed(this)
+        chkMovimiento.isChecked = TrackPrefs.servMovimiento(this)
+        chkGps.setOnCheckedChangeListener { _, on -> TrackPrefs.setServGps(this, on) }
+        chkWifi.setOnCheckedChangeListener { _, on -> TrackPrefs.setServWifi(this, on) }
+        chkRed.setOnCheckedChangeListener { _, on -> TrackPrefs.setServRed(this, on) }
+        chkMovimiento.setOnCheckedChangeListener { _, on -> TrackPrefs.setServMovimiento(this, on) }
 
         // Selector de intervalo: 1/2/5/10/30/60 s
         val labels = resources.getStringArray(R.array.intervalos).toList()
@@ -176,6 +194,7 @@ class MainActivity : AppCompatActivity() {
             // el servicio no estaba corriendo
         }
         TrackPrefs.clearSession(this)
+        TrackPrefs.clearCfSession(this)
         goToLogin(null)
     }
 

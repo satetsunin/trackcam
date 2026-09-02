@@ -51,6 +51,12 @@
             android:exported="false"
             android:launchMode="singleTop" />
 
+        <!-- Navegador integrado para el SSO de Cloudflare Access -->
+        <activity
+            android:name=".AuthWebViewActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
+
         <!--
             Servicio en primer plano de tipo "location":
             - foregroundServiceType="location" es OBLIGATORIO para targetSdk 34.

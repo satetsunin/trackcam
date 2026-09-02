@@ -92,6 +92,8 @@ class TrackService : LifecycleService() {
             private set
         @Volatile var lastVel: Float? = null
             private set
+        /** Última posición ENVIADA [lat, lon] (para el filtro de movimiento). */
+        @Volatile var lastEnviado: DoubleArray? = null
     }
 
     private lateinit var fusedLocationClient: FusedLocationProviderClient
@@ -115,6 +117,20 @@ class TrackService : LifecycleService() {
             lastLon = loc.longitude
             lastAcc = loc.accuracy
             lastVel = if (loc.hasSpeed()) loc.speed else 0f
+
+            // Detección de movimiento: si la casilla está marcada y llevamos
+            // parados (<15 m desde el último envío), no spamear envíos
+            // (ahorra batería/datos en reposo). El GPS sigue activo.
+            if (TrackPrefs.servMovimiento(this@TrackService)) {
+                val ult = lastEnviado
+                if (ult != null) {
+                    val d = FloatArray(1)
+                    Location.distanceBetween(
+                        ult[0], ult[1], loc.latitude, loc.longitude, d
+                    )
+                    if (d[0] < 15f && loc.speed < 0.5f) return
+                }
+            }
 
             // Envío INMEDIATO en cuanto llega la posición (sin esperar nada más)
             enqueue(loc)
@@ -237,12 +253,18 @@ class TrackService : LifecycleService() {
         }
 
         val intervalMs = TrackPrefs.intervalSeconds(this).coerceIn(1, 60) * 1000L
-        // 1–5 s: precisión total (GPS). 10 s o más: modo equilibrado para no
-        // machacar la batería del Redmi en reposo.
-        val priority = if (intervalMs <= 5000L) {
-            Priority.PRIORITY_HIGH_ACCURACY
-        } else {
-            Priority.PRIORITY_BALANCED_POWER_ACCURACY
+        // Servicios de ubicación elegidos por el usuario (GPS/WiFi/red):
+        //  - GPS activo  → precisión total (GNSS + WiFi + red)
+        //  - Solo WiFi/red → modo equilibrado (sin GPS, ahorra batería)
+        //  - Sin GPS/WiFi/red → solo red móvil (bajo consumo)
+        val gps = TrackPrefs.servGps(this)
+        val wifi = TrackPrefs.servWifi(this)
+        val red = TrackPrefs.servRed(this)
+        val priority = when {
+            gps -> Priority.PRIORITY_HIGH_ACCURACY
+            wifi -> Priority.PRIORITY_BALANCED_POWER_ACCURACY
+            red -> Priority.PRIORITY_LOW_POWER
+            else -> Priority.PRIORITY_HIGH_ACCURACY // al menos algo (GPS)
         }
 
         val request = LocationRequest.Builder(intervalMs)
@@ -334,14 +356,20 @@ class TrackService : LifecycleService() {
         }
         val url = TrackPrefs.trackUrl(this)
         val json = buildJson(loc)
+        // Cookies de Cloudflare Access (si el túnel está protegido con SSO)
+        val cfCookies = TrackPrefs.cfCookies(this)
         var attempts = 0
 
         while (attempts < MAX_ATTEMPTS) {
             attempts++
             try {
-                val request = Request.Builder()
+                val rb = Request.Builder()
                     .url(url)
                     .addHeader("Authorization", "Bearer $token")
+                if (cfCookies.isNotEmpty()) {
+                    rb.addHeader("Cookie", cfCookies)
+                }
+                val request = rb
                     .post(json.toRequestBody(JSON_MEDIA))
                     .build()
 
@@ -358,6 +386,7 @@ class TrackService : LifecycleService() {
 
                 lastOk = true
                 lastSendAtMillis = System.currentTimeMillis()
+                lastEnviado = doubleArrayOf(loc.latitude, loc.longitude)
                 broadcastStatus()
                 updateNotification()
                 Log.i(TAG, "Enviado ${loc.latitude},${loc.longitude} a $url")

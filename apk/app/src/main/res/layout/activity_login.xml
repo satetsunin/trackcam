@@ -25,7 +25,7 @@
             android:text="@string/login_subtitulo"
             android:textSize="13sp" />
 
-        <!-- URL base del servidor -->
+        <!-- PASO 1: URL base del servidor -->
         <TextView
             style="@style/Label"
             android:text="@string/lbl_url" />
@@ -39,10 +39,33 @@
             android:inputType="textUri"
             android:singleLine="true" />
 
-        <!-- Usuario -->
+        <!-- PASO 2: Autenticación Cloudflare (navegador integrado) -->
         <TextView
             style="@style/Label"
-            android:text="@string/lbl_usuario" />
+            android:layout_marginTop="14dp"
+            android:text="@string/lbl_paso_cf" />
+
+        <Button
+            android:id="@+id/btnCf"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/btn_autenticar_cf"
+            android:textAllCaps="false" />
+
+        <TextView
+            android:id="@+id/tvCfEstado"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="@string/cf_pendiente"
+            android:textColor="@color/warn_red"
+            android:textSize="12sp" />
+
+        <!-- PASO 3: Usuario y contraseña del servidor -->
+        <TextView
+            style="@style/Label"
+            android:layout_marginTop="14dp"
+            android:text="@string/lbl_paso_login" />
 
         <EditText
             android:id="@+id/etUser"
@@ -52,11 +75,6 @@
             android:hint="@string/hint_usuario"
             android:inputType="text"
             android:singleLine="true" />
-
-        <!-- Contraseña -->
-        <TextView
-            style="@style/Label"
-            android:text="@string/lbl_password" />
 
         <EditText
             android:id="@+id/etPass"

@@ -44,6 +44,40 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content" />
 
+        <!-- Servicios de ubicación (marca los que quieras usar) -->
+        <TextView
+            style="@style/Label"
+            android:layout_marginTop="12dp"
+            android:text="@string/lbl_servicios" />
+
+        <CheckBox
+            android:id="@+id/chkGps"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/srv_gps"
+            android:checked="true" />
+
+        <CheckBox
+            android:id="@+id/chkWifi"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/srv_wifi"
+            android:checked="true" />
+
+        <CheckBox
+            android:id="@+id/chkRed"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/srv_red"
+            android:checked="true" />
+
+        <CheckBox
+            android:id="@+id/chkMovimiento"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/srv_movimiento"
+            android:checked="true" />
+
         <!-- Arranque / parada -->
         <Button
             android:id="@+id/btnToggle"
