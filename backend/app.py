@@ -189,6 +189,11 @@ app.mount("/static", StaticFiles(directory=WEB), name="static")
 def index():
     return FileResponse(os.path.join(WEB, "index.html"))
 
+@app.get("/replay")
+def replay():
+    """Modo video track: reproduce la ruta y muestra los vídeos de los eventos."""
+    return FileResponse(os.path.join(WEB, "replay.html"))
+
 # ── Eventos: servir vídeo/fotos + borrado controlado (F2) ─────────────────
 @app.get("/api/evento/{eid}/video")
 def evento_video(eid: str):

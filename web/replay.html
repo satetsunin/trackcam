@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TrackCam — Video track (reproducir ruta)</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  html,body{margin:0;height:100%;font-family:system-ui,sans-serif;background:#0f172a;color:#e2e8f0}
+  #map{position:absolute;left:0;right:420px;top:0;bottom:110px}
+  #controles{position:absolute;left:0;right:420px;bottom:0;height:110px;background:#1e293b;
+       border-top:1px solid #334155;padding:8px 14px;box-sizing:border-box}
+  #panel{position:absolute;right:0;top:0;bottom:0;width:420px;background:#1e293b;
+       border-left:1px solid #334155;display:flex;flex-direction:column}
+  #panel h3{margin:0;padding:10px 14px;background:#0ea5e9;color:#fff;font-size:14px}
+  #panel .video-cont{flex:1;display:flex;align-items:center;justify-content:center;
+       background:#000;min-height:200px}
+  #panel .video-cont video{max-width:100%;max-height:100%}
+  #panel .info{padding:8px 14px;font-size:12px;border-top:1px solid #334155}
+  #panel .info b{color:#0ea5e9}
+  #bar{position:absolute;top:10px;left:10px;z-index:1000;background:rgba(15,23,42,.9);
+       border:1px solid #334155;border-radius:8px;padding:6px 12px;font-size:13px}
+  #btnVolver{background:transparent;border:0;color:#94a3b8;cursor:pointer;font-size:13px;margin-right:8px}
+  .ctrl{display:flex;align-items:center;gap:10px;margin-top:4px}
+  button{background:#0ea5e9;color:#fff;border:0;border-radius:8px;padding:7px 16px;cursor:pointer;font-weight:bold;font-size:13px}
+  button.sec{background:#334155}
+  button.act{background:#f59e0b}
+  input[type=range]{flex:1;accent-color:#0ea5e9}
+  #vel{display:inline-block;min-width:52px;text-align:center;font-size:13px;color:#f59e0b;font-weight:bold}
+  #timer{font-size:12px;color:#94a3b8;font-variant-numeric:tabular-nums}
+  #evBar{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap}
+  .chip{border:1px solid #334155;border-radius:12px;padding:1px 8px;font-size:10px;color:#94a3b8;cursor:pointer}
+  .chip.pasado{opacity:.35}
+  .chip.activo{background:#f59e0b;color:#111;border-color:#f59e0b;font-weight:bold}
+  .vacio{color:#64748b;font-size:13px;text-align:center;padding:30px}
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div id="bar"><button id="btnVolver" onclick="location.href='/'">←</button>🎥 <b>Video track</b> — <span id="estadoConexion">cargando…</span></div>
+<div id="controles">
+  <div class="ctrl">
+    <button id="btnPlay">▶ Reproducir</button>
+    <button class="sec" id="btnMenos">−</button>
+    <span id="vel">8×</span>
+    <button class="sec" id="btnMas">+</button>
+    <input type="range" id="scrub" min="0" max="1000" value="0">
+    <span id="timer">0:00 / 0:00</span>
+  </div>
+  <div id="evBar"></div>
+</div>
+<div id="panel">
+  <h3>🎬 Vídeo del evento actual</h3>
+  <div class="video-cont" id="videoCont"><div class="vacio">Sin evento activo — reproduce la ruta y el vídeo aparecerá aquí cuando pases junto a una cámara.</div></div>
+  <div class="info" id="info"><b>—</b></div>
+</div>
+
+<script>
+const map = L.map('map').setView([43.2701, -2.9560], 15);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '© OpenStreetMap'}).addTo(map);
+
+let pts = [];           // [ts, lat, lon]
+let eventos = [];       // ordenados por ts_inicio
+let poly, punto, eventosLayer;
+let tocando = false;    // reproduciendo
+let vel = 8;            // multiplicador de velocidad
+let tActual = 0;        // ts actual de reproducción
+let raf = null;
+let ultimoMarco = 0;
+let videoEl = null;
+
+function fmtHMS(s) {
+  s = Math.max(0, Math.floor(s));
+  const h = Math.floor(s/3600), m = Math.floor((s%3600)/60), ss = s%60;
+  return (h? h+':'+String(m).padStart(2,'0') : m) + ':' + String(ss).padStart(2,'0');
+}
+
+async function carga() {
+  const [t, ev] = await Promise.all([
+    fetch('/api/track').then(r=>r.json()),
+    fetch('/api/eventos').then(r=>r.json()),
+  ]);
+  pts = t.features.map(f => [f.properties.ts, f.geometry.coordinates[1], f.geometry.coordinates[0]])
+        .sort((a,b) => a[0]-b[0]);
+  eventos = ev.sort((a,b) => a.ts_inicio-b.ts_inicio);
+
+  // Línea + punto
+  if (poly) map.removeLayer(poly);
+  if (punto) map.removeLayer(punto);
+  poly = L.polyline(pts.map(p => [p[1], p[2]]), {color:'#0ea5e9', weight:4}).addTo(map);
+  punto = L.circleMarker([pts[0][1], pts[0][2]], {radius:8, color:'#fff',
+    fillColor:'#f59e0b', fillOpacity:1, weight:2}).addTo(map);
+
+  // Marcadores de eventos (con icono cámara)
+  if (eventosLayer) map.removeLayer(eventosLayer);
+  eventosLayer = L.layerGroup().addTo(map);
+  eventos.forEach(e => {
+    L.circleMarker([e.lat, e.lon], {radius:7, color:'#fff', fillColor:'#ef4444',
+      fillOpacity:1, weight:2}).addTo(eventosLayer)
+      .bindPopup(`<b>${e.cam_nombre}</b><br>${e.n_fotos} fotos`);
+  });
+
+  if (pts.length) map.fitBounds(poly.getBounds(), {padding:[40,40], maxZoom:17});
+  tActual = pts[0][0];
+  buildEvBar();
+  document.getElementById('estadoConexion').textContent =
+    `${pts.length} pts · ${eventos.length} eventos`;
+  pintarTimer();
+}
+
+function buildEvBar() {
+  const bar = document.getElementById('evBar');
+  bar.innerHTML = '';
+  eventos.forEach((e,i) => {
+    const c = document.createElement('span');
+    c.className = 'chip';
+    c.textContent = `📷 ${i+1}`;
+    c.title = e.cam_nombre;
+    c.onclick = () => { tActual = e.ts_inicio - 2; };  // saltar justo antes
+    bar.appendChild(c);
+  });
+}
+
+function actualizarChips() {
+  [...document.querySelectorAll('.chip')].forEach((c,i) => {
+    const e = eventos[i];
+    c.className = 'chip' + (tActual > e.ts_fin ? ' pasado'
+                : (tActual >= e.ts_inicio && tActual <= e.ts_fin ? ' activo' : ''));
+  });
+}
+
+function pintarTimer() {
+  const dur = pts.length ? pts[pts.length-1][0] - pts[0][0] : 0;
+  const off = tActual - (pts[0]?.[0] || 0);
+  document.getElementById('timer').textContent =
+    `${fmtHMS(off)} / ${fmtHMS(dur)}`;
+  document.getElementById('scrub').value = dur ? (off/dur)*1000 : 0;
+}
+
+// ── reproducción ────────────────────────────────────────────────────────
+function frame(tsMs) {
+  if (!tocando) return;
+  if (!ultimoMarco) ultimoMarco = tsMs;
+  const dt = (tsMs - ultimoMarco) / 1000 * vel;
+  ultimoMarco = tsMs;
+  tActual += dt;
+  const fin = pts[pts.length-1][0];
+  if (tActual >= fin) { tActual = fin; parar(); }
+  pintarTimer();
+  buscarPosicion();
+  raf = requestAnimationFrame(frame);
+}
+
+function buscarPosicion() {
+  // encontrar el segmento del punto actual (búsqueda binaria)
+  let lo = 0, hi = pts.length - 1;
+  while (lo < hi) {
+    const mid = (lo+hi)>>1;
+    if (pts[mid][0] < tActual) lo = mid+1; else hi = mid;
+  }
+  const i = Math.max(0, lo-1);
+  const a = pts[i], b = pts[Math.min(i+1, pts.length-1)];
+  if (!a || !b) return;
+  const span = b[0]-a[0] || 1;
+  const f = Math.min(1, Math.max(0, (tActual-a[0])/span));
+  const lat = a[1]+(b[1]-a[1])*f, lon = a[2]+(b[2]-a[2])*f;
+  punto.setLatLng([lat, lon]);
+  map.panTo([lat, lon], {animate:false});
+
+  // evento activo?
+  const ev = eventos.find(e => tActual >= e.ts_inicio && tActual <= e.ts_fin);
+  actualizarChips();
+  if (ev) mostrarVideo(ev); else ocultarVideo();
+}
+
+let evActual = null;
+function mostrarVideo(ev) {
+  if (evActual === ev.id) return;
+  evActual = ev.id;
+  const cont = document.getElementById('videoCont');
+  cont.innerHTML = '';
+  videoEl = document.createElement('video');
+  videoEl.controls = true; videoEl.autoplay = true;
+  videoEl.src = `/api/evento/${ev.id}/video`;
+  cont.appendChild(videoEl);
+  document.getElementById('info').innerHTML =
+    `<b>${ev.cam_nombre}</b> · ${ev.n_fotos} fotos · ${fmtHMS(ev.ts_inicio-(pts[0]?.[0]||0))}`;
+  videoEl.play().catch(()=>{});
+}
+function ocultarVideo() {
+  if (evActual === null) return;
+  evActual = null;
+  const cont = document.getElementById('videoCont');
+  cont.innerHTML = '<div class="vacio">Sin evento activo — sigue reproduciendo…</div>';
+  document.getElementById('info').innerHTML = '<b>—</b>';
+}
+
+function play() {
+  tocando = true; ultimoMarco = 0;
+  document.getElementById('btnPlay').textContent = '⏸ Pausar';
+  raf = requestAnimationFrame(frame);
+}
+function parar() {
+  tocando = false;
+  document.getElementById('btnPlay').textContent = '▶ Reproducir';
+  if (raf) cancelAnimationFrame(raf);
+  raf = null;
+}
+
+document.getElementById('btnPlay').onclick = () => tocando ? parar() : play();
+document.getElementById('btnMas').onclick = () => { vel = Math.min(256, vel*2); pintarVel(); };
+document.getElementById('btnMenos').onclick = () => { vel = Math.max(1, vel/2); pintarVel(); };
+function pintarVel() { document.getElementById('vel').textContent = vel+'×'; }
+document.getElementById('scrub').oninput = function() {
+  const dur = pts.length ? pts[pts.length-1][0] - pts[0][0] : 0;
+  tActual = (pts[0]?.[0]||0) + dur * (this.value/1000);
+  pintarTimer(); buscarPosicion();
+};
+
+// teclado: espacio play/pausa, flechas velocidad
+document.addEventListener('keydown', e => {
+  if (e.code === 'Space') { e.preventDefault(); tocando ? parar() : play(); }
+  if (e.key === '+') { vel = Math.min(256, vel*2); pintarVel(); }
+  if (e.key === '-') { vel = Math.max(1, vel/2); pintarVel(); }
+});
+
+carga();
+</script>
+</body>
+</html>
