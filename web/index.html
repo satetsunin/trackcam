@@ -326,10 +326,10 @@ const map=L.map('map',{preferCanvas:true,zoomControl:true});
 map.setView([43.2701,-2.9560],13);
 L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
   {attribution:'© OpenStreetMap · © CARTO',subdomains:'abcd',maxZoom:19}).addTo(map);
-/* Nota: /api/track devuelve GeoJSON con coordinates=[lat, ts] (sin longitud);
-   no se puede dibujar la polilínea → solo se cuenta/filtra el track. */
 const capaGris=L.layerGroup().addTo(map);      // catálogo (grises/celdas)
 const capaVerde=L.layerGroup().addTo(map);     // pasadas → verdes
+const capaRuta=L.layerGroup().addTo(map);      // polilínea del track
+let rutaLinea=null;
 const Z_EXACT=15, MAX_PUNTOS=2500;
 
 function bucketCams(cams,cell){
@@ -382,6 +382,22 @@ map.on('moveend',redibujar); map.on('zoomend',redibujar);
 window.addEventListener('resize',debounce(()=>map.invalidateSize(),200));
 
 function verdeIcon(){return L.divIcon({className:'',html:'<div class="dotG"></div>',iconSize:[18,18],iconAnchor:[9,9]});}
+function pintarRuta(){
+  capaRuta.clearLayers();
+  if(rutaLinea){map.removeLayer(rutaLinea);rutaLinea=null;}
+  const feats=S.pts||[];
+  if(feats.length<2)return;
+  // submuestreo si hay demasiados puntos (1 punto/s → 1700+ por paseo)
+  const max=8000, paso=Math.max(1,Math.ceil(feats.length/max));
+  const ll=[];
+  for(let i=0;i<feats.length;i+=paso){
+    const g=feats[i].geometry, c=g.coordinates;
+    if(typeof c[0]==='number'&&typeof c[1]==='number'&&c[0]>=-180&&c[0]<=180)ll.push([c[1],c[0]]);
+  }
+  if(ll.length<2)return;
+  rutaLinea=L.polyline(ll,{color:'#38bdf8',weight:3,opacity:.85}).addTo(capaRuta);
+}
+
 function pintarVerdes(){
   capaVerde.clearLayers();
   const porCam=new Map();
@@ -540,6 +556,7 @@ async function refreshTodo(){
     S.eventos=eventos; S.verdes=vd;
     const feats=(tr.features||[]);
     S.pts=esHora?feats.filter(f=>enHora(f.properties.ts)):feats;
+    pintarRuta();
     if(autoFit){
       const ll=[];
       S.verdes.forEach(v=>ll.push([v.lat,v.lon]));

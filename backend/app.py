@@ -335,7 +335,7 @@ def api_track(request: Request):
     filas = con.execute(q, params).fetchall()
     con.close()
     feats = [{"type": "Feature",
-              "geometry": {"type": "Point", "coordinates": [r[1], r[0]]},
+              "geometry": {"type": "Point", "coordinates": [r[2], r[1]]},
               "properties": {"ts": r[0], "acc": r[3], "vel": r[4],
                              "dev": r[5], "user_id": r[6]}}
              for r in filas]
