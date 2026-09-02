@@ -423,10 +423,81 @@ async def track(request: Request):
             "camaras_1500": len(cerca), "camaras_500": n500, "camaras_100": n100}
 
 
+def _vel_entre(pts):
+    """Calcula velocidad (km/h) entre puntos con ventana temporal.
+
+    pts: lista de (ts, lat, lon). Para cada punto i se mide la distancia al
+    punto i-k con dt≈5 s (ventana deslizante) — derivar punto a punto (1 s)
+    amplifica el jitter GPS (el ruido de posición duplica la señal al
+    caminar). Sobre esas muestras se aplica mediana móvil de 5 (robusta).
+    Descarta dt absurdos y saltos de posición.
+    """
+    n = len(pts)
+    if n == 0:
+        return []
+    import statistics as _st
+    vels = [None] * n
+    VENTANA_S = 5.0
+    for i in range(1, n):
+        # buscar el punto i-k con dt lo más cercano a VENTANA_S
+        t_i = pts[i][0]
+        mejor = None
+        for j in range(i - 1, max(-1, i - 20), -1):
+            if j < 0:
+                break
+            dt = t_i - pts[j][0]
+            if dt <= 0:
+                continue
+            if mejor is None or abs(dt - VENTANA_S) < abs(mejor[0] - VENTANA_S):
+                mejor = (dt, j)
+            if dt >= VENTANA_S:
+                break
+        if mejor is None:
+            continue
+        dt, j = mejor
+        if dt > 60:
+            continue
+        d = haversine(pts[j][1], pts[j][2], pts[i][1], pts[i][2])
+        if d > 1000:  # salto GPS
+            continue
+        vels[i] = (d / dt) * 3.6
+    out = []
+    V = 2  # mediana móvil de 5 (ventana ±2)
+    for i in range(n):
+        if vels[i] is None:
+            out.append(None)
+            continue
+        vec = [vels[j] for j in range(max(0, i - V), min(n, i + V + 1))
+               if vels[j] is not None]
+        out.append(round(_st.median(vec), 1) if vec else None)
+    return out
+
+
+def _modo_vel(v):
+    """Clasifica la velocidad en un modo de transporte."""
+    if v is None:
+        return "?"
+    if v < 1:
+        return "parado"
+    if v < 7:
+        return "andando"
+    if v < 20:
+        return "bici"
+    if v < 50:
+        return "urbano"
+    if v < 120:
+        return "carretera"
+    return "rapido"
+
+
 @app.get("/api/track")
 def api_track(request: Request):
-    """GeoJSON del track. user normal: solo el suyo. admin: todos (?usuario=N)
-    o el suyo."""
+    """GeoJSON del track con velocidad CALCULADA por el servidor (km/h).
+
+    user normal: solo el suyo. admin: todos (?usuario=N) o el suyo.
+    Cada feature incluye properties.v (km/h calculada, suavizada) y
+    properties.modo (parado/andando/bici/urbano/carretera/rapido).
+    """
     u = _auth(request)
     if not u:
         return _pedir_auth()
@@ -451,12 +522,52 @@ def api_track(request: Request):
     q += " ORDER BY ts ASC"
     filas = con.execute(q, params).fetchall()
     con.close()
-    feats = [{"type": "Feature",
-              "geometry": {"type": "Point", "coordinates": [r[2], r[1]]},
-              "properties": {"ts": r[0], "acc": r[3], "vel": r[4],
-                             "dev": r[5], "user_id": r[6]}}
-             for r in filas]
-    return {"type": "FeatureCollection", "features": feats}
+    pts = [(r[0], r[1], r[2]) for r in filas]
+    vels = _vel_entre(pts)
+    feats = []
+    for i, r in enumerate(filas):
+        v = vels[i] if i < len(vels) else None
+        feats.append({"type": "Feature",
+                      "geometry": {"type": "Point",
+                                   "coordinates": [r[2], r[1]]},
+                      "properties": {"ts": r[0], "acc": r[3],
+                                     "vel": r[4], "v": v,
+                                     "modo": _modo_vel(v),
+                                     "dev": r[5], "user_id": r[6]}})
+    return {"type": "FeatureCollection", "features": feats,
+            "vel_media": None}
+
+
+@app.get("/api/ultimo_punto")
+def api_ultimo_punto(request: Request):
+    """Último punto del track con velocidad calculada (para velocímetro)."""
+    u = _auth(request)
+    if not u:
+        return _pedir_auth()
+    con = get_db()
+    q = ("SELECT ts,lat,lon,acc,vel,dev FROM tracks")
+    params = []
+    conds = []
+    if u["rol"] == "admin":
+        vid = request.query_params.get("usuario")
+        if vid:
+            conds.append("user_id=?"); params.append(vid)
+    else:
+        conds.append("user_id=?"); params.append(str(u["id"]))
+    if conds:
+        q += " WHERE " + " AND ".join(conds)
+    q += " ORDER BY ts DESC LIMIT 2"
+    filas = con.execute(q, params).fetchall()
+    con.close()
+    if not filas:
+        return {"ultimo": None}
+    filas = filas[::-1]  # cronológico
+    pts = [(r[0], r[1], r[2]) for r in filas]
+    vels = _vel_entre(pts)
+    r = filas[-1]
+    v = vels[-1] if vels else None
+    return {"ultimo": {"ts": r[0], "lat": r[1], "lon": r[2],
+                       "vel_gps": r[4], "v": v, "modo": _modo_vel(v)}}
 
 
 # ── API: eventos ───────────────────────────────────────────────────────────
