@@ -104,7 +104,9 @@ class LoginActivity : AppCompatActivity() {
         }
     }
 
-    /** Abre el navegador integrado (WebView) para el SSO de Cloudflare. */
+    /** Abre el navegador integrado (WebView) con la web del servidor.
+     *  Si Cloudflare Access protege el túnel, el SSO se hace aquí dentro.
+     *  El usuario pulsa "✓ He terminado" cuando ya ve el contenido. */
     private fun abrirAuthCloudflare() {
         val base = etUrl.text?.toString()?.trim().orEmpty()
         if (base.isEmpty()) {
@@ -114,12 +116,17 @@ class LoginActivity : AppCompatActivity() {
         hideError()
         TrackPrefs.setBaseUrl(this, base)
         etUrl.setText(TrackPrefs.baseUrl(this)) // normalizada (sin /track)
-        val host = TrackPrefs.baseUrl(this)
-            .removePrefix("https://").removePrefix("http://").substringBefore('/')
+        // Carga la WEB real (login/SSO incluidos), NO un endpoint JSON
         startActivityForResult(
             Intent(this, AuthWebViewActivity::class.java)
-                .putExtra(AuthWebViewActivity.EXTRA_URL, TrackPrefs.baseUrl(this) + "/api/estado")
-                .putExtra(AuthWebViewActivity.EXTRA_HOST, host),
+                .putExtra(
+                    AuthWebViewActivity.EXTRA_URL,
+                    TrackPrefs.baseUrl(this) + "/"
+                )
+                .putExtra(
+                    AuthWebViewActivity.EXTRA_USUARIO,
+                    etUser.text?.toString()?.trim().orEmpty()
+                ),
             RC_CF_AUTH
         )
     }
