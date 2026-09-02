@@ -32,6 +32,7 @@
     <string name="btn_start">INICIAR TRACKEO</string>
     <string name="btn_stop">DETENER TRACKEO</string>
     <string name="btn_logout">Cerrar sesión / cambiar de usuario</string>
+    <string name="btn_ota">📲 Buscar actualización (OTA)</string>
     <string name="btn_bateria_xiaomi">Abrir ajustes de batería (Redmi)</string>
     <string name="btn_bateria_generico">Abrir ajustes de optimización de batería</string>
     <string name="btn_exencion">Solicitar exención de optimización</string>

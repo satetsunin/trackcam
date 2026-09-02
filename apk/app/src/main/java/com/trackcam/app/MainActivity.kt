@@ -42,6 +42,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvBateria: TextView
     private lateinit var btnBateria: Button
     private lateinit var btnExencion: Button
+    private lateinit var btnOta: Button
     private lateinit var btnLogout: Button
     private lateinit var chkGps: android.widget.CheckBox
     private lateinit var chkWifi: android.widget.CheckBox
@@ -74,6 +75,7 @@ class MainActivity : AppCompatActivity() {
         tvBateria = findViewById(R.id.tvBateria)
         btnBateria = findViewById(R.id.btnBateria)
         btnExencion = findViewById(R.id.btnExencion)
+        btnOta = findViewById(R.id.btnOta)
         btnLogout = findViewById(R.id.btnLogout)
         chkGps = findViewById(R.id.chkGps)
         chkWifi = findViewById(R.id.chkWifi)
@@ -112,6 +114,7 @@ class MainActivity : AppCompatActivity() {
         }
         btnBateria.setOnClickListener { openBatterySettings() }
         btnExencion.setOnClickListener { requestIgnoreBatteryOptimization() }
+        btnOta.setOnClickListener { OtaUpdater.comprobar(this, silenciosoSiActual = false) }
         btnLogout.setOnClickListener { logout() }
 
         // Si se cambia el intervalo con el trackeo activo, se aplica al momento
@@ -142,6 +145,8 @@ class MainActivity : AppCompatActivity() {
         }
 
         setupBatteryUi()
+        // Comprobación OTA silenciosa al abrir (solo avisa si hay versión nueva)
+        OtaUpdater.comprobar(this, silenciosoSiActual = true)
     }
 
     override fun onStart() {

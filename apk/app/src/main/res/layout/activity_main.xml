@@ -144,10 +144,18 @@
 
         <!-- Cambiar de usuario / cerrar sesión -->
         <Button
-            android:id="@+id/btnLogout"
+            android:id="@+id/btnOta"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
+            android:text="@string/btn_ota"
+            android:textAllCaps="false"
+            style="@style/Widget.AppCompat.Button.Borderless" />
+
+        <Button
+            android:id="@+id/btnLogout"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
             android:text="@string/btn_logout" />
 
     </LinearLayout>

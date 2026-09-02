@@ -7,12 +7,16 @@ android {
     namespace = "com.trackcam.app"
     compileSdk = 34
 
+    buildFeatures {
+        buildConfig = true   // para BuildConfig.VERSION_CODE (OTA)
+    }
+
     defaultConfig {
         applicationId = "com.trackcam.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 3
-        versionName = "1.5"
+        versionCode = 4
+        versionName = "1.6"
     }
 
     buildTypes {

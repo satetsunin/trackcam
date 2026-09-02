@@ -4,7 +4,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."   # sube a apk/
 
-export JAVA_HOME=/home/alvaro/.local/jre21
+export JAVA_HOME=/home/alvaro/.local/jdk21   # JDK completo (jlink/javac para AGP)
 export PATH="$JAVA_HOME/bin:$PATH"
 export ANDROID_HOME=/home/alvaro/android-sdk
 export ANDROID_SDK_ROOT=/home/alvaro/android-sdk
