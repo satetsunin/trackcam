@@ -49,6 +49,10 @@ VENTANA_DESPUES = 60.0      # s después de SALIR de los 100 m que se conservan
 FPS_VIDEO = 2
 CUOTA_EVENTOS_GB = 15.0     # default F5
 CUOTA_EVENTOS_GB_MAX = 50.0 # tope duro F5
+CUOTA_CACHE_GB = 30.0       # caché persistente (dedup) — F5.3
+CUOTA_CACHE_GB_MAX = 50.0
+RETENCION_CACHE_DIAS = 30.0 # días que permanecen las imágenes en caché
+UMBRAL_DEDUP = 4            # bits de diferencia dHash → misma imagen
 CUOTA_TEMPS_MB = 500.0
 POOL_HILOS = 12
 TIMEOUT_DESCARGA = 5
@@ -85,6 +89,33 @@ def es_imagen(datos: bytes) -> bool:
     return False
 
 
+def dhash_bytes(datos: bytes) -> int:
+    """Hash perceptual (dHash 9x8) de una imagen → entero de 64 bits.
+
+    Reduce la imagen a 9x8 píxeles en gris y compara cada píxel con su
+    vecino derecho: 1 si es más claro, 0 si más oscuro. Dos fotos de la
+    misma escena dan hashes casi idénticos aunque la compresión difiera.
+    Devuelve -1 si no se puede procesar.
+    """
+    try:
+        from PIL import Image
+        import io
+        img = Image.open(io.BytesIO(datos)).convert("L").resize((9, 8),
+                                                                Image.LANCZOS)
+        px = list(img.getdata())
+        h = 0
+        for y in range(8):
+            for x in range(8):
+                h = (h << 1) | (1 if px[y * 9 + x] > px[y * 9 + x + 1] else 0)
+        return h
+    except Exception:
+        return -1
+
+
+def hamming(a: int, b: int) -> int:
+    return bin(a ^ b).count("1")
+
+
 class MotorCaptura:
     def __init__(self, db_path, data_dir, get_db_fn, cams_cerca_fn,
                  intervalo=INTERVALO_S):
@@ -92,11 +123,13 @@ class MotorCaptura:
         self.data_dir = data_dir
         self.temps_dir = os.path.join(data_dir, "temps")
         self.eventos_dir = os.path.join(data_dir, "eventos")
+        self.cache_dir = os.path.join(data_dir, "cache")
         self.get_db = get_db_fn
         self.cams_cerca = cams_cerca_fn
         self.intervalo = intervalo
         os.makedirs(self.temps_dir, exist_ok=True)
         os.makedirs(self.eventos_dir, exist_ok=True)
+        os.makedirs(self.cache_dir, exist_ok=True)
 
         self.cfg_file = os.path.join(data_dir, "ajustes.json")
         self.cfg = {
@@ -110,6 +143,10 @@ class MotorCaptura:
             "fps_video": FPS_VIDEO,
             "cuota_eventos_gb": CUOTA_EVENTOS_GB,       # default 15
             "cuota_eventos_gb_max": CUOTA_EVENTOS_GB_MAX,  # tope duro 50
+            "cuota_cache_gb": CUOTA_CACHE_GB,           # default 30 (F5.3)
+            "cuota_cache_gb_max": CUOTA_CACHE_GB_MAX,
+            "retencion_cache_dias": RETENCION_CACHE_DIAS,  # 30 días
+            "umbral_dedup": UMBRAL_DEDUP,               # bits dHash
             "cuota_temps_mb": CUOTA_TEMPS_MB,
         }
         self._cargar_cfg()
@@ -152,6 +189,9 @@ class MotorCaptura:
         if "cuota_eventos_gb" in validos:
             tope = float(self.cfg.get("cuota_eventos_gb_max", 50.0))
             validos["cuota_eventos_gb"] = min(float(validos["cuota_eventos_gb"]), tope)
+        if "cuota_cache_gb" in validos:
+            tope = float(self.cfg.get("cuota_cache_gb_max", 50.0))
+            validos["cuota_cache_gb"] = min(float(validos["cuota_cache_gb"]), tope)
         for k, v in validos.items():
             if k == "fps_video":
                 self.cfg[k] = max(1, int(v))
@@ -293,6 +333,54 @@ class MotorCaptura:
         except Exception as e:
             print(f"[captura] poda eventos: {e}")
 
+        # Caché persistente (F5.3): primero retención por antigüedad (días),
+        # luego cuota de tamaño (borra lo más antiguo primero).
+        try:
+            dias = float(self.cfg.get("retencion_cache_dias", 30.0))
+            limite_ts = time.time() - dias * 86400
+            cuota_c = min(self.cfg.get("cuota_cache_gb", 30.0),
+                          self.cfg.get("cuota_cache_gb_max", 50.0)) * 1e9
+            tam_c = self._tam_dir(self.cache_dir)
+            if os.path.isdir(self.cache_dir):
+                # 1) retención: borrar fotos más viejas que N días
+                for root, _, files in os.walk(self.cache_dir):
+                    for fn in files:
+                        if not (fn.startswith("foto_") and fn.endswith(".jpg")):
+                            continue
+                        try:
+                            fts = float(fn[5:-4])
+                        except ValueError:
+                            continue
+                        if fts < limite_ts:
+                            p = os.path.join(root, fn)
+                            try:
+                                tam_c -= os.path.getsize(p)
+                                os.remove(p)
+                            except OSError:
+                                pass
+                # 2) cuota: si aún supera, borrar por mtime ascendente
+                if tam_c > cuota_c:
+                    todos = []
+                    for root, _, files in os.walk(self.cache_dir):
+                        for fn in files:
+                            p = os.path.join(root, fn)
+                            try:
+                                todos.append((os.path.getmtime(p), p,
+                                              os.path.getsize(p)))
+                            except OSError:
+                                pass
+                    todos.sort()
+                    for _, p, sz in todos:
+                        if tam_c <= cuota_c:
+                            break
+                        try:
+                            os.remove(p)
+                            tam_c -= sz
+                        except OSError:
+                            pass
+        except Exception as e:
+            print(f"[captura] poda cache: {e}")
+
     # ── procesado de un punto ──────────────────────────────────────────
     def _procesar_punto(self, user_id, ts, lat, lon):
         with self.lock:
@@ -433,6 +521,7 @@ class MotorCaptura:
             self.descargas_fallo += 1
             return
         self.descargas_ok += 1
+        # Buffer temporal (alimenta eventos con su ventana)
         dir_buf = self._dir_buffer(user_id, cid)
         os.makedirs(dir_buf, exist_ok=True)
         ruta = os.path.join(dir_buf, "foto_%s.jpg" % ts)
@@ -446,6 +535,45 @@ class MotorCaptura:
         except OSError:
             return
         self._poda_buffer(user_id, cid)
+        # Caché persistente con dedup (F5.3): guardar solo si la imagen
+        # cambió de verdad respecto a la última guardada (dHash).
+        if tipo == "captura":
+            self._cache_dedup(user_id, cid, ts, datos)
+
+    def _dir_cache(self, user_id, cid):
+        return os.path.join(self.cache_dir, sanitizar_id(str(user_id)),
+                            sanitizar_id(cid))
+
+    def _cache_dedup(self, user_id, cid, ts, datos):
+        """Guarda en el caché persistente si el dHash difiere del último.
+
+        El umbral (cfg['umbral_dedup'], 4 bits por defecto) decide si una
+        imagen es 'la misma' (ruido/compresión) o un cambio real de escena.
+        """
+        try:
+            h = dhash_bytes(datos)
+            if h < 0:
+                return
+            clave = (str(user_id), cid)
+            with self.lock:
+                ultimo = getattr(self, "_ultimo_hash", {}).get(clave)
+                if ultimo is not None and hamming(h, ultimo) <= int(
+                        self.cfg.get("umbral_dedup", 4)):
+                    return  # misma imagen → descartar
+                if not hasattr(self, "_ultimo_hash"):
+                    self._ultimo_hash = {}
+                self._ultimo_hash[clave] = h
+            dir_c = self._dir_cache(user_id, cid)
+            os.makedirs(dir_c, exist_ok=True)
+            ruta = os.path.join(dir_c, "foto_%s.jpg" % ts)
+            n = 1
+            while os.path.exists(ruta):
+                ruta = os.path.join(dir_c, "foto_%s_%d.jpg" % (ts, n))
+                n += 1
+            with open(ruta, "wb") as f:
+                f.write(datos)
+        except Exception:
+            pass
 
     def _descargar_url(self, url):
         datos = self._fetch(url, referer=self._referer(url))

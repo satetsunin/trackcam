@@ -664,6 +664,92 @@ def api_verdes(request: Request):
                             float(ts_fin) if ts_fin else None)
 
 
+@app.get("/api/cache")
+def api_cache(request: Request):
+    """Lista cámaras con imágenes en caché persistente (F5.3).
+
+    Devuelve por cámara: cam_id, nombre, lat/lon resueltos del catálogo,
+    nº de fotos, tamaño y primera/última fecha. Solo del usuario (admin
+    puede pedir ?usuario=N).
+    """
+    u = _auth(request)
+    if not u:
+        return _pedir_auth()
+    if u["rol"] == "admin":
+        vid = request.query_params.get("usuario")
+        uid = vid if vid else str(u["id"])
+    else:
+        uid = str(u["id"])
+    # índice de catálogo por cam_id
+    by_id = {}
+    for c in camaras:
+        cid = str(c.get("id") or "%s_%.5f_%.5f" % (c.get("fuente", "cam"),
+                                                    c["lat"], c["lon"]))
+        by_id[cid] = c
+    base = os.path.join(DATA, "cache", sanitizar_dir(uid))
+    out = []
+    if os.path.isdir(base):
+        for cdir in sorted(os.listdir(base)):
+            p = os.path.join(base, cdir)
+            if not os.path.isdir(p):
+                continue
+            fotos = [f for f in os.listdir(p)
+                     if f.startswith("foto_") and f.endswith(".jpg")]
+            if not fotos:
+                continue
+            tam = sum(os.path.getsize(os.path.join(p, f)) for f in fotos)
+            ts_list = []
+            for f in fotos:
+                try:
+                    ts_list.append(float(f[5:-4].split("_")[0]))
+                except ValueError:
+                    pass
+            c = by_id.get(cdir, {})
+            out.append({
+                "cam_id": cdir,
+                "nombre": c.get("nombre", cdir),
+                "lat": c.get("lat"),
+                "lon": c.get("lon"),
+                "fuente": c.get("fuente", "?"),
+                "n_fotos": len(fotos),
+                "tam": tam,
+                "primera_ts": min(ts_list) if ts_list else None,
+                "ultima_ts": max(ts_list) if ts_list else None,
+            })
+    out.sort(key=lambda x: -(x["ultima_ts"] or 0))
+    return {"total_camaras": len(out), "camaras": out}
+
+
+@app.get("/api/cache/{cam_id}/foto/{n}")
+def api_cache_foto(cam_id: str, n: str, request: Request):
+    """Sirve una foto del caché (n = índice 000, 001... ordenado por ts)."""
+    u = _auth(request)
+    if not u:
+        return _pedir_auth()
+    if u["rol"] == "admin":
+        vid = request.query_params.get("usuario")
+        uid = vid if vid else str(u["id"])
+    else:
+        uid = str(u["id"])
+    if any(c not in "0123456789" for c in n) or len(n) > 4:
+        return JSONResponse({"error": "índice inválido"}, status_code=400)
+    dir_c = os.path.join(DATA, "cache", sanitizar_dir(uid),
+                         sanitizar_dir(cam_id))
+    if not os.path.isdir(dir_c):
+        return JSONResponse({"error": "no existe"}, status_code=404)
+    fotos = sorted(f for f in os.listdir(dir_c)
+                   if f.startswith("foto_") and f.endswith(".jpg"))
+    idx = int(n)
+    if idx >= len(fotos):
+        return JSONResponse({"error": "no existe"}, status_code=404)
+    return FileResponse(os.path.join(dir_c, fotos[idx]))
+
+
+def sanitizar_dir(s):
+    import re
+    return re.sub(r"[^A-Za-z0-9_-]", "_", str(s))[:80] or "x"
+
+
 @app.get("/api/temps")
 def api_temps(request: Request):
     u = _auth(request)
@@ -721,8 +807,13 @@ def api_estado(request: Request):
         "tam_tracks_db": os.path.getsize(DB) if os.path.exists(DB) else 0,
         "tam_temps": tam(os.path.join(DATA, "temps")) if os.path.exists(os.path.join(DATA, "temps")) else 0,
         "tam_eventos": tam(os.path.join(DATA, "eventos")) if os.path.exists(os.path.join(DATA, "eventos")) else 0,
+        "tam_cache": tam(os.path.join(DATA, "cache")) if os.path.exists(os.path.join(DATA, "cache")) else 0,
         "cuota_eventos_gb": motor.cfg["cuota_eventos_gb"],
         "cuota_eventos_gb_max": motor.cfg["cuota_eventos_gb_max"],
+        "cuota_cache_gb": motor.cfg["cuota_cache_gb"],
+        "cuota_cache_gb_max": motor.cfg["cuota_cache_gb_max"],
+        "retencion_cache_dias": motor.cfg["retencion_cache_dias"],
+        "umbral_dedup": motor.cfg["umbral_dedup"],
         "cuota_temps_mb": motor.cfg["cuota_temps_mb"],
         "usuarios_trackeando": est["usuarios_trackeando"],
     }
