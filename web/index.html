@@ -236,6 +236,40 @@ button.mchip.pel:hover{background:#3b1620}
   cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,.5);user-select:none}
 .cellM:hover{border-color:#7dd3fc;color:#fff}
 .leaflet-container{font:inherit}
+/* ────────── VELOCÍMETRO EN VIVO (flotante) ────────── */
+#velWrap{position:absolute;top:10px;right:calc(min(440px,94vw) + 16px);z-index:1100;display:flex;
+  align-items:center;gap:10px;background:var(--panel);border:1px solid var(--line2);
+  border-radius:14px;padding:7px 13px 7px 9px;backdrop-filter:blur(6px);
+  box-shadow:0 8px 26px rgba(0,0,0,.45);pointer-events:none;user-select:none}
+#velIcono{width:36px;height:36px;display:grid;place-items:center;font-size:19px;border-radius:50%;
+  background:var(--bg3);border:1px solid var(--line2);flex:none}
+#velIcono.moviendo{animation:latido 1.7s ease-in-out infinite}
+@keyframes latido{0%,100%{box-shadow:0 0 0 0 rgba(56,189,248,.0)}45%{box-shadow:0 0 0 8px rgba(56,189,248,.28)}}
+#velNum{font-size:23px;font-weight:800;line-height:1.05;font-variant-numeric:tabular-nums;color:var(--txt)}
+#velNum.sin{color:var(--mut2)}
+#velUn{font-size:9.5px;color:var(--mut);text-transform:uppercase;letter-spacing:.6px;margin-top:2px;white-space:nowrap}
+/* ────────── BLOQUE VELOCIDAD EN EL PANEL (gráfica + stats) ────────── */
+#velPanel{display:none;padding:7px 10px 9px;background:var(--bg2);border-bottom:1px solid var(--line)}
+#velPanel.on{display:block}
+#velPanel.plegado #velCuerpo{display:none}
+.vpT{display:flex;align-items:center;gap:6px;font-size:10.5px;text-transform:uppercase;
+  letter-spacing:1px;color:var(--mut2);margin-bottom:6px}
+.vpT .ttl{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.vpT #velRangoTxt{letter-spacing:0;text-transform:none;font-size:10px;color:var(--mut)}
+#velPlegar{background:transparent;border:1px solid var(--line2);color:var(--mut);
+  border-radius:6px;padding:0 6px;cursor:pointer;font-size:11px;line-height:1.5}
+#velPlegar:hover{color:var(--txt);border-color:var(--acc)}
+#velCanvasWrap{position:relative;border:1px solid var(--line);border-radius:9px;overflow:hidden;background:var(--bg3)}
+#velCanvas{display:block;width:100%;height:92px;cursor:crosshair;background:var(--bg3)}
+#velTip{position:absolute;pointer-events:none;display:none;background:rgba(7,13,23,.94);
+  border:1px solid var(--line2);color:var(--txt);font-size:11px;padding:4px 8px;border-radius:7px;
+  white-space:nowrap;z-index:5;box-shadow:0 4px 14px rgba(0,0,0,.5)}
+#velTip b{color:#7dd3fc}
+#velStats{display:flex;flex-wrap:wrap;gap:2px 13px;margin-top:6px;color:var(--mut);font-size:11px}
+#velStats b{color:var(--txt)}
+#velLey{display:flex;flex-wrap:wrap;gap:3px 11px;margin-top:6px;font-size:9.5px;color:var(--mut2)}
+#velLey .lk{display:inline-flex;align-items:center;gap:4px}
+#velLey .sw{width:12px;height:4px;border-radius:2px;display:inline-block;flex:none}
 /* toasts */
 #toasts{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:9500;
   display:flex;flex-direction:column;gap:6px;align-items:center;pointer-events:none}
@@ -254,6 +288,8 @@ button.mchip.pel:hover{background:#3b1620}
   #panel.oculto{transform:translateY(calc(100% + 16px))}
   #fabPanel{display:block}
   .brand{font-size:14px}
+  #velWrap{right:10px;top:10px}
+  #velNum{font-size:20px}
 }
 </style>
 </head>
@@ -333,6 +369,13 @@ button.mchip.pel:hover{background:#3b1620}
 
   <div id="mapWrap">
     <div id="map"></div>
+    <div id="velWrap" title="Velocidad en vivo">
+      <div id="velIcono">❔</div>
+      <div>
+        <div id="velNum" class="sin">—</div>
+        <div id="velUn">km/h · en vivo</div>
+      </div>
+    </div>
     <button id="fabPanel">📋 Panel</button>
   </div>
 
@@ -342,6 +385,25 @@ button.mchip.pel:hover{background:#3b1620}
       <button id="btnCerrar" title="Ocultar panel">✕</button>
     </div>
     <div id="estado"></div>
+    <div id="velPanel">
+      <div class="vpT">
+        <span class="ttl">⚡ Velocidad del track</span>
+        <span id="velRangoTxt"></span>
+        <button id="velPlegar" title="Plegar/desplegar">▾</button>
+      </div>
+      <div id="velCuerpo">
+        <div id="velCanvasWrap"><canvas id="velCanvas"></canvas><div id="velTip"></div></div>
+        <div id="velStats"></div>
+        <div id="velLey">
+          <span class="lk"><span class="sw" style="background:#64748b"></span>parado / sin dato</span>
+          <span class="lk"><span class="sw" style="background:#38bdf8"></span>&lt;7 andando</span>
+          <span class="lk"><span class="sw" style="background:#22c55e"></span>7–20 bici</span>
+          <span class="lk"><span class="sw" style="background:#f59e0b"></span>20–50 urbano</span>
+          <span class="lk"><span class="sw" style="background:#fb923c"></span>50–120 carretera</span>
+          <span class="lk"><span class="sw" style="background:#ef4444"></span>&gt;120 rápido</span>
+        </div>
+      </div>
+    </div>
     <div id="tabs">
       <button data-tab="evs" class="on">Eventos (rango)</button>
       <button data-tab="hist">Historial de pasadas</button>
@@ -487,23 +549,92 @@ function pintarGrises(){
 }
 const redibujar=debounce(pintarGrises,140);
 map.on('moveend',redibujar); map.on('zoomend',redibujar);
-window.addEventListener('resize',debounce(()=>map.invalidateSize(),200));
+window.addEventListener('resize',debounce(()=>{map.invalidateSize();ocultarVelHover();dibujaPerfil(null);},200));
 
 function verdeIcon(){return L.divIcon({className:'',html:'<div class="dotG"></div>',iconSize:[18,18],iconAnchor:[9,9]});}
+/* ═══════════════ RUTA COLOREADA POR VELOCIDAD ═══════════════ */
+/* Buckets (km/h): <1 o null = parado/gris, <7 azul, 7-20 verde, 20-50
+   ámbar, 50-120 naranja, >120 rojo. Se agrupan puntos CONSECUTIVOS con el
+   mismo bucket en tramos → 1 L.polyline por tramo (no una por punto). */
+const VCOL={g:'#64748b',a:'#38bdf8',b:'#22c55e',u:'#f59e0b',c:'#fb923c',r:'#ef4444'};
+const VMODO_LEG={andando:'andando',bici:'bici',urbano:'urbano',carretera:'carretera',rapido:'rápido',parado:'parado'};
+function bucketVel(v){
+  if(v==null||isNaN(v)||v<1)return 'g';
+  if(v<7)return 'a';
+  if(v<20)return 'b';
+  if(v<50)return 'u';
+  if(v<120)return 'c';
+  return 'r';
+}
+function fmtVkmh(v){
+  if(v==null||isNaN(v))return '—';
+  return (+v).toLocaleString('es-ES',{minimumFractionDigits:1,maximumFractionDigits:1});
+}
+function horaPunto(ts){
+  return ts==null?'--:--:--':new Date(ts*1000).toLocaleTimeString('es-ES',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+}
+/* '5,3 km/h · andando · 14:32:05' */
+function fichaPunto(f){
+  if(!f)return 'sin datos';
+  const p=f.properties||{};
+  const modo=(p.v!=null&&!isNaN(p.v))?(VMODO_LEG[p.modo]||'?'):'sin dato';
+  return `<b style="color:var(--acc)">${fmtVkmh(p.v)} km/h</b> · ${D(modo)} · ${horaPunto(p.ts)}`;
+}
 function pintarRuta(){
   capaRuta.clearLayers();
   if(rutaLinea){map.removeLayer(rutaLinea);rutaLinea=null;}
   const feats=S.pts||[];
   if(feats.length<2)return;
   // submuestreo si hay demasiados puntos (1 punto/s → 1700+ por paseo)
-  const max=8000, paso=Math.max(1,Math.ceil(feats.length/max));
-  const ll=[];
+  const paso=Math.max(1,Math.ceil(feats.length/8000));
+  const tramos=[];
+  let cur=null;
   for(let i=0;i<feats.length;i+=paso){
-    const g=feats[i].geometry, c=g.coordinates;
-    if(typeof c[0]==='number'&&typeof c[1]==='number'&&c[0]>=-180&&c[0]<=180)ll.push([c[1],c[0]]);
+    const f=feats[i];
+    if(!f||!f.geometry)continue;
+    const c=f.geometry.coordinates;
+    if(typeof c[0]!=='number'||typeof c[1]!=='number'||c[0]<-180||c[0]>180)continue;
+    const b=bucketVel(f.properties&&f.properties.v);
+    if(!cur||cur.b!==b){cur={b,ll:[],fs:[],f1:f};tramos.push(cur);}
+    cur.ll.push([c[1],c[0]]);
+    cur.fs.push(f);
+    cur.f1=f;
   }
-  if(ll.length<2)return;
-  rutaLinea=L.polyline(ll,{color:'#38bdf8',weight:3,opacity:.85}).addTo(capaRuta);
+  for(const t of tramos){
+    const color=VCOL[t.b]||VCOL.g;
+    if(t.ll.length<2){   // tramo de un punto (posible tras submuestreo)
+      const mk=L.circleMarker(t.ll[0],{radius:4,color:color,weight:1.5,fillColor:color,fillOpacity:.9}).addTo(capaRuta);
+      mk.bindTooltip(fichaPunto(t.fs[0]),{sticky:true});
+      mk.on('click',()=>abrirPopupPunto(t.fs[0]));
+      continue;
+    }
+    const pl=L.polyline(t.ll,{color:color,weight:3.5,opacity:.95}).addTo(capaRuta);
+    pl.on('mousemove',ev=>{
+      const k=idxCercano(ev.containerPoint,t);
+      if(k>=0)pl.setTooltipContent(fichaPunto(t.fs[k]));
+    });
+    pl.bindTooltip(fichaPunto(t.fs[Math.floor(t.fs.length/2)]),{sticky:true});
+    pl.on('click',ev=>{
+      const k=idxCercano(ev.containerPoint,t);
+      abrirPopupPunto(t.fs[Math.max(0,k)]);
+    });
+  }
+}
+/* índice (dentro del tramo) del punto muestreado más cercano al cursor */
+function idxCercano(cp,t){
+  let best=-1,bd=Infinity;
+  for(let k=0;k<t.ll.length;k++){
+    const q=map.latLngToContainerPoint(t.ll[k]);
+    const dx=q.x-cp.x,dy=q.y-cp.y,d2=dx*dx+dy*dy;
+    if(d2<bd){bd=d2;best=k;}
+  }
+  return best;
+}
+function abrirPopupPunto(f){
+  if(!f)return;
+  const c=f.geometry.coordinates, ll=[c[1],c[0]];
+  L.popup().setLatLng(ll).setContent(fichaPunto(f)).openOn(map);
+  map.flyTo(ll,Math.max(map.getZoom(),16),{duration:.45});
 }
 
 function pintarVerdes(){
@@ -524,6 +655,254 @@ function pintarVerdes(){
   });
   resumen();
 }
+
+/* ═══════════════ VELOCÍMETRO EN VIVO (poll 4 s) ═══════════════ */
+let velTimer=null;
+const ICONO_MODO={andando:'🚶',bici:'🚲',urbano:'🚗',carretera:'🚗',rapido:'🏃',parado:'⏸'};
+function setVel(valor,icono,vivo){
+  const num=$('velNum'),ic=$('velIcono');
+  num.textContent=valor;
+  num.classList.toggle('sin',!vivo);
+  ic.textContent=icono;
+  ic.classList.toggle('moviendo',vivo);
+}
+async function actualizarVel(){
+  if(!S.token)return;
+  try{
+    const j=await api('/api/ultimo_punto'+vistaQS());
+    const u=j&&j.ultimo;
+    const edad=(u&&u.ts!=null)?(Math.round(Date.now()/1000)-u.ts):Infinity;
+    if(!u||u.ts==null||edad>120){            // sin track reciente (>2 min)
+      setVel('—','❔',false);
+      $('velUn').textContent='km/h · sin track reciente';
+      return;
+    }
+    const v=u.v;
+    if(v==null||isNaN(v)){                   // punto reciente sin v calculada aún
+      setVel('—',ICONO_MODO[u.modo]||'❔',false);
+      $('velUn').textContent='km/h · calculando…';
+      return;
+    }
+    setVel(fmtVkmh(v),ICONO_MODO[u.modo]||'❔',true);
+    $('velUn').textContent='km/h · en vivo';
+  }catch(e){/* el 401 ya cierra sesión en api() */}
+}
+function arrancarVel(){
+  if(velTimer)return;
+  actualizarVel();
+  velTimer=setInterval(actualizarVel,4000);
+}
+function pararVel(){
+  if(velTimer){clearInterval(velTimer);velTimer=null;}
+}
+/* El panel lateral derecho tapa la esquina: el velocímetro vive a su izquierda
+   y se pega al borde derecho solo cuando el panel está oculto. */
+function ajustarVel(){
+  const oc=$('panel').classList.contains('oculto');
+  $('velWrap').style.right=oc?'12px':'';
+}
+
+/* ═══════════════ GRÁFICA VELOCIDAD vs DISTANCIA + ESTADÍSTICAS ═══════════════ */
+let perfilV=null;      // {filas:[{d,v,ts,lat,lon}], dist, maxV, media, paradoS, durS, n, ts0, tsN}
+let markerGraf=null;   // marcador temporal en el mapa durante el hover del canvas
+let velPlegado=false;
+function havKm(a,bl,c,dl){   // distancia en km entre (a,bl) y (c,dl) en grados
+  const R=6371, p1=a*Math.PI/180, p2=c*Math.PI/180;
+  const dp=(c-a)*Math.PI/180, dd=(dl-bl)*Math.PI/180;
+  const x=Math.sin(dp/2)**2+Math.cos(p1)*Math.cos(p2)*Math.sin(dd/2)**2;
+  return 2*R*Math.asin(Math.sqrt(x));
+}
+function calcPerfil(){
+  const feats=S.pts||[], n=feats.length;
+  if(n<2)return null;
+  const acc=new Array(n); acc[0]=0;
+  let maxV=0,cntMov=0,sumV=0,cntPar=0;
+  for(let i=1;i<n;i++){
+    const g0=feats[i-1].geometry.coordinates, g1=feats[i].geometry.coordinates;
+    const ok=typeof g0[0]==='number'&&typeof g0[1]==='number'&&typeof g1[0]==='number'&&typeof g1[1]==='number';
+    acc[i]=acc[i-1]+(ok?havKm(g0[1],g0[0],g1[1],g1[0]):0);
+    const v=feats[i].properties&&feats[i].properties.v;
+    if(v!=null&&!isNaN(v)){
+      if(v>maxV)maxV=v;
+      if(v>0.5){cntMov++;sumV+=v;}else cntPar++;
+    }
+  }
+  const fN=feats[n-1];
+  const ts0=feats[0].properties&&feats[0].properties.ts;
+  const tsN=fN.properties&&fN.properties.ts;
+  const durS=Math.max(0,(tsN||0)-(ts0||0));
+  const dtMed=n>1?durS/(n-1):0;
+  const filas=[];
+  const paso=Math.max(1,Math.ceil(n/3000));   // ≤3000 filas para dibujar/hover
+  for(let i=0;i<n;i+=paso){
+    const f=feats[i], p=f.properties||{}, g=f.geometry.coordinates;
+    filas.push({d:acc[i],v:p.v,ts:p.ts,lat:g[1],lon:g[0]});
+  }
+  const ult=filas[filas.length-1];             // asegurar el último punto (x máx)
+  if(acc[n-1]-ult.d>1e-6){
+    const p=fN.properties||{}, g=fN.geometry.coordinates;
+    filas.push({d:acc[n-1],v:p.v,ts:p.ts,lat:g[1],lon:g[0]});
+  }
+  return {filas,dist:acc[n-1],maxV,media:cntMov?sumV/cntMov:0,paradoS:cntPar*dtMed,durS,n,ts0,tsN};
+}
+function fmtDurCorto(s){
+  s=Math.max(0,Math.round(s));
+  if(s<60)return s+' s';
+  const m=Math.round(s/60);
+  if(m<60)return m+' min';
+  const h=Math.floor(m/60),mm=m%60;
+  return h+' h'+(mm?' '+mm+' min':'');
+}
+function statsHTML(pr){
+  const km=(pr.dist<10)?pr.dist.toLocaleString('es-ES',{minimumFractionDigits:1,maximumFractionDigits:2})
+                      :pr.dist.toLocaleString('es-ES',{maximumFractionDigits:1});
+  return `<span>⚡ máx <b>${fmtVkmh(pr.maxV)}</b></span>
+  <span>🚶 media <b>${pr.media?fmtVkmh(pr.media):'—'}</b> km/h</span>
+  <span>📏 <b>${km}</b> km</span>
+  <span>⏱ <b>${fmtDurCorto(pr.durS)}</b></span>
+  <span>🛑 parado <b>${fmtDurCorto(pr.paradoS)}</b></span>`;
+}
+function pintarVel(){                          // recalcula perfil y dibuja (tras cargar S.pts)
+  const vp=$('velPanel'); if(!vp)return;
+  ocultarVelHover();
+  perfilV=calcPerfil();
+  vp.classList.add('on');
+  const rt=$('velRangoTxt');
+  if(perfilV)rt.textContent=`${perfilV.n.toLocaleString('es-ES')} pts · ${perfilV.ts0!=null?fmtF(perfilV.ts0):''}–${perfilV.tsN!=null?fmtF(perfilV.tsN):''}`;
+  else rt.textContent=S.pts.length?S.pts.length+' pts':'';
+  $('velStats').innerHTML=perfilV?statsHTML(perfilV):'';
+  dibujaPerfil(null);
+}
+function dibujaPerfil(hoverF){
+  const cv=$('velCanvas'); if(!cv)return;
+  const cw=cv.clientWidth,ch=cv.clientHeight;
+  if(cw<10||ch<10)return;
+  const dpr=window.devicePixelRatio||1;
+  const pw=Math.round(cw*dpr),ph=Math.round(ch*dpr);
+  if(cv.width!==pw)cv.width=pw;
+  if(cv.height!==ph)cv.height=ph;
+  const ctx=cv.getContext('2d');
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.clearRect(0,0,cw,ch);
+  if(!perfilV){
+    ctx.fillStyle='rgba(142,163,199,.55)';
+    ctx.font='11.5px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillText('Sin datos',cw/2,ch/2);
+    return;
+  }
+  const pr=perfilV;
+  const ML=32,MR=8,MT=8,MB=15, iw=cw-ML-MR, ih=ch-MT-MB;
+  if(iw<=10||ih<=10)return;
+  const dTot=Math.max(pr.dist,1e-6);
+  let ymax=Math.max(6,Math.ceil((pr.maxV||0)*1.12));
+  if(ymax<=20)ymax=Math.ceil(ymax/2)*2;
+  else if(ymax<=100)ymax=Math.ceil(ymax/5)*5;
+  else ymax=Math.ceil(ymax/20)*20;
+  const X=d=>ML+(Math.min(d,pr.dist)/dTot)*iw;
+  const Y=v=>MT+ih-(Math.min(v,ymax)/ymax)*ih;
+  // rejilla horizontal + etiquetas del eje Y
+  ctx.font='9px system-ui';ctx.textAlign='right';ctx.textBaseline='middle';
+  const pasoY=ymax<=10?2:(ymax<=50?5:(ymax<=120?10:25));
+  for(let vv=0;vv<=ymax;vv+=pasoY){
+    const y=Y(vv);
+    ctx.strokeStyle='rgba(122,142,180,.13)';
+    ctx.beginPath();ctx.moveTo(ML,y);ctx.lineTo(cw-MR,y);ctx.stroke();
+    ctx.fillStyle='rgba(142,163,199,.6)';
+    ctx.fillText(String(vv),ML-5,y);
+  }
+  // eje X
+  ctx.strokeStyle='rgba(122,142,180,.22)';
+  ctx.beginPath();ctx.moveTo(ML,MT+ih);ctx.lineTo(cw-MR,MT+ih);ctx.stroke();
+  // relleno degradado bajo la línea (fill() cierra cada subpath a su base)
+  const fillP=new Path2D();
+  let abierto=false;
+  for(const r of pr.filas){
+    if(r.v==null||isNaN(r.v)){abierto=false;continue;}
+    const x=X(r.d),y=Y(r.v);
+    if(!abierto){fillP.moveTo(x,MT+ih);fillP.lineTo(x,y);abierto=true;}
+    else fillP.lineTo(x,y);
+  }
+  const grad=ctx.createLinearGradient(0,MT,0,MT+ih);
+  grad.addColorStop(0,'rgba(56,189,248,.30)');
+  grad.addColorStop(1,'rgba(56,189,248,.02)');
+  ctx.fillStyle=grad;ctx.fill(fillP);
+  // línea del perfil
+  const lP=new Path2D();abierto=false;
+  for(const r of pr.filas){
+    if(r.v==null||isNaN(r.v)){abierto=false;continue;}
+    const x=X(r.d),y=Y(r.v);
+    if(!abierto){lP.moveTo(x,y);abierto=true;}else lP.lineTo(x,y);
+  }
+  ctx.strokeStyle='#38bdf8';ctx.lineWidth=1.5;ctx.lineJoin='round';ctx.lineCap='round';
+  ctx.stroke(lP);
+  // etiqueta del máx sobre la línea
+  if(pr.maxV>0&&pr.filas.length){
+    let ix=0,best=-1;
+    for(let i=0;i<pr.filas.length;i++){const r=pr.filas[i];if(r.v!=null&&r.v>best){best=r.v;ix=i;}}
+    const r=pr.filas[ix],x=X(r.d),y=Y(r.v),lbl=fmtVkmh(r.v);
+    ctx.fillStyle='#38bdf8';
+    ctx.beginPath();ctx.arc(x,y,2.4,0,Math.PI*2);ctx.fill();
+    ctx.font='bold 9px system-ui';ctx.textBaseline='bottom';
+    ctx.textAlign=(x>cw-MR-40)?'right':'left';
+    ctx.fillStyle='#7dd3fc';
+    ctx.fillText(lbl,(x>cw-MR-40)?x-3:x+4,y-3);
+  }
+  // hover: cruz vertical + punto (sin repintar nada más)
+  if(hoverF){
+    const x=X(hoverF.d),y=Y(hoverF.v==null?0:hoverF.v);
+    ctx.strokeStyle='rgba(239,68,68,.55)';
+    ctx.setLineDash([3,3]);
+    ctx.beginPath();ctx.moveTo(x,MT);ctx.lineTo(x,MT+ih);ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle='#ef4444';
+    ctx.beginPath();ctx.arc(x,y,3,0,Math.PI*2);ctx.fill();
+  }
+}
+function filaPorDistancia(d){
+  const fs=perfilV.filas; if(!fs.length)return null;
+  if(d<=fs[0].d)return fs[0];
+  const last=fs[fs.length-1];
+  if(d>=last.d)return last;
+  let lo=0,hi=fs.length-1;
+  while(hi-lo>1){const m=(lo+hi)>>1;if(fs[m].d<=d)lo=m;else hi=m;}
+  return (d-fs[lo].d<=fs[hi].d-d)?fs[lo]:fs[hi];
+}
+function marcarPuntoMapa(lat,lon){
+  if(markerGraf)markerGraf.setLatLng([lat,lon]);
+  else markerGraf=L.circleMarker([lat,lon],{radius:7,color:'#fca5a5',weight:2,fillColor:'#ef4444',fillOpacity:.55}).addTo(map);
+}
+function ocultarVelHover(){
+  $('velTip').style.display='none';
+  if(markerGraf){map.removeLayer(markerGraf);markerGraf=null;}
+}
+function onVelMove(ev){
+  const cv=$('velCanvas'); if(!cv||!perfilV)return;
+  const b=cv.getBoundingClientRect();
+  const x=ev.clientX-b.left, cw=cv.clientWidth, ML=32, MR=8;
+  const iw=cw-ML-MR; if(iw<=10)return;
+  const frac=(x-ML)/iw;
+  if(frac<0||frac>1){dibujaPerfil(null);ocultarVelHover();return;}
+  const f=filaPorDistancia(frac*perfilV.dist);
+  if(!f){dibujaPerfil(null);ocultarVelHover();return;}
+  dibujaPerfil(f);
+  const tip=$('velTip');
+  tip.style.display='block';
+  tip.innerHTML=`km ${f.d.toLocaleString('es-ES',{minimumFractionDigits:1,maximumFractionDigits:2})} · v <b>${fmtVkmh(f.v)}</b> km/h · ${horaPunto(f.ts)}`;
+  tip.style.left=Math.max(2,Math.min(x+10,cw-172))+'px';
+  tip.style.top=Math.min(cv.clientHeight-30,Math.max(2,ev.clientY-b.top+14))+'px';
+  if(f.lat!=null&&!isNaN(f.lat))marcarPuntoMapa(f.lat,f.lon);
+}
+function onVelLeave(){
+  ocultarVelHover();
+  dibujaPerfil(null);
+}
+$('velCanvas').addEventListener('mousemove',onVelMove);
+$('velCanvas').addEventListener('mouseleave',onVelLeave);
+$('velPlegar').onclick=()=>{
+  velPlegado=!velPlegado;
+  $('velPanel').classList.toggle('plegado',velPlegado);
+  $('velPlegar').textContent=velPlegado?'▴':'▾';
+};
 
 /* ═══════════════ SESIÓN / LOGIN ═══════════════ */
 async function initAuth(){
@@ -549,6 +928,8 @@ async function cerrarSesion(silencioso){
   localStorage.removeItem(LS_AUTH); S.token=null;S.user=null;S.rol=null;S.uid=null;S.vista=null;
   S.cat=null;S.catOK=false;S.verdes=[];S.eventos=[];S.pts=[];
   capaVerde.clearLayers();capaGris.clearLayers();
+  pararVel(); setVel('—','❔',false);
+  perfilV=null; ocultarVelHover();
   mostrarLogin();
 }
 $('btnSalir').onclick=()=>cerrarSesion(false);
@@ -576,6 +957,8 @@ async function entrar(st){
   refreshTodo();             // carga inicial
   actualizarChip();
   setInterval(async()=>{ if(S.token){try{const st=await api('/api/estado'+vistaQS());pintaEstado(st);}catch(e){}} },20000);
+  arrancarVel();
+  ajustarVel();
 }
 function vistaQS(){return S.rol==='admin'&&S.vista?qs({usuario:S.vista}):'';}
 function nombreVista(){ if(S.rol!=='admin')return S.user; if(!S.vista)return '🌍 todos'; const o=[...$('selVerComo').options].find(x=>x.value===S.vista); return o?o.textContent.split(' ')[0]:S.vista; }
@@ -671,6 +1054,7 @@ async function refreshTodo(){
     }
     S.eventos=eventos; S.verdes=vd; S.pts=pts;
     pintarRuta();
+    pintarVel();
     if(autoFit){
       const ll=[];
       S.verdes.forEach(v=>ll.push([v.lat,v.lon]));
@@ -750,8 +1134,8 @@ function switchTab(t){
   $('vistaHist').style.display=(t==='hist')?'':'none';
   if(t==='hist')renderHist();
 }
-$('btnCerrar').onclick=()=>{ $('panel').classList.add('oculto'); };
-$('fabPanel').onclick=()=>{ $('panel').classList.remove('oculto'); };
+$('btnCerrar').onclick=()=>{ $('panel').classList.add('oculto'); ajustarVel(); };
+$('fabPanel').onclick=()=>{ $('panel').classList.remove('oculto'); ajustarVel(); };
 
 /* ═══════════════ LISTA DE EVENTOS (rango) ═══════════════ */
 function tarjetaEvento(e,expandido){
