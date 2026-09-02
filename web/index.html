@@ -417,8 +417,7 @@ const CAPAS={
   esriSat:{nombre:'🛰️ Esri · Satélite',url:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',opts:{attribution:'Imágenes © Esri, Maxar, Earthstar Geographics',maxZoom:19}},
   esriSt:{nombre:'🏙️ Esri · Calles',url:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',opts:{attribution:'Calles © Esri · OpenStreetMap',maxZoom:19}},
   osm:{nombre:'🗺️ OpenStreetMap',url:'https://tile.openstreetmap.org/{z}/{x}/{y}.png',opts:{attribution:'© OpenStreetMap',maxZoom:19}},
-  dark:{nombre:'🌙 CARTO · Oscuro',url:'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',opts:{attribution:'© OpenStreetMap · © CARTO',subdomains:'abcd',maxZoom:19}},
-  light:{nombre:'☀️ CARTO · Claro',url:'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',opts:{attribution:'© OpenStreetMap · © CARTO',subdomains:'abcd',maxZoom:19}}
+  topo:{nombre:'⛰️ Esri · Topográfico',url:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}',opts:{attribution:'Topo © Esri',maxZoom:19}}
 };
 const tilesBase={}; Object.keys(CAPAS).forEach(k=>{tilesBase[k]=L.tileLayer(CAPAS[k].url,CAPAS[k].opts);});
 const menuCapas=$('menuCapas');
@@ -431,7 +430,7 @@ function setCapa(k){
   menuCapas.querySelectorAll('.op').forEach(o=>o.classList.toggle('on',o.dataset.c===k));
   try{localStorage.setItem('tc_capa_v1',k);}catch(e){}
 }
-(function(){let k='dark';try{k=localStorage.getItem('tc_capa_v1')||'dark';}catch(e){}setCapa(k);})();
+(function(){let k='esriSt';try{k=localStorage.getItem('tc_capa_v1')||'esriSt';if(k==='dark'||k==='light')k='esriSt';}catch(e){}setCapa(k);})();
 $('btnCapas').onclick=e=>{e.stopPropagation();menuCapas.classList.toggle('on');};
 menuCapas.querySelectorAll('.op').forEach(o=>o.onclick=()=>{setCapa(o.dataset.c);menuCapas.classList.remove('on');});
 document.addEventListener('click',e=>{if(!e.target.closest('#capaWrap'))menuCapas.classList.remove('on');});
