@@ -95,6 +95,22 @@ class MotorCaptura:
         os.makedirs(self.temps_dir, exist_ok=True)
         os.makedirs(self.eventos_dir, exist_ok=True)
 
+        # ── Configuración dinámica (F2): persistida en data/ajustes.json ──
+        self.cfg_file = os.path.join(data_dir, "ajustes.json")
+        self.cfg = {  # valores por defecto (especificación de Alvaro)
+            "radio_activa_m": RADIO_ACTIVA,      # 1500 m → cámara activa
+            "radio_captura_m": RADIO_CAPTURA,    # 500 m → captura 2 s
+            "radio_evento_m": RADIO_EVENTO,      # 100 m → evento
+            "intervalo_captura_s": INTERVALO_S,  # cadencia de captura
+            "ventana_antes_s": VENTANA_ANTES,    # 20 s antes del cruce
+            "ventana_despues_s": VENTANA_DESPUES,# 40 s después del cruce
+            "buffer_s": BUFFER_S,                # profundidad del ring buffer
+            "fps_video": FPS_VIDEO,
+            "cuota_eventos_gb": 20.0,            # poda automática de eventos
+            "cuota_temps_mb": 500.0,             # poda automática de temporales
+        }
+        self._cargar_cfg()
+
         # Estado interno (protegido por self.lock)
         self.lock = threading_lock = __import__("threading").Lock()
         self.cams = {}          # cid -> dict de estado de la cámara
@@ -110,6 +126,32 @@ class MotorCaptura:
         # Hilo daemon
         self._hilo = None
         self._stop = __import__("threading").Event()
+        self._ciclos_cuota = 0  # contador para poda de cuotas periódica
+
+    # ── configuración (F2) ──────────────────────────────────────────────
+    def _cargar_cfg(self):
+        try:
+            with open(self.cfg_file, encoding="utf-8") as f:
+                datos = json.load(f)
+            self.cfg.update({k: v for k, v in datos.items()
+                             if k in self.cfg})
+        except Exception:
+            pass
+
+    def _guardar_cfg(self):
+        try:
+            with open(self.cfg_file, "w", encoding="utf-8") as f:
+                json.dump(self.cfg, f, ensure_ascii=False, indent=2)
+        except OSError:
+            pass
+
+    def actualizar_cfg(self, cambios: dict) -> dict:
+        """Actualiza configuración en caliente y la persiste."""
+        validos = {k: v for k, v in cambios.items() if k in self.cfg}
+        for k, v in validos.items():
+            self.cfg[k] = float(v) if k != "fps_video" else max(1, int(v))
+        self._guardar_cfg()
+        return dict(self.cfg)
 
     # ── arranque / parada ────────────────────────────────────────────────
     def start(self):
@@ -167,10 +209,83 @@ class MotorCaptura:
             # cámaras que nunca cruzaron los 100 m (poda).
             self._cortar_por_inactividad()
 
+        # Poda por cuotas (F2): cada ~15 ciclos comprueba los límites
+        self._ciclos_cuota += 1
+        if self._ciclos_cuota >= 15:
+            self._ciclos_cuota = 0
+            self._poda_cuotas()
+
+    # ── poda por cuotas (F2) ────────────────────────────────────────────
+    def _tam_dir(self, p):
+        t = 0
+        for root, _, files in os.walk(p):
+            for f in files:
+                try:
+                    t += os.path.getsize(os.path.join(root, f))
+                except OSError:
+                    pass
+        return t
+
+    def _poda_cuotas(self):
+        """Si data/eventos supera cuota_eventos_gb borra los eventos más
+        antiguos (carpeta + registro BD). Si data/temps supera
+        cuota_temps_mb borra los buffers más antiguos."""
+        # Cuota de temporales
+        try:
+            cuota_t = self.cfg["cuota_temps_mb"] * 1e6
+            tam_t = self._tam_dir(self.temps_dir)
+            if tam_t > cuota_t and os.path.isdir(self.temps_dir):
+                dirs = sorted(
+                    (os.path.join(self.temps_dir, d) for d in
+                     os.listdir(self.temps_dir)
+                     if os.path.isdir(os.path.join(self.temps_dir, d))),
+                    key=lambda p: os.path.getmtime(p))
+                for d in dirs:
+                    if tam_t <= cuota_t:
+                        break
+                    for f in os.listdir(d):
+                        try:
+                            os.remove(os.path.join(d, f))
+                            tam_t -= os.path.getsize(os.path.join(d, f))
+                        except OSError:
+                            pass
+                    try:
+                        os.rmdir(d)
+                    except OSError:
+                        pass
+        except Exception as e:
+            print(f"[captura] poda temps: {e}")
+
+        # Cuota de eventos (borra los más antiguos, carpeta + BD)
+        try:
+            cuota_e = self.cfg["cuota_eventos_gb"] * 1e9
+            tam_e = self._tam_dir(self.eventos_dir)
+            if tam_e > cuota_e:
+                con = self.get_db()
+                filas = con.execute(
+                    "SELECT id FROM eventos ORDER BY ts_inicio ASC").fetchall()
+                con.close()
+                for (eid,) in filas:
+                    if tam_e <= cuota_e:
+                        break
+                    carpeta = os.path.join(self.eventos_dir, eid)
+                    tam_e -= self._tam_dir(carpeta) if os.path.isdir(carpeta) else 0
+                    shutil.rmtree(carpeta, ignore_errors=True)
+                    con = self.get_db()
+                    con.execute("DELETE FROM eventos WHERE id=?", (eid,))
+                    con.commit()
+                    con.close()
+                    print(f"[captura] cuota: evento antiguo {eid} borrado")
+        except Exception as e:
+            print(f"[captura] poda eventos: {e}")
+
     # ── procesado de un punto del track ──────────────────────────────────
     def _procesar_punto(self, ts, lat, lon):
         with self.lock:
-            c1500 = self.cams_cerca(lat, lon, RADIO_ACTIVA)
+            r_act = self.cfg["radio_activa_m"]
+            r_cap = self.cfg["radio_captura_m"]
+            r_ev = self.cfg["radio_evento_m"]
+            c1500 = self.cams_cerca(lat, lon, r_act)
             ids_ahora = set()
             for dist, cam in c1500:
                 cid = self._cid(cam)
@@ -180,15 +295,15 @@ class MotorCaptura:
                 est["ultima_dist"] = dist
                 estado_ant = est["estado"]
 
-                if dist <= RADIO_EVENTO:
+                if dist <= r_ev:
                     # Cruce de entrada a los 100 m (viene de >100 m)
                     if est["cruce_ts"] is None and (
-                            est["dist_prev"] is None or est["dist_prev"] > RADIO_EVENTO):
+                            est["dist_prev"] is None or est["dist_prev"] > r_ev):
                         est["cruce_ts"] = ts
-                        print(f"[captura] CRUCE 100m cámara {cid} en ts={ts:.1f}")
+                        print(f"[captura] CRUCE {r_ev:.0f}m cámara {cid} en ts={ts:.1f}")
                     est["estado"] = EST_EVENTO
                     self._encolar_captura(cid, cam, ts, est)
-                elif dist <= RADIO_CAPTURA:
+                elif dist <= r_cap:
                     # Cruce de salida de los 100 m → montar el evento
                     if estado_ant == EST_EVENTO and est["cruce_ts"] is not None:
                         self._finalizar_evento(cid, est)
@@ -202,7 +317,7 @@ class MotorCaptura:
                         est["ctx_hecho"] = True
                         self._encolar_descarga(cid, cam, ts, tipo="ctx")
 
-            # Cortar las cámaras que ya no están en el radio de 1500 m
+            # Cortar las cámaras que ya no están en el radio de activa
             for cid, est in list(self.cams.items()):
                 if est["estado"] != EST_INACTIVA and cid not in ids_ahora:
                     if est["cruce_ts"] is not None:
@@ -235,11 +350,11 @@ class MotorCaptura:
         est["ctx_hecho"] = False
 
     def _poda_buffer(self, cid):
-        """Borra las fotos del buffer de una cámara más viejas que BUFFER_S."""
+        """Borra las fotos del buffer de una cámara más viejas que buffer_s."""
         dir_buf = self._dir_buffer(cid)
         if not os.path.isdir(dir_buf):
             return
-        limite = self.ultimo_ts - BUFFER_S
+        limite = self.ultimo_ts - self.cfg["buffer_s"]
         for fn in os.listdir(dir_buf):
             if fn.startswith("foto_") and fn.endswith(".jpg"):
                 try:
@@ -278,8 +393,9 @@ class MotorCaptura:
 
     def _encolar_captura(self, cid, cam, ts, est):
         """Captura cada ~2 s (de ts, no de reloj) a un ring buffer."""
+        inter = self.cfg["intervalo_captura_s"]
         ult = est.get("ultima_captura_ts")
-        if ult is not None and (ts - ult) < (INTERVALO_S - 0.1):
+        if ult is not None and (ts - ult) < (inter - 0.1):
             return
         est["ultima_captura_ts"] = ts
         self._encolar_descarga(cid, cam, ts, tipo="captura")
@@ -351,9 +467,9 @@ class MotorCaptura:
 
     # ── eventos ──────────────────────────────────────────────────────────
     def _fotos_ventana(self, cid, cruce_ts):
-        """Fotos del ring buffer dentro de la ventana [cruce-20, cruce+40]."""
-        ini = cruce_ts - VENTANA_ANTES
-        fin = cruce_ts + VENTANA_DESPUES
+        """Fotos del ring buffer dentro de la ventana [cruce-antes, cruce+despues]."""
+        ini = cruce_ts - self.cfg["ventana_antes_s"]
+        fin = cruce_ts + self.cfg["ventana_despues_s"]
         dir_buf = self._dir_buffer(cid)
         fotos = []
         if os.path.isdir(dir_buf):
@@ -406,8 +522,8 @@ class MotorCaptura:
         if ok_video:
             tam += os.path.getsize(video)
 
-        ts_ini = cruce - VENTANA_ANTES
-        ts_fin = cruce + VENTANA_DESPUES
+        ts_ini = cruce - self.cfg["ventana_antes_s"]
+        ts_fin = cruce + self.cfg["ventana_despues_s"]
         meta = {
             "id": eid,
             "cam_id": cid,
@@ -419,11 +535,12 @@ class MotorCaptura:
             "ts_cruce": cruce,
             "ts_inicio": ts_ini,
             "ts_fin": ts_fin,
-            "ventana_s": {"antes": VENTANA_ANTES, "despues": VENTANA_DESPUES},
+            "ventana_s": {"antes": self.cfg["ventana_antes_s"],
+                          "despues": self.cfg["ventana_despues_s"]},
             "n_fotos": n,
             "video": video_rel,
             "tam": tam,
-            "fps": FPS_VIDEO,
+            "fps": self.cfg["fps_video"],
             "creado": time.time(),
         }
         with open(os.path.join(dir_ev, "metadata.json"), "w",
@@ -451,9 +568,10 @@ class MotorCaptura:
                  f"tam={tam}")
 
     def _hacer_video(self, dir_ev, video):
-        """Monta el MP4 H.264 a 2 fps con las fotos foto_%03d.jpg."""
+        """Monta el MP4 H.264 a fps_video con las fotos foto_%03d.jpg."""
+        fps = max(1, int(self.cfg["fps_video"]))
         base = [FFMPEG, "-y", "-loglevel", "error", "-framerate",
-                str(FPS_VIDEO), "-i", "foto_%03d.jpg"]
+                str(fps), "-i", "foto_%03d.jpg"]
         for extra in ([], ["-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2"]):
             cmd = base + extra + [
                 "-c:v", "libx264", "-pix_fmt", "yuv420p",

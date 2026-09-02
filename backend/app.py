@@ -176,6 +176,8 @@ def api_estado():
         "tam_tracks_db": os.path.getsize(DB) if os.path.exists(DB) else 0,
         "tam_temps": tam(os.path.join(DATA, "temps")) if os.path.exists(os.path.join(DATA, "temps")) else 0,
         "tam_eventos": tam(os.path.join(DATA, "eventos")) if os.path.exists(os.path.join(DATA, "eventos")) else 0,
+        "cuota_eventos_gb": motor.cfg["cuota_eventos_gb"],
+        "cuota_temps_mb": motor.cfg["cuota_temps_mb"],
         "ultimo_punto": None,
     }
 
@@ -227,6 +229,23 @@ def limpiar_temps():
             tam0 += sum(os.path.getsize(os.path.join(root, f)) for f in files)
         shutil.rmtree(carpeta)
     return {"ok": True, "borrados_mb": round(tam0 / 1e6, 2)}
+
+# ── Ajustes configurables (F2) ──────────────────────────────────────────
+@app.get("/api/ajustes")
+def api_ajustes():
+    """Configuración actual del motor (radios, ventanas, cuotas...)."""
+    return motor.cfg
+
+@app.post("/api/ajustes")
+async def api_ajustes_set(request: Request):
+    """Actualiza configuración en caliente. Acepta JSON parcial."""
+    try:
+        cambios = await request.json()
+    except Exception:
+        cambios = {}
+    if not isinstance(cambios, dict):
+        return JSONResponse({"error": "JSON inválido"}, status_code=400)
+    return motor.actualizar_cfg(cambios)
 
 load_camaras()
 
