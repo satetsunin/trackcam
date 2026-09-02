@@ -30,6 +30,7 @@ class MainActivity : AppCompatActivity() {
     companion object {
         private const val RC_LOCATION = 1001
         private const val RC_NOTIF = 1002
+        private const val RC_BG_LOCATION = 1003
     }
 
     private lateinit var spInterval: Spinner
@@ -182,6 +183,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun startTrackingFlow() {
         if (!hasLocationPermission()) {
+            // Paso 1: ubicación "mientras se usa"
             ActivityCompat.requestPermissions(
                 this,
                 arrayOf(
@@ -192,8 +194,58 @@ class MainActivity : AppCompatActivity() {
             )
             return
         }
+        // Paso 2 (Android 10+): ubicación "permitir siempre" (background)
+        maybeRequestBackgroundLocation()
         maybeRequestNotificationPermission()
+        maybeRequestInstallPackages()
         doStart()
+    }
+
+    /** Pide ACCESS_BACKGROUND_LOCATION en dos pasos (Android 10+):
+     *  primero el usuario debe dar "mientras se usa", luego este diálogo. */
+    private fun maybeRequestBackgroundLocation() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
+        if (ContextCompat.checkSelfPermission(
+                this, Manifest.permission.ACCESS_BACKGROUND_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED) return
+        if (!ActivityCompat.shouldShowRequestPermissionRationale(
+                this, Manifest.permission.ACCESS_FINE_LOCATION
+            ) && TrackPrefs.askedBackgroundOnce(this)) {
+            // Ya lo pedimos antes y lo denegó: llevarle a ajustes
+            Toast.makeText(this, R.string.toast_bg_location, Toast.LENGTH_LONG).show()
+            try {
+                startActivity(
+                    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                        .setData(Uri.parse("package:$packageName"))
+                )
+            } catch (e: Exception) { /* sin ajustes */ }
+            return
+        }
+        TrackPrefs.setAskedBackgroundOnce(this, true)
+        ActivityCompat.requestPermissions(
+            this,
+            arrayOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION),
+            RC_BG_LOCATION
+        )
+    }
+
+    /** Para OTA: si no puede instalar apps de orígenes desconocidos, avisar
+     *  y ofrecer abrir el ajuste (Redmi: "Instalar apps desconocidas"). */
+    private fun maybeRequestInstallPackages() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            !packageManager.canRequestPackageInstalls()
+        ) {
+            try {
+                startActivity(
+                    Intent(
+                        Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                        Uri.parse("package:$packageName")
+                    )
+                )
+            } catch (e: Exception) {
+                Toast.makeText(this, R.string.toast_ota_permiso, Toast.LENGTH_LONG).show()
+            }
+        }
     }
 
     private fun hasLocationPermission(): Boolean =

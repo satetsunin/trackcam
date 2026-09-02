@@ -89,4 +89,12 @@ object TrackPrefs {
     fun setRunning(ctx: Context, running: Boolean) {
         prefs(ctx).edit().putBoolean("running", running).apply()
     }
+
+    /** true = ya se pidió el permiso de ubicación en segundo plano. */
+    fun askedBackgroundOnce(ctx: Context): Boolean =
+        prefs(ctx).getBoolean("asked_bg_location", false)
+
+    fun setAskedBackgroundOnce(ctx: Context, asked: Boolean) {
+        prefs(ctx).edit().putBoolean("asked_bg_location", asked).apply()
+    }
 }

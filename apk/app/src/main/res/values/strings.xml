@@ -37,6 +37,8 @@
     <string name="err_settings">No se pudieron abrir los ajustes en este dispositivo</string>
     <string name="toast_intervalo">Intervalo aplicado</string>
     <string name="toast_bateria">Importante: desactiva la optimización de batería o el trackeo se detendrá al bloquear el teléfono</string>
+    <string name="toast_bg_location">Para trackeo 24/7 activa \"Permitir siempre\" en los permisos de ubicación</string>
+    <string name="toast_ota_permiso">Activa \"Permitir instalar apps desconocidas\" para poder actualizar la app</string>
 
     <!-- Estado -->
     <string name="estado_detenido">Detenido</string>
