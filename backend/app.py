@@ -202,6 +202,67 @@ def evento_video(eid: str):
         return JSONResponse({"error": "no existe"}, status_code=404)
     return FileResponse(p, media_type="video/mp4")
 
+# ── Exportaciones (F4): KML (Google Earth/ATAK) + GPX (rutas) ───────────
+def _escape_xml(s):
+    return (str(s).replace("&", "&amp;").replace("<", "&lt;")
+            .replace(">", "&gt;").replace('"', "&quot;"))
+
+def _track_puntos():
+    con = get_db()
+    rows = con.execute("SELECT ts, lat, lon FROM tracks ORDER BY ts").fetchall()
+    con.close()
+    return rows
+
+@app.get("/api/exportar/kml")
+def exportar_kml():
+    """KML con el track (LineString) y los eventos (Placemark clicables)."""
+    pts = _track_puntos()
+    con = get_db()
+    evs = con.execute("SELECT id,cam_nombre,lat,lon,ts_inicio,n_fotos FROM eventos ORDER BY ts_inicio").fetchall()
+    con.close()
+    coords = " ".join(f"{lon},{lat},0" for _, lat, lon in pts)
+    partes = ['<?xml version="1.0" encoding="UTF-8"?>',
+              '<kml xmlns="http://www.opengis.net/kml/2.2">', '<Document>',
+              '<name>TrackCam</name>']
+    if coords:
+        partes.append('<Placemark><name>Track</name><styleUrl>#track</styleUrl>'
+                      f'<LineString><coordinates>{coords}</coordinates></LineString></Placemark>')
+    partes.append('<Style id="track"><LineStyle><color>ff0ea5e9</color><width>5</width></LineStyle></Style>')
+    partes.append('<Style id="ev"><IconStyle><color>ffef4444</color><scale>1.2</scale></IconStyle></Style>')
+    for eid, nombre, lat, lon, ts, nf in evs:
+        partes.append(
+            f'<Placemark><name>{_escape_xml(nombre)}</name><styleUrl>#ev</styleUrl>'
+            f'<description>{nf} fotos · <a href="/api/evento/{eid}/video">vídeo</a></description>'
+            f'<Point><coordinates>{lon},{lat},0</coordinates></Point></Placemark>')
+    partes.append('</Document></kml>')
+    return PlainTextResponse("\n".join(partes), media_type="application/vnd.google-earth.kml+xml")
+
+@app.get("/api/exportar/gpx")
+def exportar_gpx():
+    """GPX 1.1 con el track completo (importable en rutas/strava/osmand)."""
+    pts = _track_puntos()
+    partes = ['<?xml version="1.0" encoding="UTF-8"?>',
+              '<gpx version="1.1" creator="TrackCam" xmlns="http://www.topografix.com/GPX/1/1">',
+              '<trk><name>TrackCam</name><trkseg>']
+    for ts, lat, lon in pts:
+        partes.append(f'<trkpt lat="{lat}" lon="{lon}"><time>{datetime.fromtimestamp(ts, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}</time></trkpt>')
+    partes.append('</trkseg></trk></gpx>')
+    return PlainTextResponse("\n".join(partes), media_type="application/gpx+xml")
+
+@app.get("/api/exportar/todo")
+def exportar_todo():
+    """Descarga completa: track GeoJSON + eventos (metadata) en un JSON."""
+    pts = _track_puntos()
+    con = get_db()
+    evs = con.execute("SELECT * FROM eventos ORDER BY ts_inicio").fetchall()
+    con.close()
+    cols = ["id","cam_id","cam_nombre","lat","lon","ts_inicio","ts_fin","video","n_fotos","tam"]
+    return {
+        "track": [{"ts": t, "lat": la, "lon": lo} for t, la, lo in pts],
+        "eventos": [dict(zip(cols, e)) for e in evs],
+        "exportado": datetime.now(timezone.utc).isoformat(),
+    }
+
 @app.get("/api/evento/{eid}/foto/{n}")
 def evento_foto(eid: str, n: str):
     p = os.path.join(DATA, "eventos", eid, n)

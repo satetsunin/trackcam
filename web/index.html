@@ -86,6 +86,16 @@
   <h3>🗄️ Almacenamiento <button id="btnCerrar">✕</button></h3>
   <div id="stats"></div>
   <div id="lista"><div class="vacio">Sin eventos todavía</div></div>
+  <div id="expBar" style="padding:8px 14px;border-top:1px solid #e2e8f0;background:#f8fafc;
+       display:flex;gap:8px;flex-wrap:wrap">
+    <a href="/api/exportar/kml" style="font-size:11px;padding:4px 10px;border-radius:6px;border:1px solid #bee3f8;
+       background:#ebf8ff;color:#2b6cb0;text-decoration:none">🌍 KML</a>
+    <a href="/api/exportar/gpx" style="font-size:11px;padding:4px 10px;border-radius:6px;border:1px solid #bee3f8;
+       background:#ebf8ff;color:#2b6cb0;text-decoration:none">🗺 GPX</a>
+    <a href="/api/exportar/todo" style="font-size:11px;padding:4px 10px;border-radius:6px;border:1px solid #bee3f8;
+       background:#ebf8ff;color:#2b6cb0;text-decoration:none">📦 Todo (JSON)</a>
+    <span style="font-size:10px;color:#a0aec0;align-self:center">track + eventos</span>
+  </div>
 </div>
 
 <script>
