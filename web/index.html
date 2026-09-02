@@ -255,9 +255,10 @@ button.mchip.pel:hover{background:#3b1620}
 .dotG::after{content:"";position:absolute;inset:-6px;border-radius:50%;border:2px solid rgba(34,197,94,.45);
   animation:onda 1.6s ease-out infinite}
 @keyframes onda{0%{transform:scale(.5);opacity:1}100%{transform:scale(1.6);opacity:0}}
-.cellM{background:radial-gradient(circle at 35% 30%,#2b4168,#152238);border:1px solid #3f5c8c;
-  color:#b7c9ea;font-size:11px;font-weight:700;display:grid;place-items:center;border-radius:50%;
-  cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,.5);user-select:none}
+.cellM{background:radial-gradient(circle at 35% 30%,#3b82f6,#1d4ed8);border:1px solid #60a5fa;
+  color:#fff;display:flex;align-items:center;justify-content:center;border-radius:50%;
+  font-size:11px;font-weight:700;box-shadow:0 0 8px rgba(59,130,246,.45);cursor:pointer;opacity:.92;
+  user-select:none}
 .cellM:hover{border-color:#7dd3fc;color:#fff}
 .leaflet-container{font:inherit}
 /* ────────── VELOCIDAD EN VIVO (en la sección inferior del panel) ────────── */
@@ -614,8 +615,8 @@ function pintarGrises(){
     const vis=S.cat.filter(c=>c.lat>=b.getSouth()&&c.lat<=b.getNorth()&&c.lon>=b.getWest()&&c.lon<=b.getEast());
     if(vis.length<=MAX_PUNTOS){
       for(const c of vis){
-        const mk=L.circleMarker([c.lat,c.lon],{radius:3.2,color:'#8fa3c8',weight:1,fillColor:'#6b7f9f',fillOpacity:.85});
-        mk.on('click',()=>mk.bindPopup(`<b>${D(c.nombre)}</b><br>${D(c.fuente)}${c.pais?' · '+D(c.pais):''}<br><span style="color:#888">sin pasadas en este filtro</span>`).openPopup());
+        const mk=L.circleMarker([c.lat,c.lon],{radius:3.5,color:'#60a5fa',weight:1,fillColor:'#3b82f6',fillOpacity:.9});
+        mk.on('click',()=>mk.bindPopup(`<b>${D(c.nombre)}</b><br>${D(c.fuente)}${c.pais?' · '+D(c.pais):''}<br><span style="color:#7dd3fc">🔵 sin caché ni pasadas</span>`).openPopup());
         capaGris.addLayer(mk);
       }
     }else{
@@ -809,7 +810,7 @@ async function cargarCache(){
 }
 function leyendaCapas(){
   const ci=$('catInfo'); if(!ci)return;
-  if(S.catOK&&S.cacheOK)ci.textContent=`🗺 Catálogo: ${S.cat.length.toLocaleString('es-ES')} cámaras (grises en el mapa) · 🟢 verde = pasadas (historial por días) · 🟠 naranja = fotos en caché (clic para verlas)`;
+  if(S.catOK&&S.cacheOK)ci.textContent=`🗺 Catálogo: ${S.cat.length.toLocaleString('es-ES')} cámaras · 🔵 azul = sin dato · 🟢 verde = pasadas (historial por días) · 🟠 naranja = fotos en caché (clic para verlas)`;
   else if(S.cacheOK&&!S.catOK)ci.textContent='🟠 naranja = cámaras con fotos en el caché · clic para ver la galería';
   else if(S.catOK)ci.textContent=`🗺 Catálogo: ${S.cat.length.toLocaleString('es-ES')} cámaras (grises en el mapa) · 🟢 verde = pasadas · clic en verde = historial`;
 }
