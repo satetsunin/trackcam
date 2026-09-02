@@ -31,6 +31,16 @@ EUROCAMS_JSON = os.environ.get(
 DB = os.path.join(DATA, "tracks.db")
 SESSION_HORAS = 24 * 30  # sesión válida 30 días
 
+# Modo de operación:
+#   ingesta (default) → recibe GPS (/track), login app, config OTA, control.
+#                       Sirve en track.satetsunin.com SIN Cloudflare Access.
+#   vision            → SOLO LECTURA: web del mapa, tracks, eventos, vídeos,
+#                       exportaciones. Sirve en trackcam.satetsunin.com CON
+#                       Cloudflare Access. NO arranca el motor de captura ni
+#                       expone endpoints de escritura.
+MODO = os.environ.get("TRACKCAM_MODO", "ingesta").strip().lower()
+MODO_VISION = MODO == "vision"
+
 os.makedirs(DATA, exist_ok=True)
 app = FastAPI(title="TrackCam")
 
@@ -117,6 +127,54 @@ def _auth(request: Request):
 
 def _pedir_auth():
     return JSONResponse({"error": "no autorizado"}, status_code=401)
+
+
+def _solo_lectura():
+    """En modo visión este endpoint de escritura no existe."""
+    return JSONResponse({"error": "servidor de solo lectura (trackcam)"},
+                        status_code=403)
+
+
+if MODO_VISION:
+    @app.api_route("/track", methods=["POST", "PUT", "PATCH", "DELETE"])
+    async def _vision_no_track(request: Request):
+        return _solo_lectura()
+
+    @app.api_route("/api/logout", methods=["POST"])
+    async def _vision_no_logout(request: Request):
+        return _solo_lectura()
+
+    @app.api_route("/api/usuarios", methods=["POST"])
+    async def _vision_no_crear_usuario(request: Request):
+        return _solo_lectura()
+
+    @app.api_route("/api/usuarios/{uid}/password", methods=["POST"])
+    async def _vision_no_password(request: Request, uid: int):
+        return _solo_lectura()
+
+    @app.api_route("/api/usuarios/{uid}", methods=["DELETE"])
+    async def _vision_no_borrar_usuario(request: Request, uid: int):
+        return _solo_lectura()
+
+    @app.api_route("/api/evento/{eid}", methods=["DELETE"])
+    async def _vision_no_borrar_evento(request: Request, eid: str):
+        return _solo_lectura()
+
+    @app.api_route("/api/limpiar_temps", methods=["POST"])
+    async def _vision_no_limpiar(request: Request):
+        return _solo_lectura()
+
+    @app.api_route("/api/ajustes", methods=["POST"])
+    async def _vision_no_ajustes(request: Request):
+        return _solo_lectura()
+
+    @app.api_route("/api/app_config", methods=["POST"])
+    async def _vision_no_config(request: Request):
+        return _solo_lectura()
+
+    @app.api_route("/control", methods=["GET", "POST"])
+    async def _vision_no_control(request: Request):
+        return _solo_lectura()
 
 
 @app.post("/api/login")
@@ -1154,12 +1212,17 @@ async def api_app_config_set(request: Request):
 load_camaras()
 
 # ── Motor de captura (F2, multi-usuario F5) ────────────────────────────────
-from backend.captura import MotorCaptura
+# Solo el modo ingesta captura fotogramas/escribe eventos; el modo visión
+# (trackcam.satetsunin.com) es de solo lectura y comparte la misma BD.
+if not MODO_VISION:
+    from backend.captura import MotorCaptura
 
-motor = MotorCaptura(
-    db_path=DB,
-    data_dir=DATA,
-    get_db_fn=get_db,
-    cams_cerca_fn=cams_cerca,
-)
-motor.start()
+    motor = MotorCaptura(
+        db_path=DB,
+        data_dir=DATA,
+        get_db_fn=get_db,
+        cams_cerca_fn=cams_cerca,
+    )
+    motor.start()
+else:
+    print("[trackcam] MODO VISIÓN (solo lectura) — motor de captura NO iniciado")
