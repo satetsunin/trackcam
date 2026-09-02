@@ -102,7 +102,7 @@ button.mini.salir:hover{background:#2a1116}
 #ph button:hover{color:var(--txt)}
 #tabs{display:flex;gap:4px;padding:6px 10px;background:var(--bg2);border-bottom:1px solid var(--line)}
 #tabs button{flex:1;background:var(--bg3);border:1px solid transparent;color:var(--mut);border-radius:8px;
-  padding:6px;font-size:12px;cursor:pointer;font-weight:600}
+  padding:6px;font-size:12px;cursor:pointer;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #tabs button.on{background:rgba(14,165,233,.16);border-color:var(--acc);color:#bae6fd}
 #scrol{flex:1;overflow-y:auto;padding:10px;display:flex;flex-direction:column;gap:8px}
 #scrol::-webkit-scrollbar{width:9px}
@@ -135,8 +135,8 @@ a.dl{font-size:11px;padding:4px 9px;border-radius:7px;text-decoration:none;font-
   color:var(--mut);border:1px solid var(--line2);cursor:pointer}
 .tabView button.on{background:rgba(14,165,233,.18);color:#bae6fd;border-color:var(--acc)}
 #visor,#visorCache{position:relative;background:#000;border-radius:8px;overflow:hidden}
-#visor{display:none}
-#visor img,#visorCache img{width:100%;display:block;max-height:250px;object-fit:contain;background:#000}
+/* (F5.4-D) la foto del visor ocupa ALTURA MEDIA del panel (no miniatura ni pantalla completa) */
+#visor img,#visorCache img{width:100%;display:block;max-height:min(44vh,430px);min-height:190px;object-fit:contain;background:#000}
 #visor .nav,#visorCache .nav{position:absolute;top:0;bottom:0;width:34px;border:0;background:rgba(0,0,0,.35);
   color:#fff;font-size:18px;cursor:pointer;z-index:5}
 #visor .nav:hover,#visorCache .nav:hover{background:rgba(0,0,0,.6)}
@@ -258,29 +258,42 @@ button.mchip.pel:hover{background:#3b1620}
   cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,.5);user-select:none}
 .cellM:hover{border-color:#7dd3fc;color:#fff}
 .leaflet-container{font:inherit}
-/* ────────── VELOCÍMETRO EN VIVO (flotante) ────────── */
-#velWrap{position:absolute;top:10px;right:calc(min(440px,94vw) + 16px);z-index:1100;display:flex;
-  align-items:center;gap:10px;background:var(--panel);border:1px solid var(--line2);
-  border-radius:14px;padding:7px 13px 7px 9px;backdrop-filter:blur(6px);
-  box-shadow:0 8px 26px rgba(0,0,0,.45);pointer-events:none;user-select:none}
-#velIcono{width:36px;height:36px;display:grid;place-items:center;font-size:19px;border-radius:50%;
-  background:var(--bg3);border:1px solid var(--line2);flex:none}
-#velIcono.moviendo{animation:latido 1.7s ease-in-out infinite}
-@keyframes latido{0%,100%{box-shadow:0 0 0 0 rgba(56,189,248,.0)}45%{box-shadow:0 0 0 8px rgba(56,189,248,.28)}}
-#velNum{font-size:23px;font-weight:800;line-height:1.05;font-variant-numeric:tabular-nums;color:var(--txt)}
-#velNum.sin{color:var(--mut2)}
-#velUn{font-size:9.5px;color:var(--mut);text-transform:uppercase;letter-spacing:.6px;margin-top:2px;white-space:nowrap}
-/* ────────── BLOQUE VELOCIDAD EN EL PANEL (gráfica + stats) ────────── */
-#velPanel{display:none;padding:7px 10px 9px;background:var(--bg2);border-bottom:1px solid var(--line)}
+/* ────────── VELOCIDAD EN VIVO (en la sección inferior del panel) ────────── */
+#velVivo{display:flex;align-items:center;gap:6px;flex:none;padding:2px 8px 2px 4px;background:var(--bg3);
+  border:1px solid var(--line2);border-radius:10px;margin-right:2px}
+#velVivo #velIcono{width:24px;height:24px;display:grid;place-items:center;font-size:13px;border-radius:50%;
+  background:var(--bg4);border:1px solid var(--line2);flex:none}
+#velVivo #velIcono.moviendo{animation:latido 1.7s ease-in-out infinite}
+@keyframes latido{0%,100%{box-shadow:0 0 0 0 rgba(56,189,248,0)}45%{box-shadow:0 0 0 7px rgba(56,189,248,.28)}}
+#velVivo .n{font-size:16px;font-weight:800;line-height:1.05;font-variant-numeric:tabular-nums;color:var(--txt)}
+#velVivo .n.sin{color:var(--mut2)}
+#velVivo .u{font-size:8px;color:var(--mut);text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis;max-width:120px}
+/* botones flotantes de REAPERTURA (F5.4-F): 📈 Velocidad y 🖼 Visor */
+.flot{position:absolute;z-index:1150;display:none;align-items:center;gap:5px;border-radius:999px;
+  padding:6px 12px;font-weight:700;font-size:12px;cursor:pointer;border:1px solid var(--line2);
+  background:linear-gradient(135deg,rgba(14,165,233,.18),rgba(37,99,235,.18));color:#bae6fd;
+  box-shadow:0 6px 18px rgba(0,0,0,.45);white-space:nowrap;backdrop-filter:blur(4px)}
+.flot.on{display:inline-flex}
+.flot:hover{border-color:var(--acc);background:rgba(14,165,233,.3)}
+#btnVelFlot{top:10px;right:calc(min(440px,94vw) + 16px)}
+#btnVisorFlot{top:48px;right:calc(min(440px,94vw) + 16px)}
+.flot small{font-weight:600;color:var(--mut2);font-size:10.5px}
+/* ────────── BLOQUE VELOCIDAD EN EL PANEL (gráfica + stats) ──────────
+   (F5.4-D) va ABAJO DEL TODO del panel lateral: última sección, tras el contenido. */
+#velPanel{display:none;flex:none;padding:6px 10px 8px;background:var(--bg2);border-top:1px solid var(--line)}
 #velPanel.on{display:block}
 #velPanel.plegado #velCuerpo{display:none}
 .vpT{display:flex;align-items:center;gap:6px;font-size:10.5px;text-transform:uppercase;
-  letter-spacing:1px;color:var(--mut2);margin-bottom:6px}
-.vpT .ttl{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.vpT #velRangoTxt{letter-spacing:0;text-transform:none;font-size:10px;color:var(--mut)}
-#velPlegar{background:transparent;border:1px solid var(--line2);color:var(--mut);
-  border-radius:6px;padding:0 6px;cursor:pointer;font-size:11px;line-height:1.5}
-#velPlegar:hover{color:var(--txt);border-color:var(--acc)}
+  letter-spacing:1px;color:var(--mut2);margin-bottom:5px;flex-wrap:wrap}
+.vpT .ttl{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:60px}
+.vpT #velRangoTxt{letter-spacing:0;text-transform:none;font-size:10px;color:var(--mut);white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis}
+.vpT button{background:transparent;border:1px solid var(--line2);color:var(--mut);
+  border-radius:6px;padding:0 7px;cursor:pointer;font-size:11px;line-height:1.6;flex:none}
+.vpT button:hover{color:var(--txt);border-color:var(--acc)}
+#velCerrar{color:#fca5a5;border-color:#7f1d1d}
+#velCerrar:hover{background:#2a1116}
 #velCanvasWrap{position:relative;border:1px solid var(--line);border-radius:9px;overflow:hidden;background:var(--bg3)}
 #velCanvas{display:block;width:100%;height:92px;cursor:crosshair;background:var(--bg3)}
 #velTip{position:absolute;pointer-events:none;display:none;background:rgba(7,13,23,.94);
@@ -302,6 +315,42 @@ button.mchip.pel:hover{background:#3b1620}
 #fabPanel{position:absolute;right:14px;bottom:14px;z-index:1250;display:none;border-radius:999px;
   padding:10px 15px;font-weight:800;font-size:13px;background:linear-gradient(135deg,#0ea5e9,#2563eb);
   border:0;color:#fff;cursor:pointer;box-shadow:0 8px 22px rgba(0,0,0,.5)}
+/* ────────── (F5.4) BARRA REPRODUCIR CRONOLOGÍA ────────── */
+#cronoBar{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:6px 9px;margin-bottom:7px;
+  border:1px solid rgba(56,189,248,.35);border-radius:10px;background:rgba(14,165,233,.08)}
+#cronoBar .nota{flex:1;color:var(--mut);font-size:11px;line-height:1.35;min-width:150px}
+#cronoBar .cbtn{border:1px solid var(--line2);background:var(--bg4);color:var(--txt);border-radius:8px;
+  padding:5px 10px;font-size:11.5px;font-weight:700;cursor:pointer;white-space:nowrap}
+#cronoBar .cbtn:hover{border-color:var(--acc)}
+#cronoBar .cbtn.pp{background:linear-gradient(135deg,#0ea5e9,#2563eb);border-color:transparent;color:#fff}
+#cronoBar .cbtn.x{color:#fca5a5;border-color:#7f1d1d}
+#cronoBar #cronoInfo{font-size:11.5px;font-weight:700;color:var(--txt)}
+#cronoBar #cronoInfo small{color:var(--mut);font-weight:600}
+#cronoBar .fotico{font-size:10px;color:var(--mut2);background:var(--bg3);border:1px dashed var(--line2);
+  border-radius:999px;padding:2px 8px}
+/* ────────── (F5.4) CABECERA DE CÁMARA (pasadas/caché/cercanas) ────────── */
+.camTop{display:flex;align-items:center;gap:7px;flex-wrap:wrap;border:1px solid var(--line2);
+  background:var(--bg3);border-radius:10px;padding:7px 9px}
+.camTop .nom{font-weight:800;font-size:12.5px;flex:1;min-width:120px;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.camTop .chip{font-size:10px;font-weight:700;border-radius:999px;padding:2px 8px;white-space:nowrap}
+.camTop .chip.v{background:rgba(34,197,94,.13);color:#86efac;border:1px solid rgba(34,197,94,.35)}
+.camTop .chip.c{background:rgba(245,158,11,.13);color:#fcd34d;border:1px solid rgba(245,158,11,.4)}
+.camTop .x{background:transparent;border:1px solid var(--line2);color:var(--mut2);border-radius:7px;
+  padding:1px 8px;cursor:pointer;font-size:11px}
+.camTop .x:hover{color:#fca5a5;border-color:#7f1d1d}
+.cerc{display:flex;align-items:center;gap:8px;width:100%;text-align:left;background:var(--bg3);
+  border:1px solid var(--line);border-radius:9px;padding:6px 10px;cursor:pointer;font-size:11.5px;
+  color:var(--txt)}
+.cerc:hover{border-color:var(--acc);background:var(--bg4)}
+.cerc .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cerc .d{margin-left:auto;font-weight:700;color:var(--mut);white-space:nowrap;font-size:10.5px}
+.cerc .ic{flex:none;font-size:12px}
+/* ────────── (F5.4) PERFIL: acciones de cuenta ────────── */
+.perfAcc{display:flex;gap:6px;flex-wrap:wrap;margin:2px 0 4px}
+.perfAcc button{font-size:11.5px;padding:6px 11px;border-radius:9px;cursor:pointer;
+  border:1px solid var(--line2);background:var(--bg3);color:var(--txt);font-weight:600}
+.perfAcc button:hover{border-color:var(--acc);color:#bae6fd}
 @media (max-width:900px){
   #topbar{gap:7px;padding:7px 10px}
   #filtros{padding:7px 10px;gap:6px}
@@ -310,8 +359,7 @@ button.mchip.pel:hover{background:#3b1620}
   #panel.oculto{transform:translateY(calc(100% + 16px))}
   #fabPanel{display:block}
   .brand{font-size:14px}
-  #velWrap{right:10px;top:10px}
-  #velNum{font-size:20px}
+  #cronoBar .nota{display:none}
 }
 </style>
 </head>
@@ -391,48 +439,41 @@ button.mchip.pel:hover{background:#3b1620}
 
   <div id="mapWrap">
     <div id="map"></div>
-    <div id="velWrap" title="Velocidad en vivo">
-      <div id="velIcono">❔</div>
-      <div>
-        <div id="velNum" class="sin">—</div>
-        <div id="velUn">km/h · en vivo</div>
-      </div>
-    </div>
+    <button class="flot" id="btnVelFlot" title="Reabrir la sección de velocidad (velocímetro en vivo + gráfica)">📈 Velocidad</button>
+    <button class="flot" id="btnVisorFlot" title="Reabrir el visor del último evento abierto">🖼 Visor</button>
     <button id="fabPanel">📋 Panel</button>
   </div>
 
   <div id="panel">
     <div id="ph">
-      <span class="t">🗄️ Almacenamiento y estado</span>
+      <span class="t">🎥 TrackCam · panel</span>
       <button id="btnCerrar" title="Ocultar panel">✕</button>
     </div>
-    <div id="estado"></div>
-    <div id="velPanel">
-      <div class="vpT">
-        <span class="ttl">⚡ Velocidad del track</span>
-        <span id="velRangoTxt"></span>
-        <button id="velPlegar" title="Plegar/desplegar">▾</button>
-      </div>
-      <div id="velCuerpo">
-        <div id="velCanvasWrap"><canvas id="velCanvas"></canvas><div id="velTip"></div></div>
-        <div id="velStats"></div>
-        <div id="velLey">
-          <span class="lk"><span class="sw" style="background:#64748b"></span>parado / sin dato</span>
-          <span class="lk"><span class="sw" style="background:#38bdf8"></span>&lt;7 andando</span>
-          <span class="lk"><span class="sw" style="background:#22c55e"></span>7–20 bici</span>
-          <span class="lk"><span class="sw" style="background:#f59e0b"></span>20–50 urbano</span>
-          <span class="lk"><span class="sw" style="background:#fb923c"></span>50–120 carretera</span>
-          <span class="lk"><span class="sw" style="background:#ef4444"></span>&gt;120 rápido</span>
-        </div>
-      </div>
-    </div>
     <div id="tabs">
-      <button data-tab="evs" class="on">Eventos (rango)</button>
-      <button data-tab="hist">Historial de pasadas</button>
+      <button data-tab="evs" class="on">🎥 Eventos (rango)</button>
+      <button data-tab="hist">📅 Historial</button>
+      <button data-tab="perfil">👤 Perfil</button>
     </div>
     <div id="scrol">
       <div id="vistaEvs"></div>
       <div id="vistaHist" style="display:none"></div>
+      <div id="vistaPerfil" style="display:none"><div id="estado"></div></div>
+    </div>
+    <div id="velPanel">
+      <div class="vpT">
+        <span id="velVivo" title="Velocidad en vivo del track">
+          <span id="velIcono">❔</span><span class="n sin" id="velNum">—</span><span class="u" id="velUn">km/h · en vivo</span>
+        </span>
+        <span class="ttl">⚡ Velocidad del track</span>
+        <span id="velRangoTxt"></span>
+        <button id="velPlegar" title="Plegar/desplegar la gráfica">▾</button>
+        <button id="velCerrar" title="Cerrar esta sección (se reabre con 📈 Velocidad)">✕</button>
+      </div>
+      <div id="velCuerpo">
+        <div id="velCanvasWrap"><canvas id="velCanvas"></canvas><div id="velTip"></div></div>
+        <div id="velStats"></div>
+        <div id="velLey"></div>
+      </div>
     </div>
   </div>
 </div>
@@ -455,7 +496,10 @@ const S = {token:null, user:null, rol:null, uid:null, vista:null /*null=yo, ''=g
            cat:null, catOK:false, verdes:[], eventos:[], pts:[],
            perf:'ptodo', rangoD:null, rangoH:null, horaA:'00:00', horaB:'23:59', horaActiva:false,
            histCam:null, histCamNom:null, fotoPat:null, busy:false, tab:'evs',
-           modoHist:'pasadas', cache:[], cacheCam:null, cacheRec:null, cacheIdx:0, cacheUser:null, cacheUlt:0, cacheOK:false};
+           modoHist:'pasadas', cache:[], cacheCam:null, cacheRec:null, cacheIdx:0, cacheUser:null, cacheUlt:0, cacheOK:false,
+           camLat:null, camLon:null, _histEvs:null, _histFetched:null, _cercList:[], ultEv:null, _estado:null};
+let velCerrado=false;       // F5.4-F: sección de velocidad cerrada del todo (botón 📈 flotante para reabrir)
+let crono=null;             // F5.4-C: estado de la reproducción de cronología {evs,i,play,modo,mk,vid,raf,t}
 
 /* ───────── utilidades ───────── */
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
@@ -582,6 +626,12 @@ function verdeIcon(){return L.divIcon({className:'',html:'<div class="dotG"></di
    mismo bucket en tramos → 1 L.polyline por tramo (no una por punto). */
 const VCOL={g:'#64748b',a:'#38bdf8',b:'#22c55e',u:'#f59e0b',c:'#fb923c',r:'#ef4444'};
 const VMODO_LEG={andando:'andando',bici:'bici',urbano:'urbano',carretera:'carretera',rapido:'rápido',parado:'parado'};
+const VEL_LEYENDA='<span class="lk"><span class="sw" style="background:#64748b"></span>parado / sin dato</span>'
+  +'<span class="lk"><span class="sw" style="background:#38bdf8"></span>&lt;7 andando</span>'
+  +'<span class="lk"><span class="sw" style="background:#22c55e"></span>7–20 bici</span>'
+  +'<span class="lk"><span class="sw" style="background:#f59e0b"></span>20–50 urbano</span>'
+  +'<span class="lk"><span class="sw" style="background:#fb923c"></span>50–120 carretera</span>'
+  +'<span class="lk"><span class="sw" style="background:#ef4444"></span>&gt;120 rápido</span>';
 function bucketVel(v){
   if(v==null||isNaN(v)||v<1)return 'g';
   if(v<7)return 'a';
@@ -674,7 +724,7 @@ function pintarVerdes(){
     const mk=L.marker([c.lat,c.lon],{icon:verdeIcon(),zIndexOffset:3000});
     const pc=porCam.get(c.cam_id);
     mk.bindTooltip(`${D(c.nombre)}${pc?` — ${pc.n} pasada${pc.n>1?'s':''} en el filtro`:''}`);
-    mk.on('click',()=>abrirHistorial(c.cam_id,c.nombre));
+    mk.on('click',()=>abrirCamaraMapa({cam_id:c.cam_id,nombre:c.nombre,lat:c.lat,lon:c.lon,fuente:c.fuente,cache:null},'pasadas'));
     capaVerde.addLayer(mk);
   });
   resumen();
@@ -753,12 +803,10 @@ function leyendaCapas(){
   else if(S.cacheOK&&!S.catOK)ci.textContent='🟠 naranja = cámaras con fotos en el caché · clic para ver la galería';
   else if(S.catOK)ci.textContent=`🗺 Catálogo: ${S.cat.length.toLocaleString('es-ES')} cámaras (grises en el mapa) · 🟢 verde = pasadas · clic en verde = historial`;
 }
-/* Click en un naranja: abre el panel «Historial» pero con la GALERÍA del caché */
+/* Click en un naranja: abre el panel de cámara con minipestañas y la GALERÍA del caché por defecto */
 async function abrirCache(c){
   const r=resolverCacheCam(c);
-  S.cacheRec=Object.assign({},c,{lat:r.lat,lon:r.lon,nombre:r.nombre,fuente:r.fuente});
-  S.cacheCam=c.cam_id; S.cacheIdx=0; S.modoHist='cache';
-  switchTab('hist');
+  abrirCamaraMapa({cam_id:c.cam_id,nombre:r.nombre,lat:r.lat,lon:r.lon,fuente:r.fuente,cache:c},'cache');
 }
 
 /* ═══════════════ VELOCÍMETRO EN VIVO (poll 4 s) ═══════════════ */
@@ -800,11 +848,65 @@ function arrancarVel(){
 function pararVel(){
   if(velTimer){clearInterval(velTimer);velTimer=null;}
 }
-/* El panel lateral derecho tapa la esquina: el velocímetro vive a su izquierda
-   y se pega al borde derecho solo cuando el panel está oculto. */
+/* F5.4-F: botones flotantes de reapertura (📈 Velocidad / 🖼 Visor). La sección de
+   velocidad y el visor viven en el panel lateral; si se cierran (o el panel está
+   oculto), quedan botones visibles sobre el mapa para volver a abrirlos. */
+function buscarEvCard(id){
+  if(id==null)return null;
+  const pref=(S.tab==='hist')?['#vistaHist','#vistaEvs']:['#vistaEvs','#vistaHist'];
+  for(const sel of pref){
+    const el=document.querySelector(`${sel} .ev[data-id="${CSS.escape(String(id))}"]`);
+    if(el)return {el,vista:sel==='#vistaEvs'?'evs':'hist'};
+  }
+  return null;
+}
 function ajustarVel(){
   const oc=$('panel').classList.contains('oculto');
-  $('velWrap').style.right=oc?'12px':'';
+  const r=oc?'12px':'';                 // al ocultar el panel, los botones se pegan al borde
+  const vf=$('btnVelFlot'), vis=$('btnVisorFlot');
+  if(vf)vf.style.right=r; if(vis)vis.style.right=r;
+  actualizarBotonesFlot();
+}
+function actualizarBotonesFlot(){
+  const oc=$('panel').classList.contains('oculto');
+  const r=oc?'12px':'';                       // al ocultar el panel, se pegan al borde derecho del mapa
+  const vf=$('btnVelFlot'), vis=$('btnVisorFlot');
+  if(vf)vf.style.right=r; if(vis)vis.style.right=r;
+  const velPanel=$('velPanel');
+  const velVisible=!oc&&velPanel&&velPanel.style.display!=='none';
+  const bv=$('btnVelFlot'); if(bv)bv.classList.toggle('on',!velVisible);
+  let vOn=false;
+  if(S.ultEv){
+    const c=buscarEvCard(S.ultEv);
+    vOn=!!c&&(oc||c.el.offsetParent===null||!c.el.classList.contains('open')); // visor cerrado/oculto, o panel oculto
+  }
+  const bvi=$('btnVisorFlot'); if(bvi)bvi.classList.toggle('on',vOn);
+}
+function ajustarVel(){
+  actualizarBotonesFlot();
+}
+$('btnVelFlot').onclick=()=>{            // reabrir la sección de velocidad inferior
+  velCerrado=false;
+  const vp=$('velPanel'); if(vp){vp.style.display='';}
+  $('panel').classList.remove('oculto');
+  pintarVel();                            // repinta datos actuales
+  ajustarVel();
+};
+$('btnVisorFlot').onclick=()=>{          // reabrir el visor del último evento
+  const id=S.ultEv; if(id==null)return;
+  const c=buscarEvCard(id); if(!c)return;
+  if(c.vista!==S.tab||(c.vista==='evs'&&$('vistaEvs').style.display==='none')||(c.vista==='hist'&&$('vistaHist').style.display==='none'))switchTab(c.vista);
+  const el=c.el;
+  if(!el.classList.contains('open')){
+    el.classList.add('open');
+    const ev=S.eventos.find(x=>x.id===id)||(S._histEvs||[]).find(x=>x.id===id);
+    if(ev&&!el.querySelector('.det video'))el.querySelector('.det').innerHTML=visorHTML(ev);
+  }
+  el.scrollIntoView({block:'nearest'});
+  ajustarVel();
+};
+function reabrirVel(){                    // alias usado desde el ✕ de cerrar sección
+  $('btnVelFlot').click();
 }
 
 /* ═══════════════ GRÁFICA VELOCIDAD vs DISTANCIA + ESTADÍSTICAS ═══════════════ */
@@ -871,11 +973,16 @@ function pintarVel(){                          // recalcula perfil y dibuja (tra
   const vp=$('velPanel'); if(!vp)return;
   ocultarVelHover();
   perfilV=calcPerfil();
-  vp.classList.add('on');
   const rt=$('velRangoTxt');
-  if(perfilV)rt.textContent=`${perfilV.n.toLocaleString('es-ES')} pts · ${perfilV.ts0!=null?fmtF(perfilV.ts0):''}–${perfilV.tsN!=null?fmtF(perfilV.tsN):''}`;
-  else rt.textContent=S.pts.length?S.pts.length+' pts':'';
-  $('velStats').innerHTML=perfilV?statsHTML(perfilV):'';
+  if(rt){
+    if(perfilV)rt.textContent=`${perfilV.n.toLocaleString('es-ES')} pts · ${perfilV.ts0!=null?fmtF(perfilV.ts0):''}–${perfilV.tsN!=null?fmtF(perfilV.tsN):''}`;
+    else rt.textContent=S.pts.length?S.pts.length+' pts':'';
+  }
+  const st=$('velStats'); if(st)st.innerHTML=perfilV?statsHTML(perfilV):'';
+  const ley=$('velLey');
+  if(ley&&!ley.childElementCount)ley.innerHTML=VEL_LEYENDA;   // leyenda estática (una sola vez)
+  if(velCerrado)return;                        // el usuario la cerró del todo: no se muestra
+  vp.classList.add('on');
   dibujaPerfil(null);
 }
 function dibujaPerfil(hoverF){
@@ -1008,6 +1115,34 @@ $('velPlegar').onclick=()=>{
   $('velPanel').classList.toggle('plegado',velPlegado);
   $('velPlegar').textContent=velPlegado?'▴':'▾';
 };
+$('velCerrar').onclick=()=>{                 // F5.4-F: cerrar del todo la sección de velocidad
+  velCerrado=true; velPlegado=false;
+  const vp=$('velPanel'); if(vp){vp.style.display='none';vp.classList.remove('plegado');}
+  $('velPlegar').textContent='▾';
+  ocultarVelHover();
+  actualizarBotonesFlot();
+};
+/* F5.4-E: CLICK en la gráfica → centrar el mapa en ese punto del track (flyTo) + marcador */
+$('velCanvas').addEventListener('click',ev=>{
+  const cv=$('velCanvas'); if(!cv||!perfilV)return;
+  const b=cv.getBoundingClientRect();
+  const x=ev.clientX-b.left, cw=cv.clientWidth, ML=32, MR=8;
+  const iw=cw-ML-MR; if(iw<=10)return;
+  const frac=(x-ML)/iw;
+  if(frac<0||frac>1)return;
+  const f=filaPorDistancia(frac*perfilV.dist);
+  if(!f||f.lat==null||isNaN(f.lat))return;
+  dibujaPerfil(f);
+  const tip=$('velTip');
+  tip.style.display='block';
+  tip.innerHTML=`km ${f.d.toLocaleString('es-ES',{minimumFractionDigits:1,maximumFractionDigits:2})} · v <b>${fmtVkmh(f.v)}</b> km/h · ${horaPunto(f.ts)}`;
+  tip.style.left=Math.max(2,Math.min(x+10,cw-172))+'px';
+  tip.style.top=Math.min(cv.clientHeight-30,Math.max(2,ev.clientY-b.top+14))+'px';
+  marcarPuntoMapa(f.lat,f.lon);
+  const ll=[f.lat,f.lon];
+  L.popup().setLatLng(ll).setContent(`📍 km ${f.d.toLocaleString('es-ES',{maximumFractionDigits:2})} · <b style="color:var(--acc)">${fmtVkmh(f.v)} km/h</b> · ${horaPunto(f.ts)}`).openOn(map);
+  map.flyTo(ll,Math.max(map.getZoom(),16),{duration:.5});
+});
 
 /* ═══════════════ SESIÓN / LOGIN ═══════════════ */
 async function initAuth(){
@@ -1183,9 +1318,10 @@ async function refreshTodo(){
 }
 $('btnRefrescar').onclick=()=>{autoFit=false;refreshTodo();};
 
-/* ═══════════════ PANEL ESTADO ═══════════════ */
+/* ═══════════════ PESTAÑA PERFIL (F5.4-A): estado técnico + cuotas + exportaciones ═══════════════ */
 function pintaEstado(st){
   if(!st)return;
+  S._estado=st;
   S.retDias=st.retencion_cache_dias!=null?st.retencion_cache_dias:30;
   S.cuotaCacheG=st.cuota_cache_gb||30;
   const gb=st.cuota_eventos_gb||0, gbMax=st.cuota_eventos_gb_max||gb, tmb=st.cuota_temps_mb||0;
@@ -1193,21 +1329,31 @@ function pintaEstado(st){
   const pctTp=Math.min(100,(st.tam_temps||0)/(Math.max(1,tmb)*1e6)*100);
   const cEv=pctEv>85?'var(--red)':pctEv>60?'var(--amb)':'var(--grn)';
   const cTp=pctTp>85?'var(--red)':pctTp>60?'var(--amb)':'var(--grn)';
+  const esAdmin=st.rol==='admin';
+  const expQ=qs(S.rol==='admin'&&S.vista?{usuario:S.vista}:{});
   $('estado').innerHTML=`
+   <div class="seccion"><span>👤 Cuenta y sesión</span></div>
    <div class="stTop">
-     <span>👤 <b>${D(st.usuario)}</b> <span class="badgeRol ${st.rol==='admin'?'admin':''}">${D(st.rol)}</span></span>
+     <span>👤 <b>${D(st.usuario)}</b> <span class="badgeRol ${esAdmin?'admin':''}">${D(st.rol)}</span>
+       ${(S.rol==='admin'&&S.vista&&S.vista!==String(S.uid))?`<span style="font-size:10.5px;color:var(--mut2)">👁 viendo como ${D(nombreVista())}</span>`:''}</span>
      <span class="stCifras">
        <span>📈 <b>${(st.puntos_track||0).toLocaleString('es-ES')}</b> pts</span>
        <span>🎥 <b>${st.eventos}</b> eventos</span>
        <span>🟢 <b>${nVerdes()}</b> verdes</span>
      </span>
    </div>
+   <div class="perfAcc">
+     ${esAdmin?'<button onclick="abrirUsuarios()" title="Crear/borrar usuarios y resetear contraseñas">👥 Usuarios</button><button onclick="abrirAjustes()" title="Ajustes del motor de captura">⚙️ Motor</button>':''}
+     <button onclick="abrirPass(${S.uid})" title="Cambiar mi contraseña">🔑 Contraseña</button>
+   </div>
+   <div class="seccion"><span>📊 Estado del sistema</span><span>se actualiza cada 20 s</span></div>
    <div class="stGrid">
      <span>📸 descargas <b>${st.descargas_ok} ok</b> · <b>${st.descargas_fallo}</b> fallo</span>
      <span>📷 <b>${(st.camaras_cargadas||0).toLocaleString('es-ES')}</b> cámaras catálogo</span>
      <span>🟢 <b>${st.camaras_activas}</b> activas · <b>${st.camaras_capturando}</b> capturando</span>
      <span>👥 <b>${st.usuarios_trackeando}</b> usuarios trackeando</span>
    </div>
+   <div class="seccion"><span>💾 Almacenamiento</span></div>
    <div class="cuota"><div class="txt"><span class="lab">🎥 Eventos</span><span class="val"><b>${fmtBytes(st.tam_eventos)}</b> de ${fmtBytes(gb*1e9)}</span></div>
      <div class="barra"><div class="relleno" style="width:${pctEv.toFixed(1)}%;background:${cEv}"></div></div>
      <div class="meta"><span>cuota máx ${fmtBytes(gbMax*1e9)}</span><span>${st.eventos} eventos</span></div></div>
@@ -1216,24 +1362,26 @@ function pintaEstado(st){
      <div class="meta"><span>archivos temporales de captura</span><span>${pctTp.toFixed(0)} % usado</span></div></div>
    ${cacheCuotaHTML(st)}
    <div class="cuota"><div class="txt"><span class="lab">🗃️ Base de datos</span><span class="val"><b>${fmtBytes(st.tam_tracks_db)}</b> de tracks</span></div></div>
+   <div class="seccion"><span>📤 Exportaciones</span></div>
    <div class="expRow">
-     <a class="dl" href="${au('/api/exportar/kml'+qs(S.rol==='admin'&&S.vista?{usuario:S.vista}:{}))}">🌍 KML</a>
-     <a class="dl" href="${au('/api/exportar/gpx'+qs(S.rol==='admin'&&S.vista?{usuario:S.vista}:{}))}">🗺 GPX</a>
-     <a class="dl" href="${au('/api/exportar/todo'+qs(S.rol==='admin'&&S.vista?{usuario:S.vista}:{}))}">📦 Todo JSON</a>
-     </div>`;
-     }
-     /* Tarjeta del caché persistente en el panel de estado */
-     function cacheCuotaHTML(st){
-     if(st.tam_cache==null&&st.cuota_cache_gb==null)return '';
-     const cuota=st.cuota_cache_gb||0, cuotaMax=st.cuota_cache_gb_max||cuota;
-     const ret=S.retDias, tam=st.tam_cache||0;
-     const pct=Math.min(100,tam/(Math.max(1,cuota)*1e9)*100);
-     const col=pct>85?'var(--red)':pct>60?'var(--amb)':'var(--grn)';
-     const nCams=(S.cache||[]).length;
-     return `<div class="cuota"><div class="txt"><span class="lab">📸 Caché (${ret} días)</span><span class="val"><b>${fmtBytes(tam)}</b> de ${fmtBytes(cuota*1e9)}</span></div>
-     <div class="barra"><div class="relleno" style="width:${pct.toFixed(1)}%;background:${col}"></div></div>
-     <div class="meta"><span>retención ${ret} días · dedup umbral ${st.umbral_dedup!=null?st.umbral_dedup:4} bits</span><span>${nCams?nCams+' cámara'+(nCams!==1?'s':'')+' con caché 🟠':'cuota máx '+fmtBytes(cuotaMax*1e9)}</span></div></div>`;
-     }
+     <a class="dl" href="${au('/api/exportar/kml'+expQ)}">🌍 KML</a>
+     <a class="dl" href="${au('/api/exportar/gpx'+expQ)}">🗺 GPX</a>
+     <a class="dl" href="${au('/api/exportar/todo'+expQ)}">📦 Todo JSON</a>
+   </div>
+   <div class="mnote">Exportan el track y sus eventos de la vista actual${(S.rol==='admin'&&S.vista)?' (usuario elegido arriba)':''}. Si el caché 🟠 o el histórico están vacíos, revisa el rango temporal de arriba.</div>`;
+}
+/* Tarjeta del caché persistente en el panel de estado */
+function cacheCuotaHTML(st){
+  if(st.tam_cache==null&&st.cuota_cache_gb==null)return '';
+  const cuota=st.cuota_cache_gb||0, cuotaMax=st.cuota_cache_gb_max||cuota;
+  const ret=S.retDias, tam=st.tam_cache||0;
+  const pct=Math.min(100,tam/(Math.max(1,cuota)*1e9)*100);
+  const col=pct>85?'var(--red)':pct>60?'var(--amb)':'var(--grn)';
+  const nCams=(S.cache||[]).length;
+  return `<div class="cuota"><div class="txt"><span class="lab">📸 Caché (${ret} días)</span><span class="val"><b>${fmtBytes(tam)}</b> de ${fmtBytes(cuota*1e9)}</span></div>
+    <div class="barra"><div class="relleno" style="width:${pct.toFixed(1)}%;background:${col}"></div></div>
+    <div class="meta"><span>retención ${ret} días · dedup umbral ${st.umbral_dedup!=null?st.umbral_dedup:4} bits</span><span>${nCams?nCams+' cámara'+(nCams!==1?'s':'')+' con caché 🟠':'cuota máx '+fmtBytes(cuotaMax*1e9)}</span></div></div>`;
+}
 /* ═══════════════ RESUMEN ═══════════════ */
 /* Total de cámaras verdes: unión de /api/verdes con los cam_id de los eventos
    del rango (en modo hora /api/verdes no se consulta y se derivan de eventos). */
@@ -1254,11 +1402,15 @@ function resumen(){
 /* ═══════════════ TABS DEL PANEL ═══════════════ */
 document.querySelectorAll('#tabs button').forEach(b=>b.onclick=()=>{switchTab(b.dataset.tab);});
 function switchTab(t){
+  if(t!=='evs'&&crono)cronoParar(true);       // salir de Eventos corta la reproducción de cronología
   S.tab=t;
   document.querySelectorAll('#tabs button').forEach(b=>b.classList.toggle('on',b.dataset.tab===t));
   $('vistaEvs').style.display=(t==='evs')?'':'none';
   $('vistaHist').style.display=(t==='hist')?'':'none';
+  $('vistaPerfil').style.display=(t==='perfil')?'':'none';
   if(t==='hist')renderHist();
+  if(t==='perfil'&&S._estado)pintaEstado(S._estado);   // repinta al instante desde la última lectura
+  actualizarBotonesFlot();
 }
 $('btnCerrar').onclick=()=>{ $('panel').classList.add('oculto'); ajustarVel(); };
 $('fabPanel').onclick=()=>{ $('panel').classList.remove('oculto'); ajustarVel(); };
@@ -1276,9 +1428,16 @@ function tarjetaEvento(e,expandido){
   </div>`;
 }
 function renderEventos(){
-  const c=$('vistaEvs');
-  if(!S.eventos.length){c.innerHTML='<div class="vacio">Sin eventos en el rango seleccionado.<br>Prueba con «Todo» o amplía fechas.</div>';return;}
-  c.innerHTML=S.eventos.map(e=>tarjetaEvento(e,false)).join('');
+  const c=$('vistaEvs'); if(!c)return;
+  if(crono)cronoParar(true);                 // una recarga/filtro corta la reproducción (los <video> se sustituyen)
+  if(!S.eventos.length){
+    c.innerHTML='<div class="vacio">Sin eventos en el rango seleccionado.<br>Prueba con «Todo» o amplía fechas.</div>';
+    if(S.ultEv&&!(S._histEvs||[]).some(x=>x.id===S.ultEv)){S.ultEv=null;actualizarBotonesFlot();}
+    return;
+  }
+  if(S.ultEv&&!S.eventos.some(x=>x.id===S.ultEv)&&!(S._histEvs||[]).some(x=>x.id===S.ultEv)){S.ultEv=null;}
+  c.innerHTML=cronoBarHTML()+S.eventos.map(e=>tarjetaEvento(e,false)).join('');
+  actualizarBotonesFlot();
 }
 /* Devuelve la tarjeta de evento VISIBLE que contiene ese id (un evento puede
    estar a la vez en "Eventos" y en "Historial"; evita tocar la oculta). */
@@ -1296,38 +1455,121 @@ function evEl(id){
 window.toggleEv=function(id){
   const el=evEl(id);
   if(!el)return;
+  S.ultEv=id;                                 // F5.4-F: recordar último evento para el botón 🖼 Visor
   el.classList.toggle('open');
   if(el.classList.contains('open')&&!el.querySelector('.det video')){
     const ev=S.eventos.find(x=>x.id===id)||(S._histEvs||[]).find(x=>x.id===id);
     if(ev)el.querySelector('.det').innerHTML=visorHTML(ev);
   }
+  actualizarBotonesFlot();
 };
-/* ═══════════════ HISTORIAL DE PASADAS (por cámara verde) ═══════════════ */
-async function abrirHistorial(camId,nombre){
-  S.histCam=camId; S.histCamNom=nombre; S.modoHist='pasadas'; switchTab('hist');
-  const v=$('vistaHist');
-  v.innerHTML='<div class="vacio"><span class="spin"></span>Cargando historial de pasadas…</div>';
-  try{
-    const p={cam_id:camId}; if(S.rol==='admin'&&S.vista)p.usuario=S.vista;
-    const evs=await api('/api/eventos'+qs(p));
-    if(S.histCam!==camId)return;             // descarta respuesta obsoleta
-    S._histEvs=evs;
-    renderHist();
-  }catch(e){ if(S.histCam===camId)v.innerHTML=`<div class="vacio">Error: ${D(e.message)}</div>`; }
+/* ═══════════════ PANEL DE CÁMARA (F5.4-B): minipestañas Pasadas|Caché + cercanas ═══════════════ */
+/* Entrada unificada al pulsar una cámara (verde 🟢, naranja 🟠 o cercana).
+   rec: {cam_id, nombre, lat, lon, fuente, cache?} · cache = registro de /api/cache si existe.
+   OJO: una misma cámara puede tener DOS ids — el del catálogo/eventos con puntos
+   (p.ej. 'Bilbao-Ayto_43.26_-2.93', usado por PASADAS) y el sanitizado del directorio
+   del caché con guiones bajos ('Bilbao-Ayto_43_26_-2_93', usado por las FOTOS).
+   Se guardan por separado: S.histCam (pasadas) y S.cacheCam (fotos). */
+function buscarCacheRec(camId,lat,lon){
+  const arr=S.cache||[];
+  let hit=arr.find(x=>x.cam_id===camId)||null;
+  if(!hit&&typeof lat==='number'&&typeof lon==='number'){
+    const k=llaveCam(lat,lon);
+    if(k)hit=arr.find(x=>{const r=resolverCacheCam(x);return llaveCam(r.lat,r.lon)===k;})||null;
+  }
+  return hit;
 }
-function renderHist(){
-  const v=$('vistaHist'); if(S.tab!=='hist')return;
-  if(S.modoHist==='cache'){renderCache();return;}
+function abrirCamaraMapa(rec,miniPrefer){
+  if(!rec||rec.cam_id==null)return;
+  const cache=rec.cache||buscarCacheRec(rec.cam_id,rec.lat,rec.lon)||null;
+  S.histCam=rec.cam_id; S.histCamNom=rec.nombre||rec.cam_id;
+  S.cacheCam=cache?cache.cam_id:rec.cam_id;
+  S.cacheRec=cache;
+  S.cacheIdx=0;
+  S._histFetched=null; S._histEvs=null;      // fuerza recargar las pasadas de esta cámara
+  S.camLat=(typeof rec.lat==='number')?rec.lat:null;
+  S.camLon=(typeof rec.lon==='number')?rec.lon:null;
+  const hayCach=!!(cache&&cache.n_fotos);
+  S.modoHist=(miniPrefer==='cache'||miniPrefer==='pasadas')?miniPrefer:(hayCach?'cache':'pasadas');
+  if(S.modoHist==='cache'&&!hayCach)S.modoHist='pasadas';
+  $('panel').classList.remove('oculto');     // clic en el mapa ⇒ enseñar el panel
+  switchTab('hist');
+}
+window.miniCam=function(m){                  // cambiar de minipestaña dentro de la cámara
+  let cach=!!(S.cacheRec&&S.cacheRec.n_fotos);
+  if(m==='cache'&&!cach){                    // reintento: el caché puede haber llegado en el último poll
+    const cr=buscarCacheRec(S.histCam,S.camLat,S.camLon);
+    if(cr&&cr.n_fotos){S.cacheRec=cr;S.cacheCam=cr.cam_id;cach=true;}
+  }
+  if(m==='cache'&&!cach){toast('Esta cámara no tiene fotos en el caché 🟠 (solo pasadas 🟢)',true);return;}
+  S.modoHist=m; S.cacheIdx=0;
+  renderHist();
+};
+window.salirCamara=function(){               // ✕ de la cabecera: volver a la guía
+  S.histCam=null;S.histCamNom=null;S.cacheCam=null;S.cacheRec=null;S.modoHist='pasadas';
+  S._histEvs=null;S._histFetched=null;S.camLat=null;S.camLon=null;S._cercList=[];
+  renderHist();
+};
+function renderHist(){                        // pinta la vista Historial (cámara activa o guía)
+  const v=$('vistaHist'); if(!v||S.tab!=='hist')return;
+  if(S.modoHist==='cache'&&S.histCam&&!S.cacheRec){  // el caché puede haber llegado en el último poll
+    const cr=buscarCacheRec(S.histCam,S.camLat,S.camLon);
+    if(cr){S.cacheRec=cr;S.cacheCam=cr.cam_id;}
+  }
   const cam=S.histCam;
-  if(!cam){v.innerHTML='<div class="vacio">Haz clic en una cámara <span style="color:#4ade80">verde</span> 🟢 del mapa para ver aquí<br>el historial de TODAS sus pasadas (agrupado por días),<br>o en una <span style="color:#fb923c">naranja</span> 🟠 para ver las fotos de su caché.</div>';return;}
-  const evs=S._histEvs||[];
+  if(!cam){
+    v.innerHTML='<div class="vacio">Haz clic en una cámara del mapa —<br><span style="color:#4ade80">verde</span> 🟢 (pasadas) o <span style="color:#fb923c">naranja</span> 🟠 (caché) —<br>para ver aquí: sus <b>pasadas</b> por días, las <b>fotos de su caché</b><br>y las <b>demás cámaras cercanas</b> por distancia.</div>';
+    actualizarBotonesFlot();
+    return;
+  }
+  const cach=!!(S.cacheRec&&S.cacheRec.n_fotos);
+  const nf=S.cacheRec?Math.max(1,S.cacheRec.n_fotos||1):0;
+  v.innerHTML=`
+   <div class="camTop">
+     <span class="nom">📷 ${D(S.histCamNom||cam)}</span>
+     ${cach?`<span class="chip c">🟠 ${nf} foto${nf!==1?'s':''} en caché</span>`:'<span class="chip v">🟢 pasadas</span>'}
+     <button class="x" onclick="salirCamara()" title="Cerrar la vista de esta cámara">✕</button>
+   </div>
+   <div class="tabView" id="miniTabs">
+     <button data-mini="pasadas" onclick="miniCam(\'pasadas\')" class="${S.modoHist==='pasadas'?'on':''}">📅 Pasadas</button>
+     <button data-mini="cache" onclick="miniCam(\'cache\')" class="${S.modoHist==='cache'?'on':''}">📸 Caché</button>
+   </div>
+   <div id="camBody"></div>
+   <div id="camsCerc"></div>`;
+  pintarCuerpoCam();
+  pintarCercanas();
+  actualizarBotonesFlot();
+}
+function pintarCuerpoCam(){
+  const body=$('camBody'); if(!body)return;
+  if(S.modoHist==='cache')pintarCuerpoCache(body);
+  else pintarCuerpoPasadas(body);
+}
+/* ── Minipestaña 📅 Pasadas: historial completo de la cámara agrupado por días ── */
+function pintarCuerpoPasadas(body){
+  const cam=S.histCam;
+  const evs=(S._histFetched===cam)?(S._histEvs||[]):null;
+  if(evs===null){
+    body.innerHTML='<div class="vacio"><span class="spin"></span>Cargando pasadas de esta cámara…</div>';
+    (async()=>{
+      try{
+        const p={cam_id:cam}; if(S.rol==='admin'&&S.vista)p.usuario=S.vista;
+        const arr=await api('/api/eventos'+qs(p));
+        if(S.tab!=='hist'||S.histCam!==cam||S.modoHist!=='pasadas'||!$('camBody'))return;   // respuesta obsoleta
+        S._histEvs=arr; S._histFetched=cam;
+        pintarCuerpoPasadas($('camBody'));
+      }catch(e){
+        if(S.histCam===cam&&$('camBody'))$('camBody').innerHTML='<div class="vacio">Error al cargar: '+D(e.message)+'</div>';
+      }
+    })();
+    return;
+  }
+  if(!evs.length){body.innerHTML='<div class="vacio">🟢 Sin pasadas registradas todavía.<br>El historial es completo (sin filtro temporal).</div>';return;}
   const veces=new Set(S.eventos.filter(e=>e.cam_id===cam).map(e=>e.id)).size;
-  const cab=`<div class="seccion"><span>📷 ${D(S.histCamNom)}</span>
-     <span style="color:var(--grn)">🟢 ${evs.length} pasada${evs.length!==1?'s':''}${veces?` · ${veces} en filtro`:''}</span></div>`;
-  if(!evs.length){v.innerHTML=cab+'<div class="vacio">Sin pasadas registradas todavía.</div>';return;}
+  const cab=`<div class="seccion" style="margin-top:0"><span>🟢 ${evs.length} pasada${evs.length!==1?'s':''} · historial completo</span>${veces?`<span>${veces} en el filtro actual</span>`:''}</div>`;
   const dias=agruparPorDia(evs);
-  v.innerHTML=cab+dias.map(d=>diaHTML(d)).join('')
-    +'<div style="font-size:10.5px;color:var(--mut2);text-align:center;padding:4px">Historial completo de la cámara (sin filtro temporal) · cada día se pliega con un clic</div>';
+  body.innerHTML=cab+dias.map(d=>diaHTML(d)).join('')
+    +'<div style="font-size:10.5px;color:var(--mut2);text-align:center;padding:3px">cada día se pliega con un clic</div>';
 }
 
 /* ── Agrupación del historial por día calendario LOCAL ── */
@@ -1370,27 +1612,20 @@ function diaHTML(g){
   </div>`;
 }
 
-/* ── GALERÍA DEL CACHÉ (clic en un naranja 🟠) ── */
+/* ── Minipestaña 📸 Caché: galería de fotos (escribe dentro de #camBody) ── */
 function cacheFotoUrl(cam,i){return au('/api/cache/'+encodeURIComponent(cam)+'/foto/'+pad3(i));}
-function renderCache(){
-  const v=$('vistaHist'); if(S.tab!=='hist'||S.modoHist!=='cache')return;
+function pintarCuerpoCache(body){
   const cam=S.cacheCam;
-  if(!cam){v.innerHTML='<div class="vacio">Haz clic en una cámara <span style="color:#fb923c">naranja</span> 🟠 del mapa<br>para ver aquí las fotos guardadas en su caché.</div>';return;}
+  if(!cam||!S.cacheRec){body.innerHTML='<div class="vacio">📸 Sin fotos en el caché para esta cámara.<br>Si acaba de capturar algo, pulsa ↻ para recargar el caché.</div>';return;}
   const r=S.cacheRec||{};
   const nf=Math.max(1,r.n_fotos||1);
-  const nom=r.nombre||cam;
   const prim=(r.primera_ts!=null)?fmtF(r.primera_ts):'—';
   const ult=(r.ultima_ts!=null)?fmtF(r.ultima_ts):'—';
-  v.innerHTML=`<div class="seccion"><span>📸 Caché · ${D(nom)}</span>
-     <span style="color:var(--amb)">🟠 ${nf} foto${nf!==1?'s':''} guardada${nf!==1?'s':''}</span></div>
+  body.innerHTML=`<div class="seccion" style="margin-top:0"><span>🟠 ${nf} foto${nf!==1?'s':''} guardada${nf!==1?'s':''}</span><span>dedup · retención ${S.retDias||30} días</span></div>
    <div class="cmeta">
      <span>🗓 desde <b>${prim}</b></span><span>hasta <b>${ult}</b></span>
      <span>💾 <b>${r.tam!=null?fmtBytes(r.tam):'—'}</b></span>
      <span>🧭 <b>${D(r.fuente||'—')}</b></span>
-   </div>
-   <div style="display:flex;gap:5px;margin:2px 0 7px">
-     <button style="flex:1;font-size:11px;padding:4px;border-radius:7px;background:rgba(245,158,11,.15);color:#fcd34d;border:1px solid rgba(245,158,11,.45);cursor:default">🟠 Fotos del caché</button>
-     <button id="btnCachePasadas" style="display:none;flex:1;font-size:11px;padding:4px;border-radius:7px;background:rgba(34,197,94,.14);color:#86efac;border:1px solid rgba(34,197,94,.4);cursor:pointer"></button>
    </div>
    <div id="visorCache">
      <button class="nav izq" onclick="navCache(-1)">◀</button>
@@ -1399,7 +1634,7 @@ function renderCache(){
      <div class="cnt" id="cachCnt">1 / ${nf}</div>
    </div>
    <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:7px" id="cachThumbs"></div>
-   <div class="mnote" style="margin-top:6px">Imágenes del caché persistente de proximidad: se conservan <b>${S.retDias||30} días</b> con dedup (solo cambios reales) y cuota ${S.cuotaCacheG||30} GB. Este marcador no depende del filtro temporal: muestra lo que hay guardado de verdad.</div>`;
+   <div class="mnote" style="margin-top:6px">El caché de proximidad guarda solo cambios reales vistos desde la cámara (dedup), con retención ${S.retDias||30} días y cuota ${S.cuotaCacheG||30} GB. No depende del filtro temporal: muestra lo que hay guardado de verdad.</div>`;
   const img=$('cachFoto'); if(img)img.src=cacheFotoUrl(cam,0);
   const th=$('cachThumbs');
   for(let i=0;i<Math.min(nf,120);i++){
@@ -1411,21 +1646,6 @@ function renderCache(){
     th.appendChild(im);
   }
   th.onclick=e=>{const t=e.target.closest('img'); if(t)setCacheFoto(+t.dataset.i||0);};
-  const bp=$('btnCachePasadas');
-  if(bp)bp.onclick=()=>abrirHistorial(cam,nom);
-  /* botón para saltar al historial de pasadas si la cámara tiene eventos */
-  (async()=>{
-    try{
-      const p={cam_id:cam}; if(S.rol==='admin'&&S.vista)p.usuario=S.vista;
-      const evs=await api('/api/eventos'+qs(p));
-      if(S.modoHist!=='cache'||S.cacheCam!==cam)return;   // respuesta obsoleta
-      const b=$('btnCachePasadas');
-      if(b){
-        if(evs.length){b.style.display='';b.textContent='🟢 '+evs.length+' pasada'+(evs.length!==1?'s':'')+' · ver historial';}
-        else b.remove();
-      }
-    }catch(e){}
-  })();
   setCacheFoto(0);
 }
 window.navCache=function(d){
@@ -1440,6 +1660,239 @@ function setCacheFoto(i){
   img.src=cacheFotoUrl(S.cacheCam,i);
   const c=$('cachCnt'); if(c)c.textContent=(i+1)+' / '+nf;
   const th=$('cachThumbs'); if(th)th.querySelectorAll('img').forEach((im,j)=>im.style.borderColor=(j===i)?'var(--acc)':'var(--line2)');
+}
+
+/* ── Lista 📷 de OTRAS CÁMARAS CERCANAS (por distancia, haversine) ── */
+function pintarCercanas(){
+  const box=$('camsCerc'); if(!box)return;
+  const lista=camarasCercanas();
+  S._cercList=lista||[];
+  if(!lista){
+    box.innerHTML='<div class="seccion" style="margin-top:8px"><span>📷 Otras cámaras cercanas</span><span>por distancia</span></div>'
+      +'<div class="vacio" style="padding:10px">sin coordenadas de esta cámara para calcular distancias</div>';
+    return;
+  }
+  const max=24;
+  const filas=lista.slice(0,max).map((o,i)=>`
+    <button class="cerc" onclick="camCercana(${i})" title="Ver ${D(o.nombre||o.cam_id)}">
+      <span class="ic">${(o.cacheRec&&o.cacheRec.n_fotos)?'🟠':'🟢'}</span>
+      <span class="nm">${D(o.nombre||o.cam_id)}</span>
+      <span class="d">${fmtKm(o.km)}</span>
+    </button>`).join('');
+  box.innerHTML=`<div class="seccion" style="margin-top:8px"><span>📷 Otras cámaras cercanas</span><span>por distancia</span></div>
+    ${filas||'<div class="vacio" style="padding:10px">sin otras cámaras con datos</div>'}
+    ${lista.length>max?`<div style="font-size:10px;color:var(--mut2);text-align:center;padding:2px">… y ${lista.length-max} más (se muestran las ${max} más próximas)</div>`:''}`;
+}
+function camarasCercanas(){
+  const lat=S.camLat, lon=S.camLon;
+  if(!(typeof lat==='number'&&typeof lon==='number'))return null;
+  const porPos=new Map();
+  const llaveAct=llaveCam(lat,lon);
+  const add=(cam_id,nombre,la,lo,fuente,cacheRec)=>{
+    if(cam_id==null||typeof la!=='number'||typeof lo!=='number')return;
+    const k=llaveCam(la,lo);
+    if(k===llaveAct)return;                          // la propia cámara
+    const key=k||('id:'+cam_id);
+    const ex=porPos.get(key);
+    if(ex){ if(cacheRec&&cacheRec.n_fotos&&!ex.cacheRec)ex.cacheRec=cacheRec; return; }
+    porPos.set(key,{cam_id,nombre,lat:la,lon:lo,fuente,cacheRec:cacheRec||null});
+  };
+  (S.verdes||[]).forEach(v=>add(v.cam_id,v.nombre,v.lat,v.lon,v.fuente,null));
+  const nIds=new Set((S.verdes||[]).map(v=>v.cam_id));
+  (S.eventos||[]).forEach(e=>{ if(!nIds.has(e.cam_id))add(e.cam_id,e.cam_nombre||e.cam_id,e.lat,e.lon,e.fuente,null); });
+  (S.cache||[]).forEach(c=>{const r=resolverCacheCam(c);add(c.cam_id,r.nombre||c.cam_id,r.lat,r.lon,r.fuente,c);});
+  return [...porPos.values()].map(o=>{o.km=havKm(lat,lon,o.lat,o.lon);return o;}).sort((a,b)=>a.km-b.km);
+}
+function fmtKm(km){if(km<1)return Math.round(km*1000)+' m';return km.toLocaleString('es-ES',{maximumFractionDigits:1})+' km';}
+window.camCercana=function(i){
+  const o=S._cercList&&S._cercList[i]; if(!o)return;
+  const cache=o.cacheRec||buscarCacheRec(o.cam_id,o.lat,o.lon)||null;
+  const mini=(cache&&cache.n_fotos&&S.modoHist==='cache')?'cache':'pasadas';
+  abrirCamaraMapa({cam_id:o.cam_id,nombre:o.nombre,lat:o.lat,lon:o.lon,fuente:o.fuente,cache},mini);
+};
+
+/* ═══════════════ REPRODUCIR CRONOLOGÍA (F5.4-C) ═══════════════ */
+/* Reproduce los eventos del rango EN ORDEN temporal: abre cada uno en el visor
+   (vídeo; si el vídeo falla, fotos ~3 s) y, mientras suena, un punto recorre el
+   track (S.pts) marcando la posición del ts del evento. Controles ▶/⏸ ⏮ ⏭ ✕. */
+function cronoBarHTML(){
+  if(!crono){
+    return `<div id="cronoBar">
+      <span class="nota">🎞 Reproduce en orden los ${S.eventos.length} evento${S.eventos.length!==1?'s':''} del rango (vídeo o fotos); el punto recorre el track en el mapa.</span>
+      <button class="cbtn pp" onclick="cronoIniciar()">▶ Reproducir cronología</button>
+    </div>`;
+  }
+  const e=crono.evs[crono.i];
+  return `<div id="cronoBar" class="act">
+    <button class="cbtn" onclick="cronoCtrl('prev')" title="Evento anterior">⏮</button>
+    <button class="cbtn pp" onclick="cronoCtrl('playpause')" id="cronoPP">${crono.play?'⏸':'▶'}</button>
+    <button class="cbtn" onclick="cronoCtrl('next')" title="Siguiente evento">⏭</button>
+    <span id="cronoInfo">evento <b>${crono.i+1}</b>/${crono.evs.length} · <small>${D(e.cam_nombre||e.id)}</small></span>
+    <span class="fotico">${crono.modo==='video'?'🎞 vídeo':'📷 fotos'}</span>
+    <span style="flex:1"></span>
+    <button class="cbtn x" onclick="cronoCtrl('stop')" title="Cancelar reproducción">✕</button>
+  </div>`;
+}
+function cronoBarRefresh(){
+  const pp=$('cronoPP'); if(pp)pp.textContent=crono&&crono.play?'⏸':'▶';
+  const inf=$('cronoInfo');
+  if(inf&&crono){const e=crono.evs[crono.i];inf.innerHTML=`evento <b>${crono.i+1}</b>/${crono.evs.length} · <small>${D(e.cam_nombre||e.id)}</small>`;}
+  const ft=document.querySelector('#cronoBar .fotico');
+  if(ft&&crono)ft.textContent=crono.modo==='video'?'🎞 vídeo':'📷 fotos';
+}
+function cronoRenderBar(){                 // sustituye solo la barra (sin tocar las tarjetas abiertas)
+  const v=$('vistaEvs'); if(!v)return;
+  const bar=v.querySelector('#cronoBar'); if(!bar)return;
+  const tmp=document.createElement('div'); tmp.innerHTML=cronoBarHTML().trim();
+  bar.replaceWith(tmp.firstChild);
+}
+window.cronoIniciar=async function(){
+  if(!S.eventos.length)return;
+  if(crono)return;
+  const evs=[...S.eventos].sort((a,b)=>(a.ts_inicio||0)-(b.ts_inicio||0));
+  crono={evs,i:0,play:false,modo:'video',mk:null,vid:null,raf:null,t:null};
+  cronoRenderBar();                        // barra en modo reproducción (▶⏮⏭…)
+  await cronoIr(0);
+};
+window.cronoCtrl=function(acc){
+  if(!crono)return;
+  const e=crono.evs[crono.i];
+  if(acc==='stop'){cronoParar(false);return;}
+  if(acc==='playpause'){
+    if(crono.play){                   // pausar
+      crono.play=false; cronoBarRefresh();
+      if(crono.t){clearTimeout(crono.t);crono.t=null;}
+      if(crono.raf){cancelAnimationFrame(crono.raf);crono.raf=null;}
+      const c=buscarEvCard(e.id); const vid=c&&c.el.querySelector('.det video');
+      if(vid)vid.pause();
+    }else{                            // reanudar
+      crono.play=true; cronoBarRefresh();
+      if(crono.modo==='video'){
+        const c=buscarEvCard(e.id); const vid=c&&c.el.querySelector('.det video');
+        if(vid){vid.play().catch(()=>{});return;}   // onplay reanuda el barrido del mapa
+      }else{
+        if(crono.t)clearTimeout(crono.t);
+        crono.t=setTimeout(()=>cronoCtrl('next'),3000);
+      }
+    }
+    return;
+  }
+  const esSig=(acc==='next');
+  const ni=esSig?crono.i+1:crono.i-1;
+  limpiarCronoEv();
+  if(ni<0||ni>=crono.evs.length){
+    if(esSig){cronoFin();}else{toast('Ya estás en el primer evento');cronoIr(crono.i);}
+    return;
+  }
+  cronoIr(ni);
+};
+async function cronoIr(i){
+  if(!crono)return;
+  if(i<0||i>=crono.evs.length){cronoFin();return;}
+  crono.i=i; crono.modo='video';
+  if(crono.raf){cancelAnimationFrame(crono.raf);crono.raf=null;}
+  if(crono.t){clearTimeout(crono.t);crono.t=null;}
+  const e=crono.evs[i];
+  S.ultEv=e.id;
+  const c=buscarEvCard(e.id);
+  if(!c){cronoParar(false);toast('No se pudo localizar el evento en la lista',true);return;}
+  if(c.vista!=='evs'||$('vistaEvs').style.display==='none')switchTab('evs');
+  const el=c.el;
+  if(!el.classList.contains('open')){
+    el.classList.add('open');
+    const ev=S.eventos.find(x=>x.id===e.id)||(S._histEvs||[]).find(x=>x.id===e.id);
+    if(ev&&!el.querySelector('.det video'))el.querySelector('.det').innerHTML=visorHTML(ev);
+  }
+  const det=el.querySelector('.det');
+  if(det){
+    const bv=det.querySelector('.tabView button[data-v="video"]');
+    if(bv){det.querySelectorAll('.tabView button').forEach(x=>x.classList.toggle('on',x===bv));}
+    const vw=det.querySelector('.viewVideo'); if(vw)vw.style.display='';
+    const vf=det.querySelector('.viewFotos'); if(vf)vf.style.display='none';
+  }
+  el.scrollIntoView({block:'nearest'});
+  cronoMarcaTs(e.ts_inicio,true);       // salto al punto del track y flyTo
+  actualizarBotonesFlot();
+  cronoBarRefresh();
+  const vid=det?det.querySelector('video'):null;
+  if(vid){
+    crono.vid=vid; crono.play=true;
+    vid.muted=true;                      // los vídeos siguientes deben poder arrancar solos
+    vid.onended=()=>{ if(crono&&crono.vid===vid)cronoCtrl('next'); };
+    vid.onerror=()=>{ if(crono&&crono.vid===vid)cronoFotos(e); };
+    vid.onpause=()=>{ if(crono&&crono.vid===vid&&!vid.ended){crono.play=false;cronoBarRefresh();if(crono.raf){cancelAnimationFrame(crono.raf);crono.raf=null;}} };
+    vid.onplay=()=>{ if(crono&&crono.vid===vid){crono.play=true;cronoBarRefresh();if(!crono.raf)crono.raf=requestAnimationFrame(cronoBarrido);} };
+    try{
+      await vid.play();
+      if(crono&&crono.vid===vid&&!crono.raf)crono.raf=requestAnimationFrame(cronoBarrido);
+    }catch(err){
+      if(crono&&crono.vid===vid)cronoFotos(e);
+    }
+  }else cronoFotos(e);
+}
+function cronoFotos(e){                  // el vídeo no está disponible: fotos ~3 s
+  if(!crono)return;
+  if(crono.raf){cancelAnimationFrame(crono.raf);crono.raf=null;}
+  crono.modo='foto'; crono.play=true; cronoBarRefresh();
+  const c=buscarEvCard(e.id); const det=c&&c.el.querySelector('.det');
+  if(det){
+    const bf=det.querySelector('.tabView button[data-v="fotos"]');
+    if(bf){det.querySelectorAll('.tabView button').forEach(x=>x.classList.toggle('on',x===bf));}
+    const vw=det.querySelector('.viewVideo'); if(vw)vw.style.display='none';
+    const vf=det.querySelector('.viewFotos');
+    if(vf){vf.style.display='';if(!vf.querySelector('img'))activarFotos(vf,e);}
+  }
+  if(crono.t)clearTimeout(crono.t);
+  crono.t=setTimeout(()=>{if(crono)cronoCtrl('next');},3000);
+}
+function cronoBarrido(){                 // el punto recorre S.pts sincronizado con el vídeo
+  if(!crono||crono.modo!=='video'||!crono.vid)return;
+  const vid=crono.vid;
+  if(vid.paused||vid.ended){crono.raf=null;return;}
+  const e=crono.evs[crono.i];
+  const dur=(vid.duration&&isFinite(vid.duration))?vid.duration:(e.ts_fin-e.ts_inicio||60);
+  const tBase=(e.ts_inicio||0), tFin=(e.ts_fin||(tBase+dur))||(tBase+dur);
+  const pr=Math.min(1,Math.max(0,vid.currentTime/(dur||1)));
+  cronoMarcaTs(tBase+(tFin-tBase)*pr,false);
+  crono.raf=requestAnimationFrame(cronoBarrido);
+}
+function cronoMarcaTs(ts,fly){
+  const feats=S.pts||[];
+  let best=null,bd=Infinity;
+  if(ts!=null){
+    for(let i=0;i<feats.length;i++){
+      const p=feats[i]&&feats[i].properties;
+      if(!p||p.ts==null)continue;
+      const d=Math.abs(p.ts-ts);
+      if(d<bd){bd=d;best=feats[i];}
+    }
+  }
+  const g=best&&best.geometry;
+  if(!g){ if(crono&&crono.mk){map.removeLayer(crono.mk);crono.mk=null;} return; }
+  const ll=[g.coordinates[1],g.coordinates[0]];
+  if(!crono.mk)crono.mk=L.circleMarker(ll,{radius:9,color:'#fff',weight:2.5,fillColor:'#f87171',fillOpacity:.9,zIndexOffset:6000}).addTo(map);
+  else crono.mk.setLatLng(ll);
+  if(fly)map.flyTo(ll,Math.max(map.getZoom(),16),{duration:.55});
+}
+function limpiarCronoEv(){
+  if(!crono)return;
+  if(crono.raf){cancelAnimationFrame(crono.raf);crono.raf=null;}
+  if(crono.t){clearTimeout(crono.t);crono.t=null;}
+  const vid=crono.vid;
+  if(vid){vid.onended=null;vid.onerror=null;vid.onpause=null;vid.onplay=null;try{vid.pause();}catch(e){}}
+  crono.vid=null;
+}
+function cronoFin(){
+  const n=crono?crono.evs.length:S.eventos.length;
+  cronoParar(false);
+  toast('✅ Cronología finalizada · '+n+' evento'+(n!==1?'s':''));
+}
+function cronoParar(noRedraw){
+  limpiarCronoEv();
+  if(crono&&crono.mk){map.removeLayer(crono.mk);crono.mk=null;}
+  const estaba=crono!==null;
+  crono=null;
+  if(estaba&&!noRedraw)renderEventos();   // restaura la barra con el botón ▶
 }
 
 /* ═══════════════ VISOR: vídeo + fotos ◀▶ ═══════════════ */
@@ -1531,6 +1984,7 @@ window.borrarEv=async function(id){
   if(!confirm('¿Borrar este evento (vídeo + fotos)?'))return;
   try{ await api('/api/evento/'+id,{method:'DELETE'});
     toast('Evento borrado');
+    if(S.ultEv===id)S.ultEv=null;
     if(S.histCam){const p={cam_id:S.histCam};if(S.rol==='admin'&&S.vista)p.usuario=S.vista;S._histEvs=await api('/api/eventos'+qs(p));}
     autoFit=false; refreshTodo();
   }catch(e){toast('No se pudo borrar: '+e.message,true);}
@@ -1729,6 +2183,7 @@ async function guardarPass(uid,self){
 /* ═══════════════ ARRANQUE ═══════════════ */
 marcarPill();
 switchTab('evs');
+actualizarBotonesFlot();
 initAuth();
 </script>
 </body>
