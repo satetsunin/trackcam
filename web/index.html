@@ -18,7 +18,7 @@
 *{box-sizing:border-box}
 html,body{margin:0;height:100%}
 body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--txt)}
-button{font-family:inherit}
+button{font-family:inherit;cursor:pointer}
 #map{position:absolute;inset:0;background:#0a1019}
 /* ────────── LOGIN ────────── */
 #loginOverlay{position:fixed;inset:0;z-index:9000;display:grid;place-items:center;
@@ -46,7 +46,9 @@ button{font-family:inherit}
 .brand{font-weight:800;font-size:16px;letter-spacing:.3px}
 .brand .punto{color:var(--grn)}
 #chipUser{margin-left:auto;display:flex;align-items:center;gap:8px;background:var(--bg3);
-  border:1px solid var(--line2);border-radius:999px;padding:4px 6px 4px 5px;font-size:12.5px}
+  border:1px solid var(--line2);border-radius:999px;padding:4px 6px 4px 5px;font-size:12.5px;
+  cursor:pointer;transition:border-color .15s}
+#chipUser:hover{border-color:var(--acc)}
 .avatar{width:26px;height:26px;border-radius:50%;background:linear-gradient(135deg,#0ea5e9,#7c3aed);
   display:grid;place-items:center;font-weight:800;font-size:12px;color:#fff}
 .badgeRol{font-size:10px;text-transform:uppercase;letter-spacing:.5px;padding:2px 7px;border-radius:999px;
@@ -312,9 +314,14 @@ button.mchip.pel:hover{background:#3b1620}
   padding:8px 14px;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.5);animation:sube .25s ease}
 .toast.err{border-color:#7f1d1d;color:#fecaca}
 @keyframes sube{from{transform:translateY(8px);opacity:0}}
+/* 📋 Panel: botón de reapertura del panel lateral. Se muestra SIEMPRE que el
+   panel esté oculto (#panel.oculto), en escritorio y móvil (lo gestiona
+   actualizarBotonesFlot() añadiendo la clase .on). */
 #fabPanel{position:absolute;right:14px;bottom:14px;z-index:1250;display:none;border-radius:999px;
   padding:10px 15px;font-weight:800;font-size:13px;background:linear-gradient(135deg,#0ea5e9,#2563eb);
   border:0;color:#fff;cursor:pointer;box-shadow:0 8px 22px rgba(0,0,0,.5)}
+#fabPanel.on{display:block}
+#fabPanel:hover{filter:brightness(1.18)}
 /* ────────── (F5.4) BARRA REPRODUCIR CRONOLOGÍA ────────── */
 #cronoBar{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:6px 9px;margin-bottom:7px;
   border:1px solid rgba(56,189,248,.35);border-radius:10px;background:rgba(14,165,233,.08)}
@@ -357,7 +364,6 @@ button.mchip.pel:hover{background:#3b1620}
   #resumen{margin-left:0;width:100%}
   #panel{top:auto;left:8px;right:8px;bottom:8px;height:min(58vh,560px);width:auto}
   #panel.oculto{transform:translateY(calc(100% + 16px))}
-  #fabPanel{display:block}
   .brand{font-size:14px}
   #cronoBar .nota{display:none}
 }
@@ -389,7 +395,7 @@ button.mchip.pel:hover{background:#3b1620}
     <a class="link" href="/replay">🎬 Video track (replay)</a>
     <div id="verComoWrap"><span>👁 ver como</span><select id="selVerComo"></select></div>
     <div style="flex:1"></div>
-    <div id="chipUser">
+    <div id="chipUser" role="button" tabindex="0" title="Abrir mi perfil (👤 Perfil)"> 
       <div class="avatar" id="chipAvatar">?</div>
       <div>
         <div style="font-weight:700;line-height:1.15" id="chipNombre">…</div>
@@ -441,7 +447,7 @@ button.mchip.pel:hover{background:#3b1620}
     <div id="map"></div>
     <button class="flot" id="btnVelFlot" title="Reabrir la sección de velocidad (velocímetro en vivo + gráfica)">📈 Velocidad</button>
     <button class="flot" id="btnVisorFlot" title="Reabrir el visor del último evento abierto">🖼 Visor</button>
-    <button id="fabPanel">📋 Panel</button>
+    <button id="fabPanel" title="Reabrir el panel lateral">📋 Panel</button>
   </div>
 
   <div id="panel">
@@ -595,7 +601,11 @@ function pintarGrises(){
   if(!S.cat) return;
   const z=map.getZoom();
   if(z<Z_EXACT){
-    let cell=0.02*Math.pow(2,Z_EXACT-z);
+    /* cell base 0.02° a z=Z_EXACT-2; cada nivel de zoom que te alejas duplica la
+       celda (a z13→0.02°, decenas de celdas en Bilbao; a z8→0.64° en toda la
+       península). Antes la base era 0.02·2^(15-z): a z13 daba 0.08° y Bilbao
+       (243 cams) se colapsaba en ~6 celdas. */
+    let cell=0.02*Math.pow(2,Z_EXACT-2-z);
     let celdas=bucketCams(S.cat,cell);
     while(celdas.length>2600){cell*=2;celdas=bucketCams(S.cat,cell);}
     celdas.forEach(c=>capaGris.addLayer(markCelda(c)));
@@ -860,11 +870,7 @@ function buscarEvCard(id){
   }
   return null;
 }
-function ajustarVel(){
-  const oc=$('panel').classList.contains('oculto');
-  const r=oc?'12px':'';                 // al ocultar el panel, los botones se pegan al borde
-  const vf=$('btnVelFlot'), vis=$('btnVisorFlot');
-  if(vf)vf.style.right=r; if(vis)vis.style.right=r;
+function ajustarVel(){                        // reposiciona/muestra los botones flotantes según el estado del panel
   actualizarBotonesFlot();
 }
 function actualizarBotonesFlot(){
@@ -872,6 +878,9 @@ function actualizarBotonesFlot(){
   const r=oc?'12px':'';                       // al ocultar el panel, se pegan al borde derecho del mapa
   const vf=$('btnVelFlot'), vis=$('btnVisorFlot');
   if(vf)vf.style.right=r; if(vis)vis.style.right=r;
+  /* F5.6: 📋 Panel (fab) visible SIEMPRE que el panel esté oculto, en cualquier
+     ancho de pantalla (antes display:none fijo en escritorio → imposible reabrir). */
+  const fab=$('fabPanel'); if(fab)fab.classList.toggle('on',oc);
   const velPanel=$('velPanel');
   const velVisible=!oc&&velPanel&&velPanel.style.display!=='none';
   const bv=$('btnVelFlot'); if(bv)bv.classList.toggle('on',!velVisible);
@@ -882,9 +891,6 @@ function actualizarBotonesFlot(){
   }
   const bvi=$('btnVisorFlot'); if(bvi)bvi.classList.toggle('on',vOn);
 }
-function ajustarVel(){
-  actualizarBotonesFlot();
-}
 $('btnVelFlot').onclick=()=>{            // reabrir la sección de velocidad inferior
   velCerrado=false;
   const vp=$('velPanel'); if(vp){vp.style.display='';}
@@ -894,13 +900,17 @@ $('btnVelFlot').onclick=()=>{            // reabrir la sección de velocidad inf
 };
 $('btnVisorFlot').onclick=()=>{          // reabrir el visor del último evento
   const id=S.ultEv; if(id==null)return;
+  $('panel').classList.remove('oculto'); // F5.6: si el panel estaba oculto, reabrirlo
   const c=buscarEvCard(id); if(!c)return;
   if(c.vista!==S.tab||(c.vista==='evs'&&$('vistaEvs').style.display==='none')||(c.vista==='hist'&&$('vistaHist').style.display==='none'))switchTab(c.vista);
   const el=c.el;
-  if(!el.classList.contains('open')){
+  const abriendo=!el.classList.contains('open');
+  let ev=null;
+  if(abriendo){
     el.classList.add('open');
-    const ev=S.eventos.find(x=>x.id===id)||(S._histEvs||[]).find(x=>x.id===id);
+    ev=S.eventos.find(x=>x.id===id)||(S._histEvs||[]).find(x=>x.id===id);
     if(ev&&!el.querySelector('.det video'))el.querySelector('.det').innerHTML=visorHTML(ev);
+    focoEventoEnMapa(ev);   // F5.6: al reabrir el visor también centra la cámara
   }
   el.scrollIntoView({block:'nearest'});
   ajustarVel();
@@ -1412,6 +1422,8 @@ function switchTab(t){
   if(t==='perfil'&&S._estado)pintaEstado(S._estado);   // repinta al instante desde la última lectura
   actualizarBotonesFlot();
 }
+$('chipUser').onclick=()=>{ $('panel').classList.remove('oculto'); switchTab('perfil'); ajustarVel(); };
+$('chipUser').addEventListener('keydown',e=>{ if(e.key==='Enter'||e.key===' '){e.preventDefault();$('chipUser').click();} });
 $('btnCerrar').onclick=()=>{ $('panel').classList.add('oculto'); ajustarVel(); };
 $('fabPanel').onclick=()=>{ $('panel').classList.remove('oculto'); ajustarVel(); };
 
@@ -1455,14 +1467,59 @@ function evEl(id){
 window.toggleEv=function(id){
   const el=evEl(id);
   if(!el)return;
+  const abriendo=!el.classList.contains('open');
   S.ultEv=id;                                 // F5.4-F: recordar último evento para el botón 🖼 Visor
   el.classList.toggle('open');
-  if(el.classList.contains('open')&&!el.querySelector('.det video')){
+  if(abriendo){
     const ev=S.eventos.find(x=>x.id===id)||(S._histEvs||[]).find(x=>x.id===id);
-    if(ev)el.querySelector('.det').innerHTML=visorHTML(ev);
-  }
+    if(ev){
+      if(!el.querySelector('.det video'))el.querySelector('.det').innerHTML=visorHTML(ev);
+      focoEventoEnMapa(ev);                   // F5.6: centrar el mapa en la cámara del evento
+    }
+  }else if(evFocoId===id) limpiarFocoEvento(); // al plegar, quitar el marcador temporal
   actualizarBotonesFlot();
 };
+/* F5.6 (BUG 4): al expandir/reproducir un evento, el mapa vuela a la posición de
+   su cámara (zoom ≥16) con un marcador temporal, y si la ruta está cargada
+   señala dónde estaba el track en ts_inicio. */
+let mkEvCam=null, mkEvTrack=null, evFocoId=null;
+function limpiarFocoEvento(){
+  if(mkEvCam){map.removeLayer(mkEvCam);mkEvCam=null;}
+  if(mkEvTrack){map.removeLayer(mkEvTrack);mkEvTrack=null;}
+  evFocoId=null;
+}
+function focoEventoEnMapa(ev){
+  if(!ev)return;
+  limpiarFocoEvento();
+  evFocoId=ev.id;
+  const lat=(typeof ev.lat==='number'&&isFinite(ev.lat))?ev.lat:null;
+  const lon=(typeof ev.lon==='number'&&isFinite(ev.lon))?ev.lon:null;
+  if(lat!=null&&lon!=null){
+    mkEvCam=L.circleMarker([lat,lon],{radius:11,color:'#fff',weight:2.5,fillColor:'#f87171',fillOpacity:.9,zIndexOffset:6000}).addTo(map);
+    mkEvCam.bindPopup(`📷 <b>${D(ev.cam_nombre||ev.cam_id)}</b><br>🎥 ${fmtF(ev.ts_inicio)} · ${ev.n_fotos||'?'} foto${ev.n_fotos!==1?'s':''}<br><span style="color:#888">evento seleccionado</span>`);
+  }
+  const ts=ev.ts_inicio;
+  if(ts!=null&&(S.pts||[]).length){
+    let best=null,bd=Infinity;
+    for(const f of S.pts){
+      const p=f&&f.properties; if(!p||p.ts==null)continue;
+      const d=Math.abs(p.ts-ts);
+      if(d<bd){bd=d;best=f;}
+    }
+    if(best&&best.geometry&&best.geometry.coordinates&&typeof best.geometry.coordinates[1]==='number'){
+      const ll=[best.geometry.coordinates[1],best.geometry.coordinates[0]];
+      mkEvTrack=L.circleMarker(ll,{radius:6,color:'#fff',weight:1.5,fillColor:'#38bdf8',fillOpacity:.9,zIndexOffset:5900}).addTo(map);
+      mkEvTrack.bindTooltip(`📍 track ${horaPunto(best.properties.ts)} · ${fmtVkmh(best.properties.v)} km/h`,{sticky:true});
+    }
+  }
+  const target=(lat!=null&&lon!=null)?[lat,lon]:(mkEvTrack?mkEvTrack.getLatLng():null);
+  if(target){
+    map.flyTo(target,Math.max(map.getZoom(),16),{duration:.6});
+    // abre el popup al terminar el vuelo (openPopup inmediato con autoPan cortaba el flyTo)
+    setTimeout(()=>{ if(mkEvCam&&map.hasLayer(mkEvCam))mkEvCam.openPopup(); },680);
+  }
+}
+map.on('click',limpiarFocoEvento);           // un clic en el mapa quita el marcador temporal
 /* ═══════════════ PANEL DE CÁMARA (F5.4-B): minipestañas Pasadas|Caché + cercanas ═══════════════ */
 /* Entrada unificada al pulsar una cámara (verde 🟢, naranja 🟠 o cercana).
    rec: {cam_id, nombre, lat, lon, fuente, cache?} · cache = registro de /api/cache si existe.
@@ -1481,6 +1538,7 @@ function buscarCacheRec(camId,lat,lon){
 }
 function abrirCamaraMapa(rec,miniPrefer){
   if(!rec||rec.cam_id==null)return;
+  limpiarFocoEvento();                         // F5.6: al abrir una cámara se quita el marcador rojo del evento
   const cache=rec.cache||buscarCacheRec(rec.cam_id,rec.lat,rec.lon)||null;
   S.histCam=rec.cam_id; S.histCamNom=rec.nombre||rec.cam_id;
   S.cacheCam=cache?cache.cam_id:rec.cam_id;
@@ -1512,7 +1570,7 @@ window.salirCamara=function(){               // ✕ de la cabecera: volver a la 
 };
 function renderHist(){                        // pinta la vista Historial (cámara activa o guía)
   const v=$('vistaHist'); if(!v||S.tab!=='hist')return;
-  if(S.modoHist==='cache'&&S.histCam&&!S.cacheRec){  // el caché puede haber llegado en el último poll
+  if(S.histCam&&!S.cacheRec){                 // el caché puede haber llegado en el último poll
     const cr=buscarCacheRec(S.histCam,S.camLat,S.camLon);
     if(cr){S.cacheRec=cr;S.cacheCam=cr.cam_id;}
   }
@@ -1533,16 +1591,16 @@ function renderHist(){                        // pinta la vista Historial (cáma
    <div class="tabView" id="miniTabs">
      <button data-mini="pasadas" onclick="miniCam(\'pasadas\')" class="${S.modoHist==='pasadas'?'on':''}">📅 Pasadas</button>
      <button data-mini="cache" onclick="miniCam(\'cache\')" class="${S.modoHist==='cache'?'on':''}">📸 Caché</button>
+    <button data-mini="cercanas" onclick='miniCam("cercanas")' class="${S.modoHist==='cercanas'?'on':''}">📷 Cercanas</button>
    </div>
-   <div id="camBody"></div>
-   <div id="camsCerc"></div>`;
+   <div id="camBody"></div>`;
   pintarCuerpoCam();
-  pintarCercanas();
   actualizarBotonesFlot();
 }
 function pintarCuerpoCam(){
   const body=$('camBody'); if(!body)return;
   if(S.modoHist==='cache')pintarCuerpoCache(body);
+  else if(S.modoHist==='cercanas')pintarCercanas(body);
   else pintarCuerpoPasadas(body);
 }
 /* ── Minipestaña 📅 Pasadas: historial completo de la cámara agrupado por días ── */
@@ -1662,14 +1720,14 @@ function setCacheFoto(i){
   const th=$('cachThumbs'); if(th)th.querySelectorAll('img').forEach((im,j)=>im.style.borderColor=(j===i)?'var(--acc)':'var(--line2)');
 }
 
-/* ── Lista 📷 de OTRAS CÁMARAS CERCANAS (por distancia, haversine) ── */
-function pintarCercanas(){
-  const box=$('camsCerc'); if(!box)return;
+/* ── Minipestaña 📷 Cercanas: OTRAS CÁMARAS CERCANAS (por distancia, haversine) ── */
+/* F5.6: la lista vive en su propia minipestaña (antes se pintaba debajo de todo). */
+function pintarCercanas(body){
+  const box=body||$('camBody'); if(!box)return;
   const lista=camarasCercanas();
   S._cercList=lista||[];
   if(!lista){
-    box.innerHTML='<div class="seccion" style="margin-top:8px"><span>📷 Otras cámaras cercanas</span><span>por distancia</span></div>'
-      +'<div class="vacio" style="padding:10px">sin coordenadas de esta cámara para calcular distancias</div>';
+    box.innerHTML='<div class="vacio" style="padding:10px">sin coordenadas de esta cámara para calcular distancias</div>';
     return;
   }
   const max=24;
@@ -1679,7 +1737,7 @@ function pintarCercanas(){
       <span class="nm">${D(o.nombre||o.cam_id)}</span>
       <span class="d">${fmtKm(o.km)}</span>
     </button>`).join('');
-  box.innerHTML=`<div class="seccion" style="margin-top:8px"><span>📷 Otras cámaras cercanas</span><span>por distancia</span></div>
+  box.innerHTML=`<div class="seccion" style="margin-top:0"><span>📷 Otras cámaras cercanas</span><span>por distancia</span></div>
     ${filas||'<div class="vacio" style="padding:10px">sin otras cámaras con datos</div>'}
     ${lista.length>max?`<div style="font-size:10px;color:var(--mut2);text-align:center;padding:2px">… y ${lista.length-max} más (se muestran las ${max} más próximas)</div>`:''}`;
 }
@@ -1967,9 +2025,9 @@ function setFoto(i,nf){
   const ths=el.querySelector('#thumbs');
   if(ths)ths.querySelectorAll('img').forEach((im,j)=>im.style.borderColor=(j===i)?'var(--acc)':'var(--line2)');
 }
-/* cambio de pestaña vídeo/fotos dentro de cada evento expandido */
+/* cambio de pestaña vídeo/fotos dentro de cada evento expandido (solo botones con data-v) */
 document.addEventListener('click',ev=>{
-  const b=ev.target.closest('.tabView button'); if(!b)return;
+  const b=ev.target.closest('.tabView button'); if(!b||!b.dataset.v)return;   // ignora miniTabs (data-mini)
   const det=b.closest('.det'); const esVid=b.dataset.v==='video';
   det.querySelector('.viewVideo').style.display=esVid?'':'none';
   det.querySelector('.viewFotos').style.display=esVid?'none':'';
