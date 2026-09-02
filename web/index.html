@@ -3,227 +3,798 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>TrackCam — track, eventos y almacenamiento</title>
+<title>TrackCam — Fase 5 (multiusuario)</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
-  html,body{margin:0;height:100%;font-family:system-ui,sans-serif;background:#f3f4f6}
-  #map{position:absolute;inset:0}
-  #bar{position:absolute;top:10px;left:10px;z-index:1000;background:rgba(255,255,255,.93);
-       border-radius:8px;padding:8px 12px;box-shadow:0 2px 8px rgba(0,0,0,.2);font-size:13px}
-  #bar b{color:#1a365d}
-  #panel{position:absolute;top:10px;right:10px;bottom:10px;width:400px;z-index:1000;
-         background:rgba(255,255,255,.97);border-radius:10px;box-shadow:0 4px 16px rgba(0,0,0,.25);
-         display:flex;flex-direction:column;overflow:hidden}
-  #panel h3{margin:0;padding:10px 14px;background:#1a365d;color:#fff;font-size:14px;
-            display:flex;justify-content:space-between;align-items:center}
-  #panel h3 button{background:#e53e3e;border:0;color:#fff;border-radius:6px;padding:2px 10px;cursor:pointer}
-  #stats{padding:8px 14px;font-size:12px;border-bottom:1px solid #e2e8f0;background:#f8fafc}
-  #stats .mb{font-weight:bold;color:#2b6cb0}
-  .cuota{margin:4px 0}
-  .cuota .barra{background:#edf2f7;border-radius:6px;height:10px;overflow:hidden;margin-top:2px}
-  .cuota .relleno{height:100%;border-radius:6px;transition:width .4s}
-  .cuota .txt{font-size:11px;color:#4a5568;display:flex;justify-content:space-between}
-  #lista{flex:1;overflow-y:auto;padding:8px}
-  .ev{border:1px solid #e2e8f0;border-radius:8px;margin-bottom:8px;overflow:hidden}
-  .ev .cab{display:flex;justify-content:space-between;align-items:center;padding:6px 10px;
-           background:#f7fafc;font-size:12px;cursor:pointer}
-  .ev .cab b{color:#1a365d;font-size:12px}
-  .ev .cab .fecha{color:#718096}
-  .ev video{width:100%;max-height:200px;background:#000;display:block}
-  .ev .fotos{display:flex;gap:4px;flex-wrap:wrap;padding:6px}
-  .ev .fotos img{width:56px;height:56px;object-fit:cover;border-radius:4px}
-  .ev .acc{padding:6px 10px;display:flex;gap:8px}
-  .ev .acc a,.ev .acc button{font-size:11px;padding:3px 10px;border-radius:6px;border:1px solid #cbd5e0;
-       background:#fff;cursor:pointer;color:#2d3748;text-decoration:none}
-  .ev .acc button.del{background:#fff5f5;border-color:#fc8181;color:#c53030}
-  .vacio{color:#a0aec0;font-size:12px;text-align:center;padding:20px}
-  #btnLimpiar{position:absolute;bottom:10px;left:10px;z-index:1000;font-size:11px;padding:5px 12px;
-       border-radius:6px;border:1px solid #feb2b2;background:#fff5f5;color:#c53030;cursor:pointer}
-  #btnAjustes{position:absolute;top:10px;right:10px;transform:translateY(48px);z-index:1000;
-       font-size:12px;padding:6px 14px;border-radius:8px;border:1px solid #bee3f8;background:#ebf8ff;
-       color:#2b6cb0;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.15)}
-  #ajPanel{position:absolute;top:10px;right:10px;transform:translateY(92px);width:370px;z-index:1001;
-       background:rgba(255,255,255,.98);border-radius:10px;box-shadow:0 4px 16px rgba(0,0,0,.25);
-       display:none;padding:12px;font-size:12px;max-height:70vh;overflow-y:auto}
-  #ajPanel h4{margin:0 0 8px;color:#1a365d;font-size:13px}
-  #ajPanel label{display:block;margin:6px 0 2px;color:#4a5568;font-size:11px}
-  #ajPanel input[type=number]{width:90px;padding:3px 6px;border:1px solid #cbd5e0;border-radius:6px;font-size:12px}
-  #ajPanel .fila{display:flex;justify-content:space-between;align-items:center}
-  #ajPanel .fila span{color:#2d3748}
-  #ajGuardar{margin-top:10px;width:100%;padding:7px;background:#2b6cb0;color:#fff;border:0;
-       border-radius:8px;cursor:pointer;font-weight:bold}
-  #ajCerrar{float:right;background:transparent;border:0;color:#fff;cursor:pointer;font-size:14px}
+:root{
+  --bg:#070d17; --bg2:#0b1322; --bg3:#0f1a2e; --bg4:#14213a;
+  --line:#1d2b47; --line2:#27395e;
+  --txt:#dbe6f7; --mut:#8ea3c7; --mut2:#5f7397;
+  --acc:#38bdf8; --acc2:#0ea5e9; --grn:#22c55e; --red:#ef4444; --amb:#f59e0b;
+  --panel:rgba(11,19,34,.94);
+  --r:12px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--txt)}
+button{font-family:inherit}
+#map{position:absolute;inset:0;background:#0a1019}
+/* ────────── LOGIN ────────── */
+#loginOverlay{position:fixed;inset:0;z-index:9000;display:grid;place-items:center;
+  background:radial-gradient(1200px 700px at 30% -10%,#123055 0%,#070d17 55%)}
+#loginOverlay.off{display:none}
+.lcard{width:min(370px,92vw);background:var(--panel);border:1px solid var(--line2);
+  border-radius:18px;padding:28px 26px;box-shadow:0 18px 60px rgba(0,0,0,.55)}
+.lcard .logo{font-size:26px;font-weight:800;letter-spacing:.4px;margin-bottom:4px}
+.lcard .logo .punto{color:var(--grn)}
+.lcard .sub{color:var(--mut);font-size:12.5px;margin-bottom:20px}
+.lcard label{display:block;font-size:11.5px;color:var(--mut);margin:12px 0 5px;letter-spacing:.4px;text-transform:uppercase}
+.lcard input{width:100%;padding:11px 13px;border-radius:10px;border:1px solid var(--line2);
+  background:var(--bg3);color:var(--txt);font-size:14px;outline:none}
+.lcard input:focus{border-color:var(--acc);box-shadow:0 0 0 3px rgba(56,189,248,.18)}
+#btnLogin{width:100%;margin-top:20px;padding:12px;border:0;border-radius:11px;cursor:pointer;
+  background:linear-gradient(135deg,#0ea5e9,#2563eb);color:#fff;font-size:15px;font-weight:700}
+#btnLogin:disabled{opacity:.6;cursor:wait}
+#loginErr{color:#fca5a5;font-size:12.5px;min-height:16px;margin-top:10px;text-align:center}
+.lcard .pie{color:var(--mut2);font-size:11px;text-align:center;margin-top:16px}
+/* ────────── APP ────────── */
+#app{position:fixed;inset:0;display:none;flex-direction:column}
+#app.on{display:flex}
+#topbar{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:9px 14px;
+  background:linear-gradient(180deg,#0d1626,#0a101c);border-bottom:1px solid var(--line)}
+.brand{font-weight:800;font-size:16px;letter-spacing:.3px}
+.brand .punto{color:var(--grn)}
+#chipUser{margin-left:auto;display:flex;align-items:center;gap:8px;background:var(--bg3);
+  border:1px solid var(--line2);border-radius:999px;padding:4px 6px 4px 5px;font-size:12.5px}
+.avatar{width:26px;height:26px;border-radius:50%;background:linear-gradient(135deg,#0ea5e9,#7c3aed);
+  display:grid;place-items:center;font-weight:800;font-size:12px;color:#fff}
+.badgeRol{font-size:10px;text-transform:uppercase;letter-spacing:.5px;padding:2px 7px;border-radius:999px;
+  background:rgba(245,158,11,.15);color:#fcd34d;border:1px solid rgba(245,158,11,.35)}
+.badgeRol.admin{background:rgba(56,189,248,.14);color:#7dd3fc;border-color:rgba(56,189,248,.35)}
+#verComoWrap{display:none;align-items:center;gap:6px;font-size:11.5px;color:var(--mut)}
+#verComoWrap.on{display:flex}
+#verComoWrap select,#selVerComo{background:var(--bg3);color:var(--txt);border:1px solid var(--line2);
+  border-radius:8px;padding:4px 6px;font-size:12px;outline:none}
+a.link{color:#7dd3fc;text-decoration:none;font-size:12.5px;font-weight:600;white-space:nowrap}
+button.mini{background:var(--bg3);color:var(--txt);border:1px solid var(--line2);border-radius:8px;
+  padding:5px 10px;font-size:12px;cursor:pointer;white-space:nowrap}
+button.mini:hover{border-color:var(--acc)}
+button.mini.salir{color:#fca5a5;border-color:#7f1d1d}
+button.mini.salir:hover{background:#2a1116}
+/* ────────── FILTROS ────────── */
+#filtros{display:flex;flex-wrap:wrap;align-items:center;gap:7px;padding:8px 14px;
+  background:var(--bg2);border-bottom:1px solid var(--line);font-size:12px}
+#filtros .grp{display:flex;gap:5px;flex-wrap:wrap}
+.pill{position:relative;display:inline-block;cursor:pointer;user-select:none}
+.pill input{position:absolute;opacity:0;pointer-events:none}
+.pill span{display:inline-block;padding:4px 11px;border-radius:999px;background:var(--bg3);
+  border:1px solid var(--line2);color:var(--mut);font-size:11.5px;font-weight:600;transition:.15s}
+.pill:hover span{border-color:var(--mut2);color:var(--txt)}
+.pill.on span{background:linear-gradient(135deg,rgba(14,165,233,.25),rgba(37,99,235,.25));
+  border-color:var(--acc);color:#bae6fd}
+.ctl{display:none;align-items:center;gap:6px;padding:2px 10px;border:1px solid var(--line2);
+  border-radius:10px;background:var(--bg3)}
+.ctl.show{display:flex}
+.ctl input[type=date],.ctl input[type=time]{background:var(--bg4);color:var(--txt);
+  border:1px solid var(--line2);border-radius:7px;padding:4px 6px;font-size:12px;
+  color-scheme:dark}
+.ctl button{border:0;background:var(--acc2);color:#04121d;font-weight:800;font-size:11.5px;
+  border-radius:7px;padding:5px 10px;cursor:pointer}
+.ctl .sep{color:var(--mut2)}
+#resumen{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin-left:auto;
+  color:var(--mut);font-size:11.5px}
+#resumen b{color:var(--txt)}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:3px;vertical-align:0}
+#catInfo{color:var(--mut2);font-size:11px;font-style:italic;width:100%}
+/* ────────── MAPA + PANEL ────────── */
+#mapWrap{position:relative;flex:1;min-height:0}
+#panel{position:absolute;top:10px;right:10px;bottom:10px;width:min(440px,94vw);z-index:1200;
+  display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--line2);
+  border-radius:var(--r);backdrop-filter:blur(6px);box-shadow:0 12px 44px rgba(0,0,0,.5);
+  overflow:hidden;transition:transform .2s}
+#panel.oculto{transform:translateX(calc(100% + 20px))}
+#ph{display:flex;align-items:center;gap:8px;padding:9px 12px;background:linear-gradient(90deg,#0e2138,#0d1626);
+  border-bottom:1px solid var(--line)}
+#ph .t{font-weight:800;font-size:13.5px;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#ph button{background:transparent;border:1px solid var(--line2);color:var(--mut);border-radius:7px;
+  padding:3px 8px;cursor:pointer;font-size:11px}
+#ph button:hover{color:var(--txt)}
+#tabs{display:flex;gap:4px;padding:6px 10px;background:var(--bg2);border-bottom:1px solid var(--line)}
+#tabs button{flex:1;background:var(--bg3);border:1px solid transparent;color:var(--mut);border-radius:8px;
+  padding:6px;font-size:12px;cursor:pointer;font-weight:600}
+#tabs button.on{background:rgba(14,165,233,.16);border-color:var(--acc);color:#bae6fd}
+#scrol{flex:1;overflow-y:auto;padding:10px;display:flex;flex-direction:column;gap:8px}
+#scrol::-webkit-scrollbar{width:9px}
+#scrol::-webkit-scrollbar-thumb{background:#243450;border-radius:5px}
+#scrol::-webkit-scrollbar-track{background:transparent}
+.seccion{font-size:10.5px;text-transform:uppercase;letter-spacing:1px;color:var(--mut2);
+  margin:4px 2px 2px;display:flex;justify-content:space-between}
+.cuota{border:1px solid var(--line);background:var(--bg3);border-radius:10px;padding:7px 10px;margin-bottom:6px}
+.cuota .txt{font-size:11px;color:var(--mut);display:flex;justify-content:space-between;margin-bottom:3px}
+.cuota .txt b{color:var(--txt)}
+.cuota .barra{background:#0a1322;border-radius:6px;height:7px;overflow:hidden}
+.cuota .relleno{height:100%;border-radius:6px;transition:width .5s}
+.cuota .meta{font-size:10.5px;color:var(--mut2);margin-top:2px;display:flex;justify-content:space-between}
+.rowSt{font-size:11.5px;color:var(--mut);display:flex;flex-wrap:wrap;gap:4px 12px;padding:2px 2px 6px}
+.rowSt b{color:var(--txt)}
+.expRow{display:flex;gap:6px;flex-wrap:wrap;padding:4px 0 8px;border-bottom:1px solid var(--line)}
+a.dl{font-size:11px;padding:4px 9px;border-radius:7px;text-decoration:none;font-weight:600;
+  background:rgba(14,165,233,.12);border:1px solid rgba(56,189,248,.3);color:#7dd3fc}
+.ev{border:1px solid var(--line);border-radius:11px;overflow:hidden;background:var(--bg3)}
+.ev .cab{display:flex;gap:8px;align-items:center;padding:8px 10px;cursor:pointer;background:var(--bg3)}
+.ev .cab:hover{background:var(--bg4)}
+.ev .cab .nom{font-weight:700;font-size:12.5px;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ev .cab .fecha{color:var(--mut);font-size:11px;text-align:right;white-space:nowrap}
+.ev .cab .fecha b{color:#7dd3fc;font-weight:600}
+.ev .chi{display:inline-flex;gap:4px;align-items:center;font-size:10.5px;color:var(--mut);
+  background:var(--bg4);border-radius:6px;padding:1px 6px;margin-left:6px}
+.ev .det{display:none;border-top:1px solid var(--line);padding:8px;background:#0c1422}
+.ev.open .det{display:block}
+.ev .det video{width:100%;max-height:230px;background:#000;border-radius:8px;display:block}
+.tabView{display:flex;gap:5px;margin:7px 0 4px}
+.tabView button{flex:1;font-size:11px;padding:4px;border-radius:7px;background:var(--bg4);
+  color:var(--mut);border:1px solid var(--line2);cursor:pointer}
+.tabView button.on{background:rgba(14,165,233,.18);color:#bae6fd;border-color:var(--acc)}
+#visor{position:relative;display:none;background:#000;border-radius:8px;overflow:hidden}
+#visor img{width:100%;display:block;max-height:250px;object-fit:contain;background:#000}
+#visor .nav{position:absolute;top:0;bottom:0;width:34px;border:0;background:rgba(0,0,0,.35);
+  color:#fff;font-size:18px;cursor:pointer;z-index:5}
+#visor .nav:hover{background:rgba(0,0,0,.6)}
+#visor .nav.izq{left:0}#visor .nav.der{right:0}
+#visor .cnt{position:absolute;bottom:4px;left:0;right:0;text-align:center;color:#fff;
+  font-size:11px;text-shadow:0 1px 3px #000;background:rgba(0,0,0,.4);width:fit-content;
+  margin:auto;padding:1px 8px;border-radius:8px}
+.acc{padding:6px 2px 2px;display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.acc button{font-size:11px;padding:4px 9px;border-radius:7px;cursor:pointer;border:1px solid var(--line2);
+  background:var(--bg4);color:var(--txt)}
+.acc button.del{color:#fca5a5;border-color:#7f1d1d;background:#2a1116}
+.aviso{font-size:11px;color:#fcd34d;background:rgba(245,158,11,.08);border:1px dashed rgba(245,158,11,.4);
+  border-radius:8px;padding:6px 8px;margin-top:6px;line-height:1.45}
+.vacio{color:var(--mut2);font-size:12px;text-align:center;padding:26px 10px}
+.spin{display:inline-block;width:13px;height:13px;border:2px solid var(--line2);border-top-color:var(--acc);
+  border-radius:50%;animation:gir .8s linear infinite;vertical-align:-2px;margin-right:6px}
+@keyframes gir{to{transform:rotate(360deg)}}
+/* marcadores */
+.dotG{width:17px;height:17px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#86efac,#16a34a 60%,#14532d);
+  border:2px solid #052e16;box-shadow:0 0 10px rgba(34,197,94,.95),0 0 3px #fff inset;position:relative}
+.dotG::after{content:"";position:absolute;inset:-6px;border-radius:50%;border:2px solid rgba(34,197,94,.45);
+  animation:onda 1.6s ease-out infinite}
+@keyframes onda{0%{transform:scale(.5);opacity:1}100%{transform:scale(1.6);opacity:0}}
+.cellM{background:radial-gradient(circle at 35% 30%,#2b4168,#152238);border:1px solid #3f5c8c;
+  color:#b7c9ea;font-size:11px;font-weight:700;display:grid;place-items:center;border-radius:50%;
+  cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,.5);user-select:none}
+.cellM:hover{border-color:#7dd3fc;color:#fff}
+.leaflet-container{font:inherit}
+/* toasts */
+#toasts{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:9500;
+  display:flex;flex-direction:column;gap:6px;align-items:center;pointer-events:none}
+.toast{background:#0f1f38;border:1px solid var(--line2);color:var(--txt);font-size:12.5px;
+  padding:8px 14px;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.5);animation:sube .25s ease}
+.toast.err{border-color:#7f1d1d;color:#fecaca}
+@keyframes sube{from{transform:translateY(8px);opacity:0}}
+#fabPanel{position:absolute;right:14px;bottom:14px;z-index:1250;display:none;border-radius:999px;
+  padding:10px 15px;font-weight:800;font-size:13px;background:linear-gradient(135deg,#0ea5e9,#2563eb);
+  border:0;color:#fff;cursor:pointer;box-shadow:0 8px 22px rgba(0,0,0,.5)}
+@media (max-width:900px){
+  #topbar{gap:7px;padding:7px 10px}
+  #filtros{padding:7px 10px;gap:6px}
+  #resumen{margin-left:0;width:100%}
+  #panel{top:auto;left:8px;right:8px;bottom:8px;height:min(58vh,560px);width:auto}
+  #panel.oculto{transform:translateY(calc(100% + 16px))}
+  #fabPanel{display:block}
+  .brand{font-size:14px}
+}
 </style>
 </head>
 <body>
-<div id="map"></div>
-<div id="bar">🎥 <b>TrackCam</b> — <span id="status">cargando…</span></div>
-<a href="/replay" style="position:absolute;top:10px;right:10px;z-index:1000;background:#ebf8ff;
-   border:1px solid #bee3f8;color:#2b6cb0;border-radius:8px;padding:6px 14px;font-size:12px;
-   text-decoration:none;font-weight:bold;box-shadow:0 2px 6px rgba(0,0,0,.15)">🎬 Video track</a>
-<button id="btnLimpiar" title="Borra los temporales de cámaras a ≤500 m que no generaron evento">🧹 Limpiar temporales</button>
-<button id="btnAjustes">⚙️ Ajustes del motor</button>
-<div id="ajPanel">
-  <h4>⚙️ Motor de captura</h4>
-  <label>📡 Radio cámara activa (m)</label>
-  <input type="number" id="cfg_radio_activa_m" min="200" max="5000" step="100">
-  <label>📸 Radio captura continua (m)</label>
-  <input type="number" id="cfg_radio_captura_m" min="100" max="2000" step="50">
-  <label>🎯 Radio de evento (m)</label>
-  <input type="number" id="cfg_radio_evento_m" min="30" max="500" step="10">
-  <label>⏱ Intervalo de captura (s)</label>
-  <input type="number" id="cfg_intervalo_captura_s" min="1" max="60" step="1">
-  <div class="fila"><span>🪟 Ventana evento: antes (s)</span><input type="number" id="cfg_ventana_antes_s" min="0" max="120" step="5"></div>
-  <div class="fila"><span>🪟 Ventana evento: después (s)</span><input type="number" id="cfg_ventana_despues_s" min="0" max="180" step="5"></div>
-  <div class="fila"><span>🎞 fps del vídeo</span><input type="number" id="cfg_fps_video" min="1" max="10" step="1"></div>
-  <div class="fila"><span>🗄 Cuota eventos (GB)</span><input type="number" id="cfg_cuota_eventos_gb" min="1" max="200" step="1"></div>
-  <div class="fila"><span>🧹 Cuota temporales (MB)</span><input type="number" id="cfg_cuota_temps_mb" min="50" max="5000" step="50"></div>
-  <button id="ajGuardar">💾 Guardar ajustes</button>
-  <div id="ajMsg" style="margin-top:6px;font-size:11px;color:#38a169"></div>
-</div>
-<div id="panel">
-  <h3>🗄️ Almacenamiento <button id="btnCerrar">✕</button></h3>
-  <div id="stats"></div>
-  <div id="lista"><div class="vacio">Sin eventos todavía</div></div>
-  <div id="expBar" style="padding:8px 14px;border-top:1px solid #e2e8f0;background:#f8fafc;
-       display:flex;gap:8px;flex-wrap:wrap">
-    <a href="/api/exportar/kml" style="font-size:11px;padding:4px 10px;border-radius:6px;border:1px solid #bee3f8;
-       background:#ebf8ff;color:#2b6cb0;text-decoration:none">🌍 KML</a>
-    <a href="/api/exportar/gpx" style="font-size:11px;padding:4px 10px;border-radius:6px;border:1px solid #bee3f8;
-       background:#ebf8ff;color:#2b6cb0;text-decoration:none">🗺 GPX</a>
-    <a href="/api/exportar/todo" style="font-size:11px;padding:4px 10px;border-radius:6px;border:1px solid #bee3f8;
-       background:#ebf8ff;color:#2b6cb0;text-decoration:none">📦 Todo (JSON)</a>
-    <span style="font-size:10px;color:#a0aec0;align-self:center">track + eventos</span>
+
+<!-- ══════════ LOGIN ══════════ -->
+<div id="loginOverlay">
+  <div class="lcard">
+    <div class="logo">🎥 TrackCam<span class="punto">.</span></div>
+    <div class="sub">Seguimiento de recorridos y pasadas por cámaras — Fase 5</div>
+    <form id="loginForm" autocomplete="off">
+      <label for="inUser">Usuario</label>
+      <input id="inUser" name="user" placeholder="tu usuario" required autocomplete="username">
+      <label for="inPass">Contraseña</label>
+      <input id="inPass" name="pass" type="password" placeholder="••••••••" required autocomplete="current-password">
+      <button id="btnLogin" type="submit">Entrar</button>
+      <div id="loginErr"></div>
+    </form>
+    <div class="pie">Requiere sesión · el token se guarda en este navegador</div>
   </div>
 </div>
 
-<script>
-const map = L.map('map').setView([43.2701, -2.9560], 15);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  attribution: '© OpenStreetMap'}).addTo(map);
-
-let poly = L.polyline([], {color:'#c05621', weight:4}).addTo(map);
-let markers = L.layerGroup().addTo(map);
-let eventos = [];
-let abiertos = new Set();
-
-function fmtMB(b) { return (b/1048576).toFixed(1) + ' MB'; }
-function fmtGB(b) { return (b/1e9).toFixed(2) + ' GB'; }
-function fmtFecha(ts) { return new Date(ts*1000).toLocaleString('es-ES', {day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}); }
-
-async function carga() {
-  const [t, ev, st] = await Promise.all([
-    fetch('/api/track').then(r=>r.json()),
-    fetch('/api/eventos').then(r=>r.json()),
-    fetch('/api/estado').then(r=>r.json()),
-  ]);
-  const pts = t.features.map(f => [f.geometry.coordinates[1], f.geometry.coordinates[0]]);
-  poly.setLatLngs(pts);
-  markers.clearLayers();
-  eventos = ev;
-  ev.forEach(e => {
-    const m = L.marker([e.lat, e.lon], {icon: L.divIcon({className:'', html:'<div style="background:#e53e3e;width:14px;height:14px;border-radius:50%;border:2px solid #fff;box-shadow:0 0 6px rgba(229,62,62,.8)"></div>', iconSize:[18,18], iconAnchor:[9,9]})}).addTo(markers);
-    m.bindPopup(`<b>${e.cam_nombre}</b><br>${fmtFecha(e.ts_inicio)}<br>${e.n_fotos} fotos · <a href="/api/evento/${e.id}/video" target="_blank">ver vídeo</a>`);
-    m.on('click', () => verEvento(e.id));
-  });
-  if (pts.length) map.fitBounds(poly.getBounds(), {padding:[30,30], maxZoom:16});
-
-  document.getElementById('status').textContent =
-    `${st.puntos_track} pts · ${st.eventos} eventos · ${st.camaras_activas} activas · ${st.camaras_capturando} capturando`;
-
-  // Barras de cuota
-  const pctEv = Math.min(100, st.tam_eventos / (st.cuota_eventos_gb*1e9) * 100);
-  const pctTp = Math.min(100, st.tam_temps / (st.cuota_temps_mb*1e6) * 100);
-  const colorEv = pctEv > 85 ? '#e53e3e' : pctEv > 60 ? '#dd6b20' : '#38a169';
-  const colorTp = pctTp > 85 ? '#e53e3e' : pctTp > 60 ? '#dd6b20' : '#38a169';
-  document.getElementById('stats').innerHTML =
-    `<div class="cuota"><div class="txt"><span>🎥 Eventos (${st.eventos})</span><span>${fmtGB(st.tam_eventos)} / ${st.cuota_eventos_gb} GB</span></div>
-     <div class="barra"><div class="relleno" style="width:${pctEv}%;background:${colorEv}"></div></div></div>
-     <div class="cuota"><div class="txt"><span>🧹 Temporales</span><span>${fmtMB(st.tam_temps)} / ${st.cuota_temps_mb} MB</span></div>
-     <div class="barra"><div class="relleno" style="width:${pctTp}%;background:${colorTp}"></div></div></div>
-     <div class="txt" style="margin-top:4px">📸 Descargas: ${st.descargas_ok} ok / ${st.descargas_fallo} fallo · 📷 ${st.camaras_cargadas} cámaras</div>`;
-
-  renderLista();
-}
-
-function renderLista() {
-  const lista = document.getElementById('lista');
-  if (!eventos.length) { lista.innerHTML = '<div class="vacio">Sin eventos todavía</div>'; return; }
-  lista.innerHTML = eventos.slice().reverse().map(e => {
-    const abierto = abiertos.has(e.id);
-    return `<div class="ev">
-      <div class="cab" onclick="toggleEv('${e.id}')">
-        <b>${e.cam_nombre}</b>
-        <span class="fecha">${fmtFecha(e.ts_inicio)} · ${e.n_fotos} 📷</span>
+<!-- ══════════ APP ══════════ -->
+<div id="app">
+  <div id="topbar">
+    <div class="brand">🎥 TrackCam<span class="punto">.</span></div>
+    <a class="link" href="/replay">🎬 Video track (replay)</a>
+    <div id="verComoWrap"><span>👁 ver como</span><select id="selVerComo"></select></div>
+    <div style="flex:1"></div>
+    <div id="chipUser">
+      <div class="avatar" id="chipAvatar">?</div>
+      <div>
+        <div style="font-weight:700;line-height:1.15" id="chipNombre">…</div>
+        <div style="font-size:10px;color:var(--mut2);line-height:1.2" id="chipDetalle"></div>
       </div>
-      ${abierto ? `<video controls src="/api/evento/${e.id}/video"></video>
-        <div class="fotos"></div>
-        <div class="acc">
-          <a href="/api/evento/${e.id}/video" download="trackcam-${e.id}.mp4">⬇ MP4</a>
-          <button onclick="borrarEv('${e.id}')" class="del">🗑 Borrar</button>
-        </div>` : ''}
-    </div>`;
-  }).join('');
-  eventos.filter(e => abiertos.has(e.id)).forEach(e => {
-    const evEl = [...document.querySelectorAll('.ev')].find(x => x.querySelector('.cab')?.textContent.includes(e.cam_nombre) && x.querySelector('.cab')?.textContent.includes(fmtFecha(e.ts_inicio)));
-    if (!evEl) return;
-    const fotos = evEl.querySelector('.fotos');
-    if (!fotos || fotos.dataset.cargado) return;
-    fotos.dataset.cargado = '1';
-    for (let i = 0; i < Math.min(e.n_fotos, 12); i++)
-      fotos.innerHTML += `<img src="/api/evento/${e.id}/foto/foto_${String(i).padStart(3,'0')}.jpg" loading="lazy">`;
+      <span class="badgeRol" id="chipRol">user</span>
+    </div>
+    <button class="mini" id="btnRefrescar" title="Recargar datos">↻</button>
+    <button class="mini" id="btnAjustes" style="display:none">⚙️ Motor</button>
+    <button class="mini salir" id="btnSalir">⏻ Salir</button>
+  </div>
+
+  <div id="filtros">
+    <span style="color:var(--mut2);font-size:10.5px;text-transform:uppercase;letter-spacing:.8px">Tiempo</span>
+    <div class="grp" id="grpPills">
+      <label class="pill"><input type="radio" name="perf" value="p24h"><span>24 h</span></label>
+      <label class="pill"><input type="radio" name="perf" value="p7d"><span>7 días</span></label>
+      <label class="pill"><input type="radio" name="perf" value="p30d"><span>1 mes</span></label>
+      <label class="pill"><input type="radio" name="perf" value="p90d"><span>3 meses</span></label>
+      <label class="pill"><input type="radio" name="perf" value="ptodo"><span>Todo</span></label>
+      <label class="pill"><input type="radio" name="perf" value="prango"><span>Rango fechas</span></label>
+      <label class="pill"><input type="radio" name="perf" value="phora"><span>Franja hora</span></label>
+    </div>
+    <div class="ctl" id="ctlRango">
+      <span style="color:var(--mut)">desde</span>
+      <input type="date" id="inRDesde">
+      <span class="sep">→</span>
+      <input type="date" id="inRHasta">
+      <button id="btnRangoOk">Aplicar rango</button>
+    </div>
+    <div class="ctl" id="ctlHora">
+      <span style="color:var(--mut)">entre</span>
+      <input type="time" id="inHDesde" value="00:00">
+      <span class="sep">y</span>
+      <input type="time" id="inHHasta" value="23:59">
+      <button id="btnHoraOk">Aplicar hora</button>
+    </div>
+    <div id="resumen"></div>
+    <div id="catInfo"></div>
+  </div>
+
+  <div id="mapWrap">
+    <div id="map"></div>
+    <button id="fabPanel">📋 Panel</button>
+  </div>
+
+  <div id="panel">
+    <div id="ph">
+      <span class="t">🗄️ Almacenamiento y estado</span>
+      <button id="btnCerrar" title="Ocultar panel">✕</button>
+    </div>
+    <div id="estado"></div>
+    <div id="tabs">
+      <button data-tab="evs" class="on">Eventos (rango)</button>
+      <button data-tab="hist">Historial de pasadas</button>
+    </div>
+    <div id="scrol">
+      <div id="vistaEvs"></div>
+      <div id="vistaHist" style="display:none"></div>
+    </div>
+  </div>
+</div>
+
+<div id="toasts"></div>
+
+<!-- ══════════ JS ══════════ -->
+<script>
+'use strict';
+/* ============================================================
+   TrackCam — web Fase 5 (multiusuario). Solo frontend.
+   Backend FastAPI en el mismo origen (http://127.0.0.1:8099).
+   ============================================================ */
+const LS_AUTH = 'tc_auth_v1';
+const $ = id => document.getElementById(id);
+const S = {token:null, user:null, rol:null, uid:null, vista:null /*null=yo, ''=global(admin)*/,
+           cat:null, catOK:false, verdes:[], eventos:[], pts:[],
+           perf:'ptodo', rangoD:null, rangoH:null, horaA:'00:00', horaB:'23:59',
+           histCam:null, histCamNom:null, fotoPat:null, busy:false, tab:'evs'};
+
+/* ───────── utilidades ───────── */
+function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function dec(s){const t=document.createElement('textarea');t.innerHTML=String(s??'');return t.value;}
+const D = s => esc(dec(s));                       // decodifica entidades y luego escapa (uso en innerHTML)
+function toast(msg,err){const d=document.createElement('div');d.className='toast'+(err?' err':'');d.textContent=msg;$('toasts').appendChild(d);setTimeout(()=>d.remove(),3800);}
+const fmtF = ts => new Date(ts*1000).toLocaleString('es-ES',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});
+const fmtD = ts => new Date(ts*1000).toLocaleDateString('es-ES',{day:'2-digit',month:'short',year:'numeric'});
+function fmtDur(s){s=Math.max(0,Math.round(s));const m=Math.floor(s/60);const r=s%60;return m?`${m} min ${r} s`:`${r} s`;}
+function fmtMB(b){return (b/1048576).toFixed(1)+' MB';}
+function fmtGB(b){return (b/1e9).toFixed(2)+' GB';}
+const ahoraE = ()=>Math.round(Date.now()/1000);
+function pad3(i){return String(i).padStart(3,'0');}
+function debounce(fn,ms){let t;return (...a)=>{clearTimeout(t);t=setTimeout(()=>fn(...a),ms);};}
+
+/* URL con token (para <video>/<img>/<a>, que no llevan header) */
+function au(path){return path+(path.includes('?')?'&':'?')+'token='+encodeURIComponent(S.token||'');}
+/* fetch JSON autenticado; 401 ⇒ sesión caducada */
+async function api(path,opts={}){
+  const h=Object.assign({'Authorization':'Bearer '+(S.token||'')},opts.headers||{});
+  const r=await fetch(path,Object.assign({},opts,{headers:h}));
+  if(r.status===401){ cerrarSesion(true); throw new Error('no autorizado'); }
+  const ct=r.headers.get('content-type')||'';
+  const j=ct.includes('json')?await r.json():await r.text();
+  if(!r.ok){ const m=(j&&j.error)||j&&j.detail||('HTTP '+r.status); throw new Error(m); }
+  return j;
+}
+const qs=p=>{const o=[];for(const k in p){if(p[k]===null||p[k]===undefined||p[k]==='')continue;o.push(k+'='+encodeURIComponent(p[k]));}return o.length?'?'+o.join('&'):'';};
+
+/* ═══════════════ MAPA ═══════════════ */
+const map=L.map('map',{preferCanvas:true,zoomControl:true});
+map.setView([43.2701,-2.9560],13);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+  {attribution:'© OpenStreetMap · © CARTO',subdomains:'abcd',maxZoom:19}).addTo(map);
+/* Nota: /api/track devuelve GeoJSON con coordinates=[lat, ts] (sin longitud);
+   no se puede dibujar la polilínea → solo se cuenta/filtra el track. */
+const capaGris=L.layerGroup().addTo(map);      // catálogo (grises/celdas)
+const capaVerde=L.layerGroup().addTo(map);     // pasadas → verdes
+const Z_EXACT=15, MAX_PUNTOS=2500;
+
+function bucketCams(cams,cell){
+  const b=map.getBounds(); const latS=b.getSouth(),latN=b.getNorth(),lonW=b.getWest(),lonE=b.getEast();
+  const m=new Map();
+  for(const c of cams){
+    if(c.lat<latS||c.lat>latN||c.lon<lonW||c.lon>lonE) continue;
+    const k=Math.floor(c.lat/cell)+'|'+Math.floor(c.lon/cell);
+    let v=m.get(k); if(!v){v={n:0,slat:0,slon:0};m.set(k,v);}
+    v.n++; v.slat+=c.lat; v.slon+=c.lon;
+  }
+  const out=[]; m.forEach(v=>out.push({lat:v.slat/v.n,lon:v.slon/v.n,n:v.n})); return out;
+}
+function markCelda(c){
+  const r=Math.min(46,16+Math.sqrt(c.n)*3.2);
+  const ic=L.divIcon({className:'',html:`<div class="cellM" style="width:${r*2}px;height:${r*2}px">${c.n}</div>`,iconSize:[r*2,r*2],iconAnchor:[r,r]});
+  const mk=L.marker([c.lat,c.lon],{icon:ic});
+  mk.on('click',()=>{map.flyTo([c.lat,c.lon],Math.min(19,map.getZoom()+2),{duration:.5});});
+  mk.bindPopup(`<b>${c.n} cámaras</b><br>haz zoom para verlas`);
+  return mk;
+}
+/* Pinta el catálogo SOLO dentro del viewport: celdas al alejar, puntos exactos al acercar (cap 2500). */
+function pintarGrises(){
+  capaGris.clearLayers();
+  if(!S.cat) return;
+  const z=map.getZoom();
+  if(z<Z_EXACT){
+    let cell=0.02*Math.pow(2,Z_EXACT-z);
+    let celdas=bucketCams(S.cat,cell);
+    while(celdas.length>2600){cell*=2;celdas=bucketCams(S.cat,cell);}
+    celdas.forEach(c=>capaGris.addLayer(markCelda(c)));
+  }else{
+    const b=map.getBounds();
+    const vis=S.cat.filter(c=>c.lat>=b.getSouth()&&c.lat<=b.getNorth()&&c.lon>=b.getWest()&&c.lon<=b.getEast());
+    if(vis.length<=MAX_PUNTOS){
+      for(const c of vis){
+        const mk=L.circleMarker([c.lat,c.lon],{radius:3.2,color:'#8fa3c8',weight:1,fillColor:'#6b7f9f',fillOpacity:.85});
+        mk.on('click',()=>mk.bindPopup(`<b>${D(c.nombre)}</b><br>${D(c.fuente)}${c.pais?' · '+D(c.pais):''}<br><span style="color:#888">sin pasadas en este filtro</span>`).openPopup());
+        capaGris.addLayer(mk);
+      }
+    }else{
+      let cell=0.004; let celdas=bucketCams(vis,cell);
+      while(celdas.length>2600){cell*=2;celdas=bucketCams(vis,cell);}
+      celdas.forEach(c=>capaGris.addLayer(markCelda(c)));
+    }
+  }
+}
+const redibujar=debounce(pintarGrises,140);
+map.on('moveend',redibujar); map.on('zoomend',redibujar);
+window.addEventListener('resize',debounce(()=>map.invalidateSize(),200));
+
+function verdeIcon(){return L.divIcon({className:'',html:'<div class="dotG"></div>',iconSize:[18,18],iconAnchor:[9,9]});}
+function pintarVerdes(){
+  capaVerde.clearLayers();
+  const porCam=new Map();
+  S.eventos.forEach(e=>{const v=porCam.get(e.cam_id)||{n:0,ult:0};v.n++;v.ult=Math.max(v.ult,e.ts_inicio);porCam.set(e.cam_id,v);});
+  const nIds=new Set(S.verdes.map(v=>v.cam_id));
+  const todas=[];
+  S.verdes.forEach(v=>todas.push({cam_id:v.cam_id,nombre:v.nombre,lat:v.lat,lon:v.lon,fuente:v.fuente}));
+  // extras: eventos cuyo cam_id no devolvió /api/verdes (no está en el catálogo del backend)
+  porCam.forEach((v,cid)=>{ if(!nIds.has(cid)){const e=S.eventos.find(x=>x.cam_id===cid); if(e)todas.push({cam_id:cid,nombre:e.cam_nombre,lat:e.lat,lon:e.lon,fuente:'evento'});} });
+  todas.forEach(c=>{
+    const mk=L.marker([c.lat,c.lon],{icon:verdeIcon(),zIndexOffset:3000});
+    const pc=porCam.get(c.cam_id);
+    mk.bindTooltip(`${D(c.nombre)}${pc?` — ${pc.n} pasada${pc.n>1?'s':''} en el filtro`:''}`);
+    mk.on('click',()=>abrirHistorial(c.cam_id,c.nombre));
+    capaVerde.addLayer(mk);
   });
+  resumen();
 }
 
-window.toggleEv = function(id) {
-  if (abiertos.has(id)) abiertos.delete(id); else abiertos.add(id);
-  renderLista();
+/* ═══════════════ SESIÓN / LOGIN ═══════════════ */
+async function initAuth(){
+  try{const a=JSON.parse(localStorage.getItem(LS_AUTH));if(a&&a.token){S.token=a.token;S.user=a.user;S.rol=a.rol;S.uid=a.id;
+    const st=await api('/api/estado'); entrar(st); return;} }catch(e){/*token caducado*/}
+  mostrarLogin();
+}
+function mostrarLogin(){S.token=null;$('loginOverlay').classList.remove('off');$('app').classList.remove('on');}
+$('loginForm').addEventListener('submit',async ev=>{
+  ev.preventDefault(); const b=$('btnLogin'); b.disabled=true; $('loginErr').textContent='';
+  try{
+    const r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({username:$('inUser').value.trim(),password:$('inPass').value})});
+    const j=await r.json();
+    if(!r.ok) throw new Error(j.error||'Error de login');
+    S.token=j.token; S.user=j.usuario.username; S.rol=j.usuario.rol; S.uid=j.usuario.id; S.vista=null;
+    localStorage.setItem(LS_AUTH,JSON.stringify({token:j.token,user:S.user,rol:S.rol,id:S.uid}));
+    const st=await api('/api/estado'); entrar(st);
+  }catch(e){$('loginErr').textContent='⚠ '+e.message;} finally{b.disabled=false;}
+});
+async function cerrarSesion(silencioso){
+  if(S.token&&!silencioso){try{await fetch('/api/logout',{method:'POST',headers:{'Authorization':'Bearer '+S.token}});}catch(e){}}
+  localStorage.removeItem(LS_AUTH); S.token=null;S.user=null;S.rol=null;S.uid=null;S.vista=null;
+  S.cat=null;S.catOK=false;S.verdes=[];S.eventos=[];S.pts=[];
+  capaVerde.clearLayers();capaGris.clearLayers();
+  mostrarLogin();
+}
+$('btnSalir').onclick=()=>cerrarSesion(false);
+
+async function entrar(st){
+  $('loginOverlay').classList.add('off'); $('app').classList.add('on');
+  setTimeout(()=>map.invalidateSize(),60);            // el mapa nace oculto tras el login
+  $('chipAvatar').textContent=(S.user||'?')[0].toUpperCase();
+  $('chipNombre').textContent=S.user;
+  const rl=$('chipRol'); rl.textContent=S.rol||'user'; rl.classList.toggle('admin',S.rol==='admin');
+  $('chipDetalle').textContent='sesión local';
+  $('btnAjustes').style.display=(S.rol==='admin')?'':'none';
+  if(S.rol==='admin'){
+    try{
+      const us=await api('/api/usuarios');
+      const sel=$('selVerComo'); sel.innerHTML='';
+      us.forEach(u=>{const o=document.createElement('option');o.value=u.id;o.textContent=`${u.username} (${u.rol}) · ${u.eventos} ev`;sel.appendChild(o);});
+      const og=document.createElement('option');og.value='';og.textContent='🌍 Global (todos)';sel.appendChild(og);
+      sel.value=S.uid!=null?String(S.uid):''; // por defecto: verse a sí mismo
+      S.vista=S.uid!=null?String(S.uid):'';
+      sel.onchange=()=>{S.vista=sel.value?sel.value:'';autoFit=true;refreshTodo();};
+      $('verComoWrap').classList.add('on');
+    }catch(e){toast('No se pudo cargar la lista de usuarios: '+e.message,true);}
+  }else $('verComoWrap').classList.remove('on');
+  cargarCatalogo();          // en segundo plano (≈10 MB)
+  refreshTodo();             // carga inicial
+  actualizarChip();
+  setInterval(async()=>{ if(S.token){try{const st=await api('/api/estado'+vistaQS());pintaEstado(st);}catch(e){}} },20000);
+}
+function vistaQS(){return S.rol==='admin'&&S.vista?qs({usuario:S.vista}):'';}
+function nombreVista(){ if(S.rol!=='admin')return S.user; if(!S.vista)return '🌍 todos'; const o=[...$('selVerComo').options].find(x=>x.value===S.vista); return o?o.textContent.split(' ')[0]:S.vista; }
+function actualizarChip(){ $('chipDetalle').textContent=(S.rol==='admin'&&S.vista!==String(S.uid))?('viendo: '+nombreVista()):'sesión local'; }
+
+/* ═══════════════ CATÁLOGO (42.928 cámaras) ═══════════════ */
+let catCargando=false;
+function cargarCatalogo(){
+  if(S.catOK||catCargando) return; catCargando=true;
+  $('catInfo').textContent='⏳ Cargando catálogo de cámaras (≈10 MB) en segundo plano…';
+  api('/api/catalogo').then(j=>{
+    S.cat=j.camaras||[]; S.catOK=true;
+    $('catInfo').textContent=`🗺 Catálogo: ${S.cat.length.toLocaleString('es-ES')} cámaras (gris/agrupadas en el mapa) · clic en verde 🟢 = historial de pasadas`;
+    pintarGrises(); pintarVerdes();
+  }).catch(e=>{ $('catInfo').textContent='⚠ Catálogo no disponible: se muestran solo las cámaras verdes (pasadas).'; }).finally(()=>{catCargando=false;});
+}
+
+/* ═══════════════ FILTROS TEMPORALES ═══════════════ */
+function rangoSeleccion(){
+  const p=S.perf; const now=ahoraE(); const dia=86400;
+  if(p==='p24h') return {desde:now-dia,hasta:now};
+  if(p==='p7d') return {desde:now-7*dia,hasta:now};
+  if(p==='p30d') return {desde:now-30*dia,hasta:now};
+  if(p==='p90d') return {desde:now-90*dia,hasta:now};
+  if(p==='prango'){ if(S.rangoD&&S.rangoH){const [a,b,c]=S.rangoD.split('-').map(Number), [d,e,f]=S.rangoH.split('-').map(Number);
+      return {desde:new Date(a,b-1,c,0,0,0).getTime()/1000, hasta:new Date(d,e-1,f,23,59,59).getTime()/1000};}
+    return {desde:null,hasta:null}; }
+  return {desde:null,hasta:null}; // ptodo / phora → histórico completo
+}
+function etiquetaRango(){
+  const p=S.perf;
+  if(p==='p24h')return 'últimas 24 h'; if(p==='p7d')return 'últimos 7 días'; if(p==='p30d')return 'último mes';
+  if(p==='p90d')return 'últimos 3 meses'; if(p==='ptodo')return 'todo el histórico';
+  if(p==='prango'){return S.rangoD&&S.rangoH?`rango ${S.rangoD} → ${S.rangoH}`:'rango sin fechas';}
+  if(p==='phora')return `hora ${S.horaA}–${S.horaB} (histórico)`; return '';
+}
+function horaOK(){ // [minIni,minFin] minutos del día (admite cruce de medianoche)
+  const f=t=>{const [h,m]=t.split(':').map(Number);return h*60+m;};
+  const a=f(S.horaA),b=f(S.horaB); if(a===b)return null;
+  return a<b?{a,b,w:false}:{a,b,w:true};
+}
+function enHora(ts){const hw=horaOK(); if(!hw)return true; const d=new Date(ts*1000); const m=d.getHours()*60+d.getMinutes();
+  return hw.w?(m>=hw.a||m<=hw.b):(m>=hw.a&&m<=hw.b);}
+function marcarPill(){
+  document.querySelectorAll('#grpPills .pill').forEach(l=>{
+    const r=l.querySelector('input');
+    l.classList.toggle('on',r.checked);
+    if(r.checked&&r.value==='prango'&&(!$('inRDesde').value||!$('inRHasta').value)){
+      const hoy=new Date(); const ant=new Date(hoy); ant.setDate(ant.getDate()-7);
+      const f=d=>d.toISOString().slice(0,10);
+      $('inRDesde').value=f(ant); $('inRHasta').value=f(hoy); S.rangoD=f(ant); S.rangoH=f(hoy);
+    }
+  });
+  $('ctlRango').classList.toggle('show',S.perf==='prango');
+  $('ctlHora').classList.toggle('show',S.perf==='phora');
+}
+document.querySelectorAll('#grpPills input').forEach(r=>r.addEventListener('change',()=>{
+  if(!r.checked)return; S.perf=r.value; marcarPill();
+  if(r.value!=='prango'&&r.value!=='phora') refreshTodo();
+}));
+$('inRDesde').onchange=e=>S.rangoD=e.target.value;
+$('inRHasta').onchange=e=>S.rangoH=e.target.value;
+$('btnRangoOk').onclick=()=>{S.perf='prango';document.querySelector('input[value="prango"]').checked=true;S.rangoD=$('inRDesde').value;S.rangoH=$('inRHasta').value;marcarPill();if(!S.rangoD||!S.rangoH){toast('Indica ambas fechas del rango',true);return;}refreshTodo();};
+$('inHDesde').onchange=e=>S.horaA=e.target.value;
+$('inHHasta').onchange=e=>S.horaB=e.target.value;
+$('btnHoraOk').onclick=()=>{S.perf='phora';document.querySelector('input[value="phora"]').checked=true;S.horaA=$('inHDesde').value||'00:00';S.horaB=$('inHHasta').value||'23:59';marcarPill();refreshTodo();};
+
+/* ═══════════════ CARGA DE DATOS ═══════════════ */
+let autoFit=true;
+async function refreshTodo(){
+  if(S.busy)return; S.busy=true;
+  const body=$('scrol');
+  try{
+    const rango=rangoSeleccion();
+    const esHora=S.perf==='phora';
+    const params=Object.assign({},rango.desde!==null?{desde:rango.desde}:null,rango.hasta!==null?{hasta:rango.hasta}:null);
+    if(S.rol==='admin'&&S.vista) params.usuario=S.vista;
+    const [ev,vd,tr]=await Promise.all([
+      api('/api/eventos'+qs(esHora&&S.rol==='admin'&&S.vista?{usuario:S.vista}:params)),
+      esHora?Promise.resolve([]):api('/api/verdes'+qs(params)),
+      api('/api/track'+qs(esHora&&S.rol==='admin'&&S.vista?{usuario:S.vista}:params)),
+    ]);
+    let eventos=ev;
+    if(esHora){ eventos=eventos.filter(e=>enHora(e.ts_inicio)); }
+    S.eventos=eventos; S.verdes=vd;
+    const feats=(tr.features||[]);
+    S.pts=esHora?feats.filter(f=>enHora(f.properties.ts)):feats;
+    if(autoFit){
+      const ll=[];
+      S.verdes.forEach(v=>ll.push([v.lat,v.lon]));
+      S.eventos.forEach(e=>ll.push([e.lat,e.lon]));
+      if(ll.length){map.fitBounds(L.latLngBounds(ll),{padding:[50,50],maxZoom:15});}
+      else {map.setView([43.2701,-2.9560],13);}
+      autoFit=false;
+    }
+    pintarVerdes();          // también llama a resumen()
+    renderEventos(); renderHist();
+    pintaEstado(await api('/api/estado'+vistaQS()));
+    actualizarChip();
+  }catch(e){ if(e.message!=='no autorizado')toast('Error al cargar datos: '+e.message,true); }
+  finally{S.busy=false;}
+}
+$('btnRefrescar').onclick=()=>{autoFit=false;refreshTodo();};
+
+/* ═══════════════ PANEL ESTADO ═══════════════ */
+function pintaEstado(st){
+  if(!st)return;
+  const pctEv=Math.min(100,st.tam_eventos/(Math.max(1,st.cuota_eventos_gb)*1e9)*100);
+  const pctTp=Math.min(100,st.tam_temps/(Math.max(1,st.cuota_temps_mb)*1e6)*100);
+  const cEv=pctEv>85?'var(--red)':pctEv>60?'var(--amb)':'var(--grn)';
+  const cTp=pctTp>85?'var(--red)':pctTp>60?'var(--amb)':'var(--grn)';
+  $('estado').innerHTML=`
+   <div class="rowSt" style="border-bottom:1px solid var(--line);margin-bottom:6px">
+     <span>👤 <b>${D(st.usuario)}</b> · <span style="text-transform:uppercase;font-size:9.5px">${D(st.rol)}</span></span>
+     <span>📈 <b>${st.puntos_track.toLocaleString('es-ES')}</b> pts</span>
+     <span>🎥 <b>${st.eventos}</b> eventos</span>
+     <span>🟢 <b>${nVerdes()}</b> verdes</span>
+   </div>
+   <div class="cuota"><div class="txt"><span>🎥 Eventos</span><span>${fmtGB(st.tam_eventos)} / ${st.cuota_eventos_gb} GB</span></div>
+     <div class="barra"><div class="relleno" style="width:${pctEv.toFixed(1)}%;background:${cEv}"></div></div>
+     <div class="meta"><span>cuota máx ${st.cuota_eventos_gb_max} GB</span><span>${st.eventos} eventos</span></div></div>
+   <div class="cuota"><div class="txt"><span>🧹 Temporales</span><span>${fmtMB(st.tam_temps)} / ${st.cuota_temps_mb} MB</span></div>
+     <div class="barra"><div class="relleno" style="width:${pctTp.toFixed(1)}%;background:${cTp}"></div></div></div>
+   <div class="cuota"><div class="txt"><span>📸 Descargas de cámaras</span><span>${st.descargas_ok} ok / ${st.descargas_fallo} fallo</span></div>
+     <div class="meta"><span>📷 ${st.camaras_cargadas.toLocaleString('es-ES')} en catálogo</span>
+       <span>🟢 ${st.camaras_activas} activas · ${st.camaras_capturando} capturando · ${st.usuarios_trackeando} usuarios</span></div></div>
+   <div class="expRow">
+     <a class="dl" href="${au('/api/exportar/kml'+qs(S.rol==='admin'&&S.vista?{usuario:S.vista}:{}))}">🌍 KML</a>
+     <a class="dl" href="${au('/api/exportar/gpx'+qs(S.rol==='admin'&&S.vista?{usuario:S.vista}:{}))}">🗺 GPX</a>
+     <a class="dl" href="${au('/api/exportar/todo'+qs(S.rol==='admin'&&S.vista?{usuario:S.vista}:{}))}">📦 Todo JSON</a>
+   </div>`;
+}
+/* ═══════════════ RESUMEN ═══════════════ */
+/* Total de cámaras verdes: unión de /api/verdes con los cam_id de los eventos
+   del rango (en modo hora /api/verdes no se consulta y se derivan de eventos). */
+function nVerdes(){
+  const s=new Set(S.verdes.map(v=>v.cam_id));
+  S.eventos.forEach(e=>s.add(e.cam_id));
+  return s.size;
+}
+function resumen(){
+  const f=S.eventos.length?fmtF(Math.min(...S.eventos.map(e=>e.ts_inicio)))+' → '+fmtF(Math.max(...S.eventos.map(e=>e.ts_inicio))):'sin eventos en rango';
+  $('resumen').innerHTML=`<span>📅 <b>${D(etiquetaRango())}</b></span>
+    <span><span class="dot" style="background:var(--grn)"></span><b>${nVerdes()}</b> verdes</span>
+    <span>🎥 <b>${S.eventos.length}</b> eventos</span>
+    <span>📍 <b>${S.pts.length.toLocaleString('es-ES')}</b> pts</span>
+    <span style="color:var(--mut2)">${D(f)}</span>`;
+}
+
+/* ═══════════════ TABS DEL PANEL ═══════════════ */
+document.querySelectorAll('#tabs button').forEach(b=>b.onclick=()=>{switchTab(b.dataset.tab);});
+function switchTab(t){
+  S.tab=t;
+  document.querySelectorAll('#tabs button').forEach(b=>b.classList.toggle('on',b.dataset.tab===t));
+  $('vistaEvs').style.display=(t==='evs')?'':'none';
+  $('vistaHist').style.display=(t==='hist')?'':'none';
+  if(t==='hist')renderHist();
+}
+$('btnCerrar').onclick=()=>{ $('panel').classList.add('oculto'); };
+$('fabPanel').onclick=()=>{ $('panel').classList.remove('oculto'); };
+
+/* ═══════════════ LISTA DE EVENTOS (rango) ═══════════════ */
+function tarjetaEvento(e,expandido){
+  const dur=e.ts_fin-e.ts_inicio;
+  return `<div class="ev${expandido?' open':''}" data-id="${D(e.id)}">
+    <div class="cab" onclick="toggleEv('${e.id}')">
+      <span class="nom">📷 ${D(e.cam_nombre)}</span>
+      <span class="fecha">${fmtF(e.ts_inicio)}<br><span style="font-size:10px;color:var(--mut2)">${fmtDur(dur)}</span></span>
+      <span class="chi">${e.n_fotos} 📷</span>
+    </div>
+    <div class="det">${expandido?visorHTML(e):''}</div>
+  </div>`;
+}
+function renderEventos(){
+  const c=$('vistaEvs');
+  if(!S.eventos.length){c.innerHTML='<div class="vacio">Sin eventos en el rango seleccionado.<br>Prueba con «Todo» o amplía fechas.</div>';return;}
+  c.innerHTML=S.eventos.map(e=>tarjetaEvento(e,false)).join('');
+}
+/* Devuelve la tarjeta de evento VISIBLE que contiene ese id (un evento puede
+   estar a la vez en "Eventos" y en "Historial"; evita tocar la oculta). */
+function evEl(id){
+  for(const sel of ['#vistaHist','#vistaEvs']){
+    const el=document.querySelector(`${sel} .ev[data-id="${CSS.escape(id)}"]`);
+    if(el&&el.offsetParent!==null)return el;
+  }
+  for(const sel of ['#vistaHist','#vistaEvs']){
+    const el=document.querySelector(`${sel} .ev[data-id="${CSS.escape(id)}"]`);
+    if(el)return el;
+  }
+  return null;
+}
+window.toggleEv=function(id){
+  const el=evEl(id);
+  if(!el)return;
+  el.classList.toggle('open');
+  if(el.classList.contains('open')&&!el.querySelector('.det video')){
+    const ev=S.eventos.find(x=>x.id===id)||(S._histEvs||[]).find(x=>x.id===id);
+    if(ev)el.querySelector('.det').innerHTML=visorHTML(ev);
+  }
 };
-window.verEvento = function(id) {
-  abiertos.add(id); renderLista();
-  const e = eventos.find(x => x.id === id);
-  if (e) map.setView([e.lat, e.lon], 16);
+/* ═══════════════ HISTORIAL DE PASADAS (por cámara verde) ═══════════════ */
+async function abrirHistorial(camId,nombre){
+  S.histCam=camId; S.histCamNom=nombre; switchTab('hist');
+  const v=$('vistaHist');
+  v.innerHTML='<div class="vacio"><span class="spin"></span>Cargando historial de pasadas…</div>';
+  try{
+    const p={cam_id:camId}; if(S.rol==='admin'&&S.vista)p.usuario=S.vista;
+    const evs=await api('/api/eventos'+qs(p));
+    if(S.histCam!==camId)return;             // descarta respuesta obsoleta
+    S._histEvs=evs;
+    renderHist();
+  }catch(e){ if(S.histCam===camId)v.innerHTML=`<div class="vacio">Error: ${D(e.message)}</div>`; }
+}
+function renderHist(){
+  const v=$('vistaHist'); if(S.tab!=='hist')return;
+  const cam=S.histCam;
+  if(!cam){v.innerHTML='<div class="vacio">Haz clic en una cámara <span style="color:#4ade80">verde</span> 🟢 del mapa para ver aquí<br>el historial de TODAS sus pasadas.</div>';return;}
+  const evs=S._histEvs||[];
+  const veces=new Set(S.eventos.filter(e=>e.cam_id===cam).map(e=>e.id)).size;
+  const cab=`<div class="seccion"><span>📷 ${D(S.histCamNom)}</span>
+     <span style="color:var(--grn)">🟢 ${evs.length} pasada${evs.length!==1?'s':''}${veces?` · ${veces} en filtro`:''}</span></div>`;
+  if(!evs.length){v.innerHTML=cab+'<div class="vacio">Sin pasadas registradas todavía.</div>';return;}
+  v.innerHTML=cab+evs.map(e=>tarjetaEvento(e,false)).join('')
+    +'<div style="font-size:10.5px;color:var(--mut2);text-align:center;padding:4px">Historial completo de la cámara (sin filtro temporal)</div>';
+}
+
+/* ═══════════════ VISOR: vídeo + fotos ◀▶ ═══════════════ */
+/* Detección del patrón de fotos: el endpoint /api/evento/{id}/foto/{n} solo
+   sirve nombres de archivo de 1-3 dígitos, pero los eventos guardan foto_000.jpg…
+   Se sondea una vez por sesión y se adapta. */
+async function detectarPatronFotos(){
+  if(S.fotoPat)return S.fotoPat;
+  const ev=S.eventos[0]||(S._histEvs&&S._histEvs[0]); if(!ev)return(S.fotoPat='none');
+  try{
+    const r2=await fetch(au(`/api/evento/${ev.id}/foto/000`),{method:'GET'});
+    if(r2.ok)return(S.fotoPat='dig');
+    const r1=await fetch(au(`/api/evento/${ev.id}/foto/foto_000.jpg`),{method:'GET'});
+    if(r1.ok)return(S.fotoPat='pref');
+  }catch(e){}
+  return(S.fotoPat='none');
+}
+function urlFoto(eid,i){
+  if(S.fotoPat==='pref')return au(`/api/evento/${eid}/foto/foto_${pad3(i)}.jpg`);
+  if(S.fotoPat==='dig')return au(`/api/evento/${eid}/foto/${pad3(i)}`);
+  return null;
+}
+let visorEstado={ev:null,foto:0};
+function visorHTML(e){
+  const video=`<video controls preload="metadata" src="${au('/api/evento/'+e.id+'/video')}"></video>`;
+  return `<div class="tabView"><button data-v="video" class="on">🎞 Vídeo</button><button data-v="fotos">📷 Fotos</button></div>
+    <div class="viewVideo">${video}</div>
+    <div class="viewFotos" style="display:none"></div>
+    <div class="acc">
+      <a class="dl" href="${au('/api/evento/'+e.id+'/video')}" download="trackcam-${D(e.id)}.mp4">⬇ MP4</a>
+      <button onclick="borrarEv('${e.id}')" class="del" ${(S.rol==='admin'||String(e.user_id)===String(S.uid))?'':'style=display:none'}>🗑 Borrar</button>
+    </div>
+    <div class="fotoInfo"></div>`;
+}
+async function activarFotos(container,e){
+  const fi=container.querySelector('.fotoInfo');
+  await detectarPatronFotos();
+  if(S.fotoPat==='none'){
+    fi.innerHTML='<div class="aviso">📷 La API de fotos (<code>/api/evento/{id}/foto/{n}</code>) solo sirve archivos de 1–3 dígitos,<br>pero los eventos guardan <code>foto_000.jpg</code>… → devuelve 400/404.<br>El <b>vídeo</b> contiene los mismos fotogramas. (Limitación del backend, sin tocar.)</div>';
+    return;
+  }
+  const nf=Math.max(1,e.n_fotos||1); visorEstado={ev:e.id,foto:0};
+  let html=`<div id="visor"><button class="nav izq" onclick="navFoto(-1)">◀</button>
+    <img id="fotoMain" src="${urlFoto(e.id,0)}" alt="foto 1">
+    <button class="nav der" onclick="navFoto(1)">▶</button><div class="cnt">1 / ${nf}</div></div>
+    <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:6px" id="thumbs"></div>`;
+  const tmp=document.createElement('div');tmp.innerHTML=html;
+  container.appendChild(tmp);   // visor + miniaturas juntos
+  const th=container.querySelector('#thumbs');
+  for(let i=0;i<Math.min(nf,60);i++){
+    const im=document.createElement('img');
+    im.src=urlFoto(e.id,i);im.style.cssText='width:46px;height:46px;object-fit:cover;border-radius:6px;cursor:pointer;border:1px solid var(--line2)';
+    im.title='Foto '+(i+1);
+    im.onclick=()=>setFoto(i,nf);
+    th.appendChild(im);
+  }
+}
+window.navFoto=function(d){
+  const ev=visorEstado.ev; if(!ev)return;
+  const el=evEl(ev); if(!el)return;
+  const e=S.eventos.find(x=>x.id===ev)||(S._histEvs||[]).find(x=>x.id===ev);
+  const nf=Math.max(1,e&&e.n_fotos||1);
+  visorEstado.foto=(visorEstado.foto+d+nf)%nf; setFoto(visorEstado.foto,nf);
 };
-window.borrarEv = async function(id) {
-  if (!confirm('¿Borrar este evento (vídeo + fotos)?')) return;
-  await fetch('/api/evento/' + id, {method:'DELETE'});
-  abiertos.delete(id);
-  carga();
+function setFoto(i,nf){
+  const ev=visorEstado.ev; if(!ev)return;
+  const el=evEl(ev); if(!el)return;
+  const img=el.querySelector('#fotoMain');
+  if(img)img.src=urlFoto(ev,i);
+  const c=el.querySelector('#visor .cnt');
+  if(c)c.textContent=(i+1)+' / '+nf;
+  const ths=el.querySelector('#thumbs');
+  if(ths)ths.querySelectorAll('img').forEach((im,j)=>im.style.borderColor=(j===i)?'var(--acc)':'var(--line2)');
+}
+/* cambio de pestaña vídeo/fotos dentro de cada evento expandido */
+document.addEventListener('click',ev=>{
+  const b=ev.target.closest('.tabView button'); if(!b)return;
+  const det=b.closest('.det'); const esVid=b.dataset.v==='video';
+  det.querySelector('.viewVideo').style.display=esVid?'':'none';
+  det.querySelector('.viewFotos').style.display=esVid?'none':'';
+  det.querySelectorAll('.tabView button').forEach(x=>x.classList.toggle('on',x===b));
+  if(!esVid&&!det.querySelector('.viewFotos img')){
+    const id=det.closest('.ev').dataset.id;
+    const e=S.eventos.find(x=>x.id===id)||(S._histEvs||[]).find(x=>x.id===id);
+    if(e)activarFotos(det.querySelector('.viewFotos'),e);
+  }
+});
+window.borrarEv=async function(id){
+  if(!confirm('¿Borrar este evento (vídeo + fotos)?'))return;
+  try{ await api('/api/evento/'+id,{method:'DELETE'});
+    toast('Evento borrado');
+    if(S.histCam){const p={cam_id:S.histCam};if(S.rol==='admin'&&S.vista)p.usuario=S.vista;S._histEvs=await api('/api/eventos'+qs(p));}
+    autoFit=false; refreshTodo();
+  }catch(e){toast('No se pudo borrar: '+e.message,true);}
 };
 
-document.getElementById('btnCerrar').onclick = () => document.getElementById('panel').style.display = 'none';
-document.getElementById('btnLimpiar').onclick = async () => {
-  if (!confirm('¿Borrar todos los temporales (cámaras a ≤500 m sin evento)?')) return;
-  const r = await fetch('/api/limpiar_temps', {method:'POST'}).then(r=>r.json());
-  alert(`🧹 Temporales limpiados: ${r.borrados_mb} MB`);
-  carga();
+/* ═══════════════ AJUSTES DEL MOTOR (admin) ═══════════════ */
+const CFG_KEYS=['radio_activa_m','radio_captura_m','radio_evento_m','intervalo_captura_s','ventana_antes_s','ventana_despues_s','fps_video','cuota_eventos_gb','cuota_temps_mb'];
+$('btnAjustes').onclick=async()=>{
+  const vals=await promptMotor(); if(vals==null)return;
+  const txt=CFG_KEYS.map(k=>`${k} = ${vals[k]}`).join('\n');
+  const nuevo=prompt('Ajustes actuales del motor (admin):\n\n'+txt+'\n\nEdita con formato clave = valor (uno por línea):',txt);
+  if(!nuevo)return;
+  const cambios={}; nuevo.split('\n').forEach(l=>{const m=l.match(/^\s*(\w+)\s*=\s*([\d.]+)/);if(m&&CFG_KEYS.includes(m[1]))cambios[m[1]]=parseFloat(m[2]);});
+  if(!Object.keys(cambios).length){toast('No se reconoció ningún cambio válido',true);return;}
+  try{const r=await api('/api/ajustes',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(cambios)});
+    toast('✅ Ajustes guardados');}catch(e){toast('Error: '+e.message,true);}
 };
+async function promptMotor(){
+  try{return await api('/api/ajustes');}catch(e){toast('Error al leer ajustes: '+e.message,true);return null;}
+}
+/* limpiar temporales (admin) — se mantiene como acción del motor */
+/* (se omite botón dedicado; la limpieza global es del motor de captura) */
 
-// ── Panel de ajustes ────────────────────────────────────────────────────
-const ajPanel = document.getElementById('ajPanel');
-const ajVisible = {display:'block'};
-document.getElementById('btnAjustes').onclick = async () => {
-  if (ajPanel.style.display === 'block') { ajPanel.style.display = 'none'; return; }
-  const cfg = await fetch('/api/ajustes').then(r=>r.json());
-  ['radio_activa_m','radio_captura_m','radio_evento_m','intervalo_captura_s',
-   'ventana_antes_s','ventana_despues_s','fps_video','cuota_eventos_gb','cuota_temps_mb']
-    .forEach(k => document.getElementById('cfg_' + k).value = cfg[k]);
-  ajPanel.style.display = 'block';
-};
-document.getElementById('ajGuardar').onclick = async () => {
-  const keys = ['radio_activa_m','radio_captura_m','radio_evento_m','intervalo_captura_s',
-    'ventana_antes_s','ventana_despues_s','fps_video','cuota_eventos_gb','cuota_temps_mb'];
-  const cambios = {};
-  keys.forEach(k => cambios[k] = parseFloat(document.getElementById('cfg_' + k).value));
-  const r = await fetch('/api/ajustes', {method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify(cambios)}).then(r=>r.json());
-  document.getElementById('ajMsg').textContent = '✅ Ajustes guardados (aplicados en caliente)';
-  setTimeout(() => document.getElementById('ajMsg').textContent = '', 3000);
-};
-
-carga();
-setInterval(carga, 15000);
+/* ═══════════════ ARRANQUE ═══════════════ */
+marcarPill();
+switchTab('evs');
+initAuth();
 </script>
 </body>
 </html>

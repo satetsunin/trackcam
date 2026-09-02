@@ -31,15 +31,21 @@
         android:theme="@style/Theme.TrackCam"
         android:usesCleartextTraffic="true">
 
+        <!-- Pantalla de login (F5): es el launcher. Si no hay token guardado
+             o la sesión caduca (401) la app arranca/regresa aquí. -->
         <activity
-            android:name=".MainActivity"
-            android:exported="true"
-            android:launchMode="singleTop">
+            android:name=".LoginActivity"
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="false"
+            android:launchMode="singleTop" />
 
         <!--
             Servicio en primer plano de tipo "location":

@@ -3,15 +3,16 @@ package com.trackcam.app
 import android.content.Context
 
 /**
- * Wrapper de SharedPreferences: guarda la URL del servidor, el intervalo
- * de envío y si el trackeo debe estar activo (para el auto-reinicio).
+ * Wrapper de SharedPreferences (Fase 5): guarda la URL BASE del servidor
+ * (sin /track ni /api/login, que se derivan), el intervalo de envío, si el
+ * trackeo debe estar activo y la sesión {token, usuario} del login.
  */
 object TrackPrefs {
 
     private const val PREFS_NAME = "trackcam_prefs"
 
-    /** Túnel Cloudflare del usuario (por defecto). */
-    const val DEFAULT_URL = "https://track.satetsunin.com/track"
+    /** Servidor por defecto (túnel Cloudflare del usuario). */
+    const val DEFAULT_BASE_URL = "https://track.satetsunin.com"
 
     /** Intervalo por defecto: 5 s (mínimo permitido 1 s). */
     const val DEFAULT_INTERVAL = 5
@@ -19,13 +20,60 @@ object TrackPrefs {
     private fun prefs(ctx: Context) =
         ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
-    fun serverUrl(ctx: Context): String =
-        prefs(ctx).getString("server_url", DEFAULT_URL) ?: DEFAULT_URL
-
-    fun setServerUrl(ctx: Context, url: String) {
-        val cleaned = url.trim().trimEnd('/')
-        prefs(ctx).edit().putString("server_url", cleaned).apply()
+    /** Limpia la URL: recorta espacios y el sufijo "/track" de versiones v1. */
+    private fun cleanBase(url: String): String {
+        var s = url.trim().trimEnd('/')
+        if (s.endsWith("/track")) s = s.removeSuffix("/track").trimEnd('/')
+        return s
     }
+
+    // ── Servidor ───────────────────────────────────────────────────────────
+
+    fun baseUrl(ctx: Context): String {
+        val stored = prefs(ctx).getString("server_base", null)
+        if (!stored.isNullOrBlank()) return cleanBase(stored)
+        // Migración desde v1: "server_url" guardaba la URL completa con /track
+        val old = prefs(ctx).getString("server_url", null)
+        return if (old.isNullOrBlank()) DEFAULT_BASE_URL else cleanBase(old)
+    }
+
+    fun setBaseUrl(ctx: Context, url: String) {
+        prefs(ctx).edit()
+            .putString("server_base", cleanBase(url))
+            .remove("server_url")
+            .apply()
+    }
+
+    /** Endpoint de login: POST {username,password} → {token, usuario}. */
+    fun loginUrl(ctx: Context): String = baseUrl(ctx) + "/api/login"
+
+    /** Endpoint de posición: POST JSON con Authorization: Bearer <token>. */
+    fun trackUrl(ctx: Context): String = baseUrl(ctx) + "/track"
+
+    // ── Sesión (F5) ────────────────────────────────────────────────────────
+
+    fun token(ctx: Context): String? =
+        prefs(ctx).getString("token", null)
+
+    fun username(ctx: Context): String? =
+        prefs(ctx).getString("username", null)
+
+    fun saveSession(ctx: Context, token: String, username: String) {
+        prefs(ctx).edit()
+            .putString("token", token)
+            .putString("username", username)
+            .apply()
+    }
+
+    /** Borra la sesión (login caducado / logout). */
+    fun clearSession(ctx: Context) {
+        prefs(ctx).edit()
+            .remove("token")
+            .remove("username")
+            .apply()
+    }
+
+    // ── Intervalo y estado ─────────────────────────────────────────────────
 
     fun intervalSeconds(ctx: Context): Int =
         prefs(ctx).getInt("interval_seconds", DEFAULT_INTERVAL)

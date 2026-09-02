@@ -21,6 +21,11 @@ class BootReceiver : BroadcastReceiver() {
 
         if (!relevant) return
         if (!TrackPrefs.running(context)) return
+        // Fase 5: sin token de sesión no se puede reanudar el trackeo
+        if (TrackPrefs.token(context).isNullOrBlank()) {
+            TrackPrefs.setRunning(context, false)
+            return
+        }
 
         Log.i(TAG, "Reiniciando TrackService tras $action")
 

@@ -25,19 +25,14 @@
             android:text="@string/subtitulo"
             android:textSize="13sp" />
 
-        <!-- URL del servidor -->
+        <!-- Sesión activa (usuario + servidor) -->
         <TextView
-            style="@style/Label"
-            android:text="@string/lbl_url" />
-
-        <EditText
-            android:id="@+id/etUrl"
+            android:id="@+id/tvSesion"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:autofillHints="url"
-            android:hint="@string/hint_url"
-            android:inputType="textUri"
-            android:singleLine="true" />
+            android:layout_marginBottom="4dp"
+            android:text="@string/sesion_info_placeholder"
+            android:textSize="13sp" />
 
         <!-- Intervalo -->
         <TextView
@@ -112,6 +107,14 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="@string/btn_exencion" />
+
+        <!-- Cambiar de usuario / cerrar sesión -->
+        <Button
+            android:id="@+id/btnLogout"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="@string/btn_logout" />
 
     </LinearLayout>
 </ScrollView>

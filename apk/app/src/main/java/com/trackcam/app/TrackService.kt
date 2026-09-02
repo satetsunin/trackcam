@@ -47,9 +47,12 @@ import kotlin.coroutines.coroutineContext
 private val JSON_MEDIA = "application/json; charset=utf-8".toMediaType()
 
 /**
- * Servicio en primer plano 24/7:
+ * Servicio en primer plano 24/7 (Fase 5):
  *  - GPS con FusedLocationProvider (intervalo configurable, 1–60 s)
- *  - Envío inmediato de cada posición por POST JSON al servidor
+ *  - Envío inmediato de cada posición por POST JSON a <base>/track con
+ *    cabecera Authorization: Bearer <token> (sesión obtenida en el login)
+ *  - Si el servidor responde 401 (token caducado) → limpia la sesión,
+ *    detiene el servicio y avisa a la UI para que vuelva al login
  *  - OkHttp con timeout de 8 s, 1 reintento y cola de máx. 30 pendientes
  *  - START_STICKY + notificación persistente + wake lock
  */
@@ -61,6 +64,9 @@ class TrackService : LifecycleService() {
 
         /** Broadcast de estado que escucha MainActivity. */
         const val ACTION_STATUS = "com.trackcam.app.action.STATUS"
+
+        /** Broadcast: 401 → sesión caducada, volver al login. */
+        const val ACTION_UNAUTHORIZED = "com.trackcam.app.action.UNAUTHORIZED"
 
         private const val TAG = "TrackCamService"
         private const val NOTIF_CHANNEL_ID = "trackcam_channel"
@@ -165,6 +171,13 @@ class TrackService : LifecycleService() {
     // ── Arranque / parada ───────────────────────────────────────────────────
 
     private fun startTracking() {
+        // Fase 5: sin token de sesión no se puede enviar nada.
+        if (TrackPrefs.token(this).isNullOrBlank()) {
+            Log.w(TAG, "Sin token de sesión: no se inicia el trackeo")
+            TrackPrefs.setRunning(this, false)
+            stopSelf()
+            return
+        }
         tracking = true
         TrackPrefs.setRunning(this, true)
         startForegroundCompat()
@@ -278,11 +291,10 @@ class TrackService : LifecycleService() {
     // ── Cola de envíos ──────────────────────────────────────────────────────
 
     private fun enqueue(loc: Location) {
-        var startWorker = false
-        synchronized(queueLock) {
+        val startWorker = synchronized(queueLock) {
             if (queue.size >= MAX_PENDING) queue.removeFirst() // cola llena: se descarta la más antigua
             queue.addLast(loc)
-            startWorker = !workerRunning.getAndSet(true)
+            !workerRunning.getAndSet(true)
         }
         if (startWorker) {
             sendScope.launch { senderLoop() }
@@ -290,46 +302,59 @@ class TrackService : LifecycleService() {
     }
 
     private suspend fun senderLoop() {
-        while (coroutineContext.isActive) {
-            val loc = synchronized(queueLock) { queue.pollFirst() }
-            if (loc == null) {
-                workerRunning.set(false)
-                return
-            }
+        while (coroutineContext.isActive && tracking) {
+            val loc = synchronized(queueLock) { queue.pollFirst() } ?: break
             val ok = sendWithRetry(loc)
             synchronized(queueLock) {
-                if (!ok && queue.size < MAX_PENDING) {
-                    queue.addFirst(loc) // reintento fallido: vuelve al principio de la cola
+                // Reintento fallido (red): vuelve al principio de la cola.
+                // Tras un 401 tracking ya es false: no se re-encola nada.
+                if (!ok && tracking && queue.size < MAX_PENDING) {
+                    queue.addFirst(loc)
                 }
                 pendingCount = queue.size
             }
-            if (ok && pendingCount == 0) updateNotification()
+            if (ok && tracking && pendingCount == 0) updateNotification()
         }
+        workerRunning.set(false)
     }
 
     /**
-     * POST JSON a la URL configurada. OkHttp con timeout de 8 s.
-     * 1 reintento tras un fallo (2 intentos en total).
-     * Devuelve false solo si ambos intentos fallaron (se re-encola).
+     * POST JSON a <base>/track con Authorization: Bearer <token>.
+     * OkHttp con timeout de 8 s y 1 reintento (2 intentos en total).
+     * Devuelve false solo si ambos intentos fallaron por red (se re-encola).
+     * Un 401 (token caducado) no se reintenta: se limpia la sesión y se
+     * avisa a la UI para volver al login.
      */
     private suspend fun sendWithRetry(loc: Location): Boolean {
-        val url = TrackPrefs.serverUrl(this)
+        val token = TrackPrefs.token(this)
+        if (token.isNullOrBlank()) {
+            Log.w(TAG, "Sin token de sesión: no se puede enviar la posición")
+            handleUnauthorized()
+            return true
+        }
+        val url = TrackPrefs.trackUrl(this)
         val json = buildJson(loc)
         var attempts = 0
 
         while (attempts < MAX_ATTEMPTS) {
             attempts++
             try {
-                val response = okHttpClient.newCall(
-                    Request.Builder()
-                        .url(url)
-                        .post(json.toRequestBody(JSON_MEDIA))
-                        .build()
-                ).execute()
+                val request = Request.Builder()
+                    .url(url)
+                    .addHeader("Authorization", "Bearer $token")
+                    .post(json.toRequestBody(JSON_MEDIA))
+                    .build()
 
-                response.use {
-                    if (!it.isSuccessful) throw IOException("HTTP ${it.code}")
+                val response = okHttpClient.newCall(request).execute()
+                val code = response.code
+                response.close()
+
+                if (code == 401) {
+                    Log.w(TAG, "HTTP 401: token inválido o expirado → volver al login")
+                    handleUnauthorized()
+                    return true
                 }
+                if (code !in 200..299) throw IOException("HTTP $code")
 
                 lastOk = true
                 lastSendAtMillis = System.currentTimeMillis()
@@ -351,6 +376,26 @@ class TrackService : LifecycleService() {
         updateNotification()
         Log.w(TAG, "Envío fallido definitivo (se re-encola si hay hueco)")
         return false
+    }
+
+    /**
+     * 401: la sesión ya no es válida. Borra el token guardado, detiene el
+     * trackeo y avisa por broadcast para que la UI abra el login.
+     */
+    private fun handleUnauthorized() {
+        Log.w(TAG, "Sesión no autorizada: limpiando token y deteniendo servicio")
+        TrackPrefs.clearSession(this)
+        broadcastUnauthorized()
+        stopTracking()
+    }
+
+    private fun broadcastUnauthorized() {
+        try {
+            // setPackage → el broadcast va solo a nuestra app (seguro en API 34)
+            sendBroadcast(Intent(ACTION_UNAUTHORIZED).setPackage(packageName))
+        } catch (e: Exception) {
+            // sin listeners
+        }
     }
 
     private fun buildJson(loc: Location): String {

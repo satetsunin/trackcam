@@ -17,7 +17,6 @@ import android.view.View
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.Button
-import android.widget.EditText
 import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
@@ -33,22 +32,27 @@ class MainActivity : AppCompatActivity() {
         private const val RC_NOTIF = 1002
     }
 
-    private lateinit var etUrl: EditText
     private lateinit var spInterval: Spinner
     private lateinit var btnToggle: Button
+    private lateinit var tvSesion: TextView
     private lateinit var tvEstado: TextView
     private lateinit var tvConexion: TextView
     private lateinit var tvPosicion: TextView
     private lateinit var tvBateria: TextView
     private lateinit var btnBateria: Button
     private lateinit var btnExencion: Button
+    private lateinit var btnLogout: Button
 
     private val intervalValues = intArrayOf(1, 2, 5, 10, 30, 60)
 
-    /** Recibe los broadcasts de estado del servicio y refresca la pantalla. */
+    /** Recibe los broadcasts del servicio: refresca la UI o vuelve al login (401). */
     private val statusReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
-            if (intent.action == TrackService.ACTION_STATUS) refreshUi()
+            when (intent.action) {
+                TrackService.ACTION_UNAUTHORIZED ->
+                    goToLogin(LoginActivity.MOTIVO_SESION_EXPIRADA)
+                TrackService.ACTION_STATUS -> refreshUi()
+            }
         }
     }
 
@@ -56,17 +60,16 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        etUrl = findViewById(R.id.etUrl)
         spInterval = findViewById(R.id.spInterval)
         btnToggle = findViewById(R.id.btnToggle)
+        tvSesion = findViewById(R.id.tvSesion)
         tvEstado = findViewById(R.id.tvEstado)
         tvConexion = findViewById(R.id.tvConexion)
         tvPosicion = findViewById(R.id.tvPosicion)
         tvBateria = findViewById(R.id.tvBateria)
         btnBateria = findViewById(R.id.btnBateria)
         btnExencion = findViewById(R.id.btnExencion)
-
-        etUrl.setText(TrackPrefs.serverUrl(this))
+        btnLogout = findViewById(R.id.btnLogout)
 
         // Selector de intervalo: 1/2/5/10/30/60 s
         val labels = resources.getStringArray(R.array.intervalos).toList()
@@ -90,6 +93,7 @@ class MainActivity : AppCompatActivity() {
         }
         btnBateria.setOnClickListener { openBatterySettings() }
         btnExencion.setOnClickListener { requestIgnoreBatteryOptimization() }
+        btnLogout.setOnClickListener { logout() }
 
         // Si se cambia el intervalo con el trackeo activo, se aplica al momento
         spInterval.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
@@ -123,10 +127,18 @@ class MainActivity : AppCompatActivity() {
 
     override fun onStart() {
         super.onStart()
+        // Sin sesión (login caducado o logout) → pantalla de login
+        if (TrackPrefs.token(this).isNullOrBlank()) {
+            goToLogin(null)
+            return
+        }
         ContextCompat.registerReceiver(
             this,
             statusReceiver,
-            IntentFilter(TrackService.ACTION_STATUS),
+            IntentFilter().apply {
+                addAction(TrackService.ACTION_STATUS)
+                addAction(TrackService.ACTION_UNAUTHORIZED)
+            },
             ContextCompat.RECEIVER_NOT_EXPORTED
         )
         refreshUi()
@@ -139,6 +151,31 @@ class MainActivity : AppCompatActivity() {
         } catch (e: IllegalArgumentException) {
             // ya no estaba registrado
         }
+    }
+
+    // ── Navegación login ───────────────────────────────────────────────────
+
+    private fun goToLogin(motivo: String?) {
+        if (isFinishing) return
+        val intent = Intent(this, LoginActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+        if (motivo != null) intent.putExtra(LoginActivity.EXTRA_MOTIVO, motivo)
+        startActivity(intent)
+        finish()
+    }
+
+    /** Cierra la sesión, detiene el trackeo y vuelve al login. */
+    private fun logout() {
+        try {
+            startService(
+                Intent(this, TrackService::class.java)
+                    .setAction(TrackService.ACTION_STOP)
+            )
+        } catch (e: Exception) {
+            // el servicio no estaba corriendo
+        }
+        TrackPrefs.clearSession(this)
+        goToLogin(null)
     }
 
     // ── Arranque / parada del trackeo ───────────────────────────────────────
@@ -182,12 +219,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun doStart() {
-        val url = etUrl.text?.toString()?.trim().orEmpty()
-        if (url.isEmpty()) {
-            etUrl.error = getString(R.string.err_url)
+        if (TrackPrefs.token(this).isNullOrBlank()) {
+            goToLogin(LoginActivity.MOTIVO_SESION_EXPIRADA)
             return
         }
-        TrackPrefs.setServerUrl(this, url)
         val interval =
             intervalValues[spInterval.selectedItemPosition.coerceIn(0, intervalValues.size - 1)]
         TrackPrefs.setIntervalSeconds(this, interval)
@@ -244,6 +279,9 @@ class MainActivity : AppCompatActivity() {
         val tracking = TrackService.tracking
         btnToggle.text = getString(if (tracking) R.string.btn_stop else R.string.btn_start)
 
+        val user = TrackPrefs.username(this).orEmpty()
+        tvSesion.text = getString(R.string.sesion_info, user, serverHost())
+
         tvEstado.text = when {
             !tracking -> getString(R.string.estado_detenido)
             TrackService.lastSendAtMillis == 0L -> getString(R.string.estado_enviando)
@@ -277,6 +315,13 @@ class MainActivity : AppCompatActivity() {
 
         updateBatteryStatus()
     }
+
+    /** "track.satetsunin.com" a partir de la URL base guardada. */
+    private fun serverHost(): String =
+        TrackPrefs.baseUrl(this)
+            .removePrefix("https://")
+            .removePrefix("http://")
+            .substringBefore('/')
 
     private fun formatAgo(epochMillis: Long): String {
         val secs = (System.currentTimeMillis() - epochMillis) / 1000L

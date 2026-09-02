@@ -3,17 +3,35 @@
     <string name="app_name">TrackCam</string>
     <string name="subtitulo">Envío de posición GPS al servidor de cámaras</string>
 
-    <!-- Pantalla principal -->
+    <!-- Pantalla de login (F5) -->
+    <string name="login_subtitulo">Inicia sesión para enviar tu posición al servidor de cámaras</string>
     <string name="lbl_url">URL del servidor</string>
-    <string name="hint_url">https://track.satetsunin.com/track</string>
+    <string name="hint_url">https://track.satetsunin.com</string>
+    <string name="lbl_usuario">Usuario</string>
+    <string name="hint_usuario">tu_usuario</string>
+    <string name="lbl_password">Contraseña</string>
+    <string name="hint_password">••••••••</string>
+    <string name="btn_login">INICIAR SESIÓN</string>
+    <string name="btn_login_progress">Iniciando sesión…</string>
+    <string name="err_url">Introduce la URL del servidor (p. ej. https://track.satetsunin.com)</string>
+    <string name="err_login_campos">Introduce usuario y contraseña</string>
+    <string name="err_login_credenciales">Usuario o contraseña incorrectos</string>
+    <string name="err_login_red">No se pudo contactar con el servidor. Comprueba la URL y tu conexión.</string>
+    <string name="err_login_respuesta">Respuesta inesperada del servidor</string>
+    <string name="err_login_server">Error del servidor (HTTP %1$d)</string>
+    <string name="sesion_expirada">La sesión ha expirado. Inicia sesión de nuevo.</string>
+
+    <!-- Pantalla principal -->
+    <string name="sesion_info">Conectado como %1$s · %2$s</string>
+    <string name="sesion_info_placeholder">Sesión: —</string>
     <string name="lbl_intervalo">Intervalo de envío</string>
     <string name="lbl_bateria">Mitigación de batería</string>
     <string name="btn_start">INICIAR TRACKEO</string>
     <string name="btn_stop">DETENER TRACKEO</string>
+    <string name="btn_logout">Cerrar sesión / cambiar de usuario</string>
     <string name="btn_bateria_xiaomi">Abrir ajustes de batería (Redmi)</string>
     <string name="btn_bateria_generico">Abrir ajustes de optimización de batería</string>
     <string name="btn_exencion">Solicitar exención de optimización</string>
-    <string name="err_url">Introduce la URL del servidor (p. ej. https://track.satetsunin.com/track)</string>
     <string name="err_start">No se pudo arrancar el servicio</string>
     <string name="err_location_perm">Permiso de ubicación denegado: actívalo en Ajustes → Aplicaciones → TrackCam</string>
     <string name="err_settings">No se pudieron abrir los ajustes en este dispositivo</string>
