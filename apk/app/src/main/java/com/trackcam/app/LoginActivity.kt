@@ -205,7 +205,12 @@ class LoginActivity : AppCompatActivity() {
                 .build()
             httpClient.newCall(request).execute().use { resp ->
                 val cuerpo = resp.body?.string().orEmpty()
-                if (resp.isSuccessful) {
+                val esHtml = cuerpo.trimStart().startsWith("<")
+                // Cloudflare Access devuelve su HTML de login con HTTP 200
+                // cuando OkHttp sigue la redirección (sin cookies CF válidas).
+                if (esHtml) {
+                    LoginOutcome(OUT_CF, detalle = "HTML de Access (¿sin sesión CF?): " + cuerpo.take(200))
+                } else if (resp.isSuccessful) {
                     try {
                         val json = JSONObject(cuerpo)
                         val token = json.optString("token")
@@ -221,7 +226,7 @@ class LoginActivity : AppCompatActivity() {
                         LoginOutcome(OUT_PARSE, detalle = "NO-JSON: " + cuerpo.take(300))
                     }
                 } else {
-                    // 302/HTML de Cloudflare Access = aún sin sesión CF
+                    // 302/307 de Cloudflare Access = aún sin sesión CF
                     if (resp.code == 302 || resp.code == 307) {
                         LoginOutcome(OUT_CF, detalle = "REDIRECCIÓN: " + cuerpo.take(200))
                     } else {
