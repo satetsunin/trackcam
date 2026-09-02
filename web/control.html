@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TrackCam — Control remoto</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0d1117; color: #e6edf3; font-family: system-ui, sans-serif; padding: 24px; max-width: 860px; margin: 0 auto; }
+  h1 { font-size: 1.4rem; margin-bottom: 4px; }
+  .sub { color: #8b949e; font-size: .9rem; margin-bottom: 20px; }
+  .card { background: #161b22; border: 1px solid #30363d; border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+  h2 { font-size: 1rem; margin-bottom: 10px; color: #58a6ff; }
+  .fila { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid #21262d; font-size: .9rem; }
+  .fila:last-child { border-bottom: 0; }
+  .fila label { color: #c9d1d9; }
+  .fila input { width: 110px; background: #0d1117; border: 1px solid #30363d; color: #e6edf3; border-radius: 6px; padding: 4px 8px; font-size: .9rem; text-align: right; }
+  .fila input[type=checkbox] { width: auto; }
+  .fila .unidad { color: #8b949e; font-size: .8rem; margin-left: 6px; }
+  button { background: #238636; color: #fff; border: 0; border-radius: 8px; padding: 8px 18px; font-size: .9rem; font-weight: 600; cursor: pointer; margin-top: 10px; }
+  button.sec { background: #30363d; margin-left: 8px; }
+  #msg { margin-top: 10px; font-size: .85rem; color: #3fb950; min-height: 1.2em; }
+  #msg.err { color: #f85149; }
+  .badge { padding: 2px 10px; border-radius: 999px; font-size: .75rem; font-weight: 600; }
+  .ok { background: #1f6f3f33; color: #3fb950; }
+  .info { color: #8b949e; font-size: .8rem; }
+  table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+  th, td { text-align: left; padding: 5px 8px; border-bottom: 1px solid #21262d; }
+</style>
+</head>
+<body>
+<h1>🎛 TrackCam — Control remoto</h1>
+<div class="sub">Gestiona la app sin recompilar: la configuración se guarda en el servidor y la app la descarga al arrancar (y cada 10 min).</div>
+
+<div class="card">
+  <h2>🏃 Frecuencia de envío adaptativa (por velocidad)</h2>
+  <div class="fila"><label>🚗 Umbral vehículo (km/h)</label><div><input type="number" id="vel_vehiculo_kmh" min="5" max="60"><span class="unidad">km/h</span></div></div>
+  <div class="fila"><label>🚶 Umbral andando (km/h)</label><div><input type="number" id="vel_andando_kmh" min="2" max="15"><span class="unidad">km/h</span></div></div>
+  <div class="fila"><label>🚗 En vehículo → enviar cada</label><div><input type="number" id="intervalo_vehiculo_s" min="1" max="60"><span class="unidad">s</span></div></div>
+  <div class="fila"><label>🚶 Andando → enviar cada</label><div><input type="number" id="intervalo_andando_s" min="2" max="120"><span class="unidad">s</span></div></div>
+  <div class="fila"><label>🛑 Parado → enviar cada</label><div><input type="number" id="intervalo_parado_s" min="30" max="3600"><span class="unidad">s</span></div></div>
+  <div class="fila"><label>🛰 Radio de caché del servidor</label><div><input type="number" id="radio_cache_m" min="500" max="10000" step="100"><span class="unidad">m</span></div></div>
+  <div class="fila"><label>📡 Cola offline (guardar sin cobertura)</label><div><input type="checkbox" id="cola_offline"></div></div>
+  <div class="fila"><label>🗄 Máx puntos pendientes en el móvil</label><div><input type="number" id="cola_max" min="100" max="50000"><span class="unidad">pts</span></div></div>
+  <button id="btnGuardar">💾 Guardar y enviar a la app</button>
+  <button class="sec" id="btnRecargar">🔄 Recargar</button>
+  <div id="msg"></div>
+</div>
+
+<div class="card">
+  <h2>📲 Actualización OTA de la app</h2>
+  <div id="otaInfo" class="info">Consultando…</div>
+  <button id="btnOta">📲 Publicar como nueva versión</button>
+  <div id="otaMsg"></div>
+</div>
+
+<div class="card">
+  <h2>📊 Estado del servidor</h2>
+  <div id="estado">…</div>
+</div>
+
+<script>
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  return r.json();
+}
+
+async function cargar() {
+  const cfg = await api('/api/app_config');
+  ['vel_vehiculo_kmh','vel_andando_kmh','intervalo_vehiculo_s','intervalo_andando_s',
+   'intervalo_parado_s','radio_cache_m','cola_max'].forEach(k => {
+    const el = document.getElementById(k);
+    if (el) el.value = cfg[k];
+  });
+  document.getElementById('cola_offline').checked = !!cfg.cola_offline;
+
+  const [st, ver] = await Promise.all([
+    api('/api/estado').catch(() => null),
+    api('/api/apk/version').catch(() => null),
+  ]);
+  if (st) {
+    document.getElementById('estado').innerHTML =
+      `<table><tr><th>Cámaras</th><td>${st.camaras_cargadas ?? '—'}</td><th>Puntos track</th><td>${st.puntos_track ?? '—'}</td></tr>` +
+      `<tr><th>Eventos</th><td>${st.eventos ?? '—'}</td><th>Activas/capturando</th><td>${st.camaras_activas ?? '—'} / ${st.camaras_capturando ?? '—'}</td></tr>` +
+      `<tr><th>Descargas</th><td>${st.descargas_ok ?? '—'} ok / ${st.descargas_fallo ?? '—'} fallo</td><th>Config versión</th><td>${cfg.version_config ?? '—'}</td></tr></table>`;
+  } else {
+    document.getElementById('estado').textContent = 'Servidor no accesible (¿auth?)';
+  }
+  if (ver) {
+    document.getElementById('otaInfo').innerHTML =
+      `Versión publicada: <b>${ver.versionName}</b> (code ${ver.versionCode}) · APK ${(ver.tam/1048576).toFixed(1)} MB · ` +
+      `<a href="${ver.url}" style="color:#58a6ff">descargar</a>`;
+  }
+}
+
+document.getElementById('btnGuardar').onclick = async () => {
+  const keys = ['vel_vehiculo_kmh','vel_andando_kmh','intervalo_vehiculo_s','intervalo_andando_s',
+    'intervalo_parado_s','radio_cache_m','cola_max'];
+  const body = { cola_offline: document.getElementById('cola_offline').checked };
+  keys.forEach(k => body[k] = parseFloat(document.getElementById(k).value));
+  const r = await api('/api/app_config', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+  const msg = document.getElementById('msg');
+  if (r.version_config) {
+    msg.textContent = `✅ Guardado (versión config ${r.version_config}) — la app lo aplicará en ≤10 min o al abrirla`;
+    msg.className = '';
+  } else {
+    msg.textContent = '❌ Error: ' + JSON.stringify(r).slice(0, 120);
+    msg.className = 'err';
+  }
+};
+
+document.getElementById('btnRecargar').onclick = cargar;
+document.getElementById('btnOta').onclick = () => {
+  document.getElementById('otaMsg').innerHTML =
+    '📲 Para publicar una nueva versión: compila la APK (apk/scripts/compilar.sh), súbela a Nextcloud y dime la versión — el endpoint /api/apk/version se actualiza y la app ofrece la actualización.';
+};
+
+cargar();
+setInterval(cargar, 30000);
+</script>
+</body>
+</html>

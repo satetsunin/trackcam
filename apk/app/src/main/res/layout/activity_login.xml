@@ -103,5 +103,25 @@
             android:layout_marginTop="20dp"
             android:text="@string/btn_login" />
 
+        <!-- Diagnóstico (debug): muestra el último error técnico para reportar -->
+        <TextView
+            android:id="@+id/tvDebug"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:fontFamily="monospace"
+            android:textColor="#8b949e"
+            android:textSize="10sp"
+            android:visibility="gone" />
+
+        <Button
+            android:id="@+id/btnDebug"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/btn_debug"
+            android:textAllCaps="false"
+            style="@style/Widget.AppCompat.Button.Borderless" />
+
     </LinearLayout>
 </ScrollView>

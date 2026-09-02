@@ -118,24 +118,37 @@ class TrackService : LifecycleService() {
             lastAcc = loc.accuracy
             lastVel = if (loc.hasSpeed()) loc.speed else 0f
 
-            // Detección de movimiento: si la casilla está marcada y llevamos
-            // parados (<15 m desde el último envío), no spamear envíos
-            // (ahorra batería/datos en reposo). El GPS sigue activo.
-            if (TrackPrefs.servMovimiento(this@TrackService)) {
-                val ult = lastEnviado
-                if (ult != null) {
-                    val d = FloatArray(1)
-                    Location.distanceBetween(
-                        ult[0], ult[1], loc.latitude, loc.longitude, d
-                    )
-                    if (d[0] < 15f && loc.speed < 0.5f) return
-                }
+            // ── Frecuencia ADAPTATIVA por velocidad (config remota) ──
+            // vehiculo (>20 km/h) → enviar cada 2 s
+            // andando            → enviar cada 10 s
+            // parado             → enviar cada 10 min
+            val modo = TrackPrefs.modoPorVelocidad(this@TrackService, lastVel ?: 0f)
+            if (modoActual != modo) {
+                modoActual = modo
+                Log.i(TAG, "Modo transporte: $modo")
+                // Re-ajustar la frecuencia de ESCUCHA del GPS según el modo
+                // (parado escucha cada 30 s para poder detectar que arrancas)
+                startLocationUpdates()
             }
 
-            // Envío INMEDIATO en cuanto llega la posición (sin esperar nada más)
+            // Filtro de envío: respetar el intervalo del modo actual
+            val intervaloEnvioMs =
+                TrackPrefs.intervaloParaModo(this@TrackService, modo) * 1000L
+            val desdeUltimoOk = System.currentTimeMillis() - lastOkAtMillis
+            if (desdeUltimoOk < intervaloEnvioMs) return
+
+            // Envío INMEDIATO (si toca según el intervalo del modo)
             enqueue(loc)
         }
     }
+
+    /** Modo de transporte actual (vehiculo/andando/parado). */
+    @Volatile
+    var modoActual: String = "parado"
+
+    /** Último envío EXITOSO al servidor (ms). */
+    @Volatile
+    var lastOkAtMillis: Long = 0L
 
     override fun onCreate() {
         super.onCreate()
@@ -200,6 +213,47 @@ class TrackService : LifecycleService() {
         startLocationUpdates()
         reuseLastKnownPosition()
         broadcastStatus()
+        // Config remota (OTA): descargar al arrancar + reenviar puntos offline
+        sendScope.launch {
+            descargarConfigRemota()
+            flushOfflineCola()
+        }
+    }
+
+    /** Descarga la config remota (/api/app_config) y la aplica en caliente. */
+    private suspend fun descargarConfigRemota() {
+        val token = TrackPrefs.token(this) ?: return
+        val cf = TrackPrefs.cfCookies(this)
+        try {
+            val rb = Request.Builder()
+                .url(TrackPrefs.baseUrl(this) + "/api/app_config")
+                .addHeader("Authorization", "Bearer $token")
+            if (cf.isNotEmpty()) rb.addHeader("Cookie", cf)
+            okHttpClient.newCall(rb.get().build()).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string().orEmpty()
+                    val o = org.json.JSONObject(body)
+                    val ver = o.optInt("version_config", 0)
+                    if (ver != TrackPrefs.configVersion(this)) {
+                        val map = HashMap<String, Any?>()
+                        o.keys().forEach { k -> map[k] = o.get(k) }
+                        TrackPrefs.saveRemoteConfig(this, map)
+                        Log.i(TAG, "Config remota v$ver aplicada: " +
+                            "vehículo ${TrackPrefs.cfgIntervaloVehiculoS(this)}s, " +
+                            "andando ${TrackPrefs.cfgIntervaloAndandoS(this)}s, " +
+                            "parado ${TrackPrefs.cfgIntervaloParadoS(this)}s")
+                        // Re-aplicar el intervalo de escucha con la config nueva
+                        startLocationUpdates()
+                    } else {
+                        Log.d(TAG, "Config remota ya actual (v$ver)")
+                    }
+                } else {
+                    Log.w(TAG, "No se pudo descargar config remota: HTTP ${resp.code}")
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Config remota no disponible: ${e.message}")
+        }
     }
 
     private fun stopTracking() {
@@ -245,14 +299,22 @@ class TrackService : LifecycleService() {
     // ── GPS ─────────────────────────────────────────────────────────────────
 
     private fun startLocationUpdates() {
-        // Si ya había updates (cambio de intervalo), se re-aplican limpiamente
+        // Si ya había updates (cambio de intervalo/modo), se re-aplican limpiamente
         try {
             fusedLocationClient.removeLocationUpdates(locationCallback)
         } catch (e: Exception) {
             // nada que quitar
         }
 
-        val intervalMs = TrackPrefs.intervalSeconds(this).coerceIn(1, 60) * 1000L
+        // Intervalo de ESCUCHA del GPS según el modo de transporte:
+        // vehiculo → 2 s · andando → 10 s · parado → 30 s (suficiente para
+        // detectar que arrancas; el ENVÍO sí espera 10 min si estás parado).
+        val escuchaS = when (modoActual) {
+            "vehiculo" -> TrackPrefs.cfgIntervaloVehiculoS(this)
+            "andando" -> TrackPrefs.cfgIntervaloAndandoS(this)
+            else -> 30
+        }
+        val intervalMs = escuchaS.coerceIn(1, 300) * 1000L
         // Servicios de ubicación elegidos por el usuario (GPS/WiFi/red):
         //  - GPS activo  → precisión total (GNSS + WiFi + red)
         //  - Solo WiFi/red → modo equilibrado (sin GPS, ahorra batería)
@@ -274,7 +336,7 @@ class TrackService : LifecycleService() {
             .setWaitForAccurateLocation(false)
             .build()
 
-        Log.i(TAG, "GPS cada ${intervalMs / 1000} s · prioridad $priority")
+        Log.i(TAG, "GPS modo=$modoActual cada ${intervalMs / 1000} s · prioridad $priority")
 
         try {
             fusedLocationClient.requestLocationUpdates(
@@ -328,16 +390,55 @@ class TrackService : LifecycleService() {
             val loc = synchronized(queueLock) { queue.pollFirst() } ?: break
             val ok = sendWithRetry(loc)
             synchronized(queueLock) {
-                // Reintento fallido (red): vuelve al principio de la cola.
-                // Tras un 401 tracking ya es false: no se re-encola nada.
-                if (!ok && tracking && queue.size < MAX_PENDING) {
-                    queue.addFirst(loc)
-                }
+                // Si falló por red, sendWithRetry ya guardó el punto en la cola
+                // offline persistente (guardarOffline) → NO re-encolar aquí
+                // (evita duplicados y bucles infinitos sin conexión).
                 pendingCount = queue.size
             }
             if (ok && tracking && pendingCount == 0) updateNotification()
+            // Sin red: parar el worker hasta el próximo fix GPS (que reintentará)
+            if (!ok) break
         }
         workerRunning.set(false)
+        // Tras drenar la cola en memoria, reenviar los puntos offline guardados
+        if (tracking) flushOfflineCola()
+    }
+
+    /** Reenvía los puntos guardados sin cobertura (cola offline persistente). */
+    private suspend fun flushOfflineCola() {
+        if (!TrackPrefs.cfgColaOffline(this)) return
+        while (coroutineContext.isActive && tracking) {
+            val p = TrackPrefs.colaOfflineRemoveFirst(this) ?: break
+            val loc = Location("offline").apply {
+                latitude = p[1]; longitude = p[2]
+                accuracy = p[3].toFloat()
+                speed = p[4].toFloat()
+            }
+            val ok = sendWithRetry(loc)
+            if (!ok) {
+                // Sin red todavía: devolver el punto a la cola y esperar
+                TrackPrefs.colaOfflineAdd(
+                    this, p[0].toLong(), p[1], p[2], p[3].toFloat(), p[4].toFloat()
+                )
+                break
+            }
+        }
+        broadcastStatus()
+    }
+
+    /** Guarda un punto en la cola offline (sin cobertura → no se pierde). */
+    private fun guardarOffline(loc: Location) {
+        if (!TrackPrefs.cfgColaOffline(this)) return
+        val ok = TrackPrefs.colaOfflineAdd(
+            this,
+            System.currentTimeMillis(),
+            loc.latitude,
+            loc.longitude,
+            loc.accuracy,
+            if (loc.hasSpeed()) loc.speed else 0f
+        )
+        Log.w(TAG, "Sin conexión: punto guardado offline (cola: ${TrackPrefs.colaOfflineSize(this)})")
+        broadcastStatus()
     }
 
     /**
@@ -386,6 +487,7 @@ class TrackService : LifecycleService() {
 
                 lastOk = true
                 lastSendAtMillis = System.currentTimeMillis()
+                lastOkAtMillis = lastSendAtMillis
                 lastEnviado = doubleArrayOf(loc.latitude, loc.longitude)
                 broadcastStatus()
                 updateNotification()
@@ -403,7 +505,8 @@ class TrackService : LifecycleService() {
         lastSendAtMillis = System.currentTimeMillis()
         broadcastStatus()
         updateNotification()
-        Log.w(TAG, "Envío fallido definitivo (se re-encola si hay hueco)")
+        Log.w(TAG, "Envío fallido definitivo — guardando offline si procede")
+        guardarOffline(loc)
         return false
     }
 

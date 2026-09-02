@@ -11,8 +11,10 @@
     <string name="hint_usuario">tu_usuario</string>
     <string name="lbl_password">Contraseña</string>
     <string name="hint_password">••••••••</string>
-    <string name="btn_login">INICIAR SESIÓN</string>
+    <string name="btn_login">Iniciar sesión</string>
     <string name="btn_login_progress">Iniciando sesión…</string>
+    <string name="btn_debug">🔬 Ver diagnóstico técnico (para reportar el fallo)</string>
+    <string name="toast_diag_copiado">Diagnóstico copiado al portapapeles — pégalo a Hermes</string>
     <string name="err_url">Introduce la URL del servidor (p. ej. https://track.satetsunin.com)</string>
     <string name="err_login_campos">Introduce usuario y contraseña</string>
     <string name="err_login_credenciales">Usuario o contraseña incorrectos</string>

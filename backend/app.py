@@ -836,6 +836,12 @@ def replay():
     return FileResponse(os.path.join(WEB, "replay.html"))
 
 
+@app.get("/control")
+def control():
+    """Panel de control remoto: config de la app (OTA sin recompilar)."""
+    return FileResponse(os.path.join(WEB, "control.html"))
+
+
 # ── Eventos: servir vídeo/fotos + borrado (solo propietario o admin) ──────
 def _permiso_evento(request: Request, eid: str):
     """Devuelve (user_id, eid) si el usuario puede acceder al evento."""
@@ -1053,6 +1059,96 @@ async def api_ajustes_set(request: Request):
     if not isinstance(cambios, dict):
         return JSONResponse({"error": "JSON inválido"}, status_code=400)
     return motor.actualizar_cfg(cambios)
+
+
+# ── OTA (F4/F5): versión y descarga de la APK ───────────────────────────
+APK_FILE = os.path.join(BASE, "apk", "trackcam-release.apk")
+APK_VERSION_CODE = 3
+APK_VERSION_NAME = "1.5"
+
+@app.get("/api/apk/version")
+def apk_version():
+    """Versión de la APK para actualización OTA desde la app (pública)."""
+    tam = os.path.getsize(APK_FILE) if os.path.exists(APK_FILE) else 0
+    return {
+        "versionCode": APK_VERSION_CODE,
+        "versionName": APK_VERSION_NAME,
+        "url": "/api/apk/download",
+        "tam": tam,
+    }
+
+@app.get("/api/apk/download")
+def apk_download():
+    """Sirve el APK firmado (trackcam-release.apk)."""
+    if not os.path.exists(APK_FILE):
+        return JSONResponse({"error": "APK no disponible aún"}, status_code=404)
+    return FileResponse(
+        APK_FILE,
+        media_type="application/vnd.android.package-archive",
+        filename=f"trackcam-{APK_VERSION_NAME}.apk",
+    )
+
+
+# ── Config remota de la APP (OTA sin recompilar) ────────────────────────
+APP_CONFIG_DEFAULTS = {
+    "vel_vehiculo_kmh": 20,       # por encima = vehículo
+    "vel_andando_kmh": 6,         # por debajo de vehículo y encima = andando
+    "intervalo_vehiculo_s": 2,    # en vehículo: enviar cada 2 s
+    "intervalo_andando_s": 10,    # andando: cada 10 s
+    "intervalo_parado_s": 600,    # parado: cada 10 min (ahorra batería)
+    "cola_offline": True,         # guardar puntos sin cobertura
+    "cola_max": 5000,             # máx puntos pendientes en el móvil
+    "radio_cache_m": 2000,        # radio del servidor para contexto (2 km)
+    "version_config": 3,          # sube al cambiar para que la app refresque
+}
+APP_CONFIG_FILE = os.path.join(DATA, "app_config.json")
+
+
+def _leer_app_config() -> dict:
+    cfg = dict(APP_CONFIG_DEFAULTS)
+    try:
+        with open(APP_CONFIG_FILE, encoding="utf-8") as f:
+            cfg.update({k: v for k, v in json.load(f).items()
+                        if k in APP_CONFIG_DEFAULTS})
+    except Exception:
+        pass
+    return cfg
+
+
+def _guardar_app_config(cfg: dict):
+    try:
+        with open(APP_CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, ensure_ascii=False, indent=2)
+    except OSError:
+        pass
+
+
+@app.get("/api/app_config")
+def api_app_config():
+    """Config remota para la app (pública de lectura): la app la descarga
+    al arrancar y aplica frecuencias/radios sin necesidad de recompilar."""
+    return _leer_app_config()
+
+
+@app.post("/api/app_config")
+async def api_app_config_set(request: Request):
+    """Actualiza la config remota (solo admin). La app la recoge al arrancar."""
+    u = _auth(request)
+    if not u:
+        return _pedir_auth()
+    if u["rol"] != "admin":
+        return JSONResponse({"error": "requiere rol admin"}, status_code=403)
+    try:
+        cambios = await request.json()
+    except Exception:
+        cambios = {}
+    if not isinstance(cambios, dict):
+        return JSONResponse({"error": "JSON inválido"}, status_code=400)
+    cfg = _leer_app_config()
+    cfg.update({k: v for k, v in cambios.items() if k in APP_CONFIG_DEFAULTS})
+    cfg["version_config"] = int(cfg.get("version_config", 0)) + 1
+    _guardar_app_config(cfg)
+    return cfg
 
 
 load_camaras()
