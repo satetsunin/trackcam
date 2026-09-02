@@ -680,12 +680,14 @@ def api_cache(request: Request):
         uid = vid if vid else str(u["id"])
     else:
         uid = str(u["id"])
-    # índice de catálogo por cam_id
+    # índice de catálogo por cam_id (original y sanitizado — los directorios
+    # de caché convierten los puntos en guiones bajos)
     by_id = {}
     for c in camaras:
         cid = str(c.get("id") or "%s_%.5f_%.5f" % (c.get("fuente", "cam"),
                                                     c["lat"], c["lon"]))
         by_id[cid] = c
+        by_id.setdefault(sanitizar_dir(cid), c)
     base = os.path.join(DATA, "cache", sanitizar_dir(uid))
     out = []
     if os.path.isdir(base):

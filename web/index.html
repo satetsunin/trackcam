@@ -134,13 +134,14 @@ a.dl{font-size:11px;padding:4px 9px;border-radius:7px;text-decoration:none;font-
 .tabView button{flex:1;font-size:11px;padding:4px;border-radius:7px;background:var(--bg4);
   color:var(--mut);border:1px solid var(--line2);cursor:pointer}
 .tabView button.on{background:rgba(14,165,233,.18);color:#bae6fd;border-color:var(--acc)}
-#visor{position:relative;display:none;background:#000;border-radius:8px;overflow:hidden}
-#visor img{width:100%;display:block;max-height:250px;object-fit:contain;background:#000}
-#visor .nav{position:absolute;top:0;bottom:0;width:34px;border:0;background:rgba(0,0,0,.35);
+#visor,#visorCache{position:relative;background:#000;border-radius:8px;overflow:hidden}
+#visor{display:none}
+#visor img,#visorCache img{width:100%;display:block;max-height:250px;object-fit:contain;background:#000}
+#visor .nav,#visorCache .nav{position:absolute;top:0;bottom:0;width:34px;border:0;background:rgba(0,0,0,.35);
   color:#fff;font-size:18px;cursor:pointer;z-index:5}
-#visor .nav:hover{background:rgba(0,0,0,.6)}
-#visor .nav.izq{left:0}#visor .nav.der{right:0}
-#visor .cnt{position:absolute;bottom:4px;left:0;right:0;text-align:center;color:#fff;
+#visor .nav:hover,#visorCache .nav:hover{background:rgba(0,0,0,.6)}
+#visor .nav.izq,#visorCache .nav.izq{left:0}#visor .nav.der,#visorCache .nav.der{right:0}
+#visor .cnt,#visorCache .cnt{position:absolute;bottom:4px;left:0;right:0;text-align:center;color:#fff;
   font-size:11px;text-shadow:0 1px 3px #000;background:rgba(0,0,0,.4);width:fit-content;
   margin:auto;padding:1px 8px;border-radius:8px}
 .acc{padding:6px 2px 2px;display:flex;gap:6px;flex-wrap:wrap;align-items:center}
@@ -153,6 +154,27 @@ a.dl{font-size:11px;padding:4px 9px;border-radius:7px;text-decoration:none;font-
 .spin{display:inline-block;width:13px;height:13px;border:2px solid var(--line2);border-top-color:var(--acc);
   border-radius:50%;animation:gir .8s linear infinite;vertical-align:-2px;margin-right:6px}
 @keyframes gir{to{transform:rotate(360deg)}}
+/* ────────── NARANJAS 🟠 (caché persistente) ────────── */
+.dotN{width:17px;height:17px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#fdba74,#ea580c 60%,#7c2d12);
+  border:2px solid #450a05;box-shadow:0 0 10px rgba(249,115,22,.95),0 0 3px #fff inset;position:relative}
+.dotN::after{content:"";position:absolute;inset:-6px;border-radius:50%;border:2px solid rgba(249,115,22,.5);
+  animation:onda 1.6s ease-out infinite}
+.dotN .v{position:absolute;right:-4px;bottom:-4px;width:9px;height:9px;border-radius:50%;background:#22c55e;
+  border:2px solid #04121d;box-shadow:0 0 6px rgba(34,197,94,.95)}
+/* ────────── HISTORIAL POR DÍAS + GALERÍA DEL CACHÉ ────────── */
+.dia{border:1px solid var(--line);border-radius:11px;overflow:hidden;background:var(--bg3)}
+.dia .dCab{display:flex;align-items:center;gap:8px;padding:8px 11px;cursor:pointer;user-select:none;background:var(--bg3)}
+.dia .dCab:hover{background:var(--bg4)}
+.dia .dCab .fecha{font-weight:800;font-size:12px;flex:1}
+.dia .dCab .cnt{font-size:10.5px;color:var(--mut);background:var(--bg4);border-radius:999px;padding:2px 8px;white-space:nowrap}
+.dia .dCab .chev{color:var(--mut2);font-size:10px;flex:none}
+.dia .dCuerpo{display:flex;flex-direction:column;gap:7px;padding:7px 8px;border-top:1px solid var(--line)}
+.dia.plegado .dCuerpo{display:none}
+.dia.plegado{border-color:var(--line2)}
+.dia.plegado .dCab{background:var(--bg4)}
+.cmeta{font-size:10.5px;color:var(--mut2);display:flex;flex-wrap:wrap;gap:2px 14px;line-height:1.55;
+  background:var(--bg3);border:1px dashed var(--line2);border-radius:9px;padding:5px 9px;margin-bottom:2px}
+.cmeta b{color:var(--mut)}
 /* ────────── SELECCIÓN DE CAPAS ────────── */
 #capaWrap{position:relative;display:inline-block}
 #menuCapas{position:absolute;top:calc(100% + 7px);right:0;z-index:6000;display:none;min-width:225px;
@@ -432,7 +454,8 @@ const $ = id => document.getElementById(id);
 const S = {token:null, user:null, rol:null, uid:null, vista:null /*null=yo, ''=global(admin)*/,
            cat:null, catOK:false, verdes:[], eventos:[], pts:[],
            perf:'ptodo', rangoD:null, rangoH:null, horaA:'00:00', horaB:'23:59', horaActiva:false,
-           histCam:null, histCamNom:null, fotoPat:null, busy:false, tab:'evs'};
+           histCam:null, histCamNom:null, fotoPat:null, busy:false, tab:'evs',
+           modoHist:'pasadas', cache:[], cacheCam:null, cacheRec:null, cacheIdx:0, cacheUser:null, cacheUlt:0, cacheOK:false};
 
 /* ───────── utilidades ───────── */
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
@@ -498,6 +521,7 @@ menuCapas.querySelectorAll('.op').forEach(o=>o.onclick=()=>{setCapa(o.dataset.c)
 document.addEventListener('click',e=>{if(!e.target.closest('#capaWrap'))menuCapas.classList.remove('on');});
 const capaGris=L.layerGroup().addTo(map);      // catálogo (grises/celdas)
 const capaVerde=L.layerGroup().addTo(map);     // pasadas → verdes
+const capaNaranja=L.layerGroup().addTo(map);   // caché persistente → naranjas 🟠
 const capaRuta=L.layerGroup().addTo(map);      // polilínea del track
 let rutaLinea=null;
 const Z_EXACT=15, MAX_PUNTOS=2500;
@@ -654,6 +678,87 @@ function pintarVerdes(){
     capaVerde.addLayer(mk);
   });
   resumen();
+}
+
+/* ═══════════════ CACHÉ PERSISTENTE → NARANJAS 🟠 (F5.3) ═══════════════ */
+/* Fallback si el backend no resuelve lat/lon: el cam_id del caché guarda
+   la fuente y las coordenadas a 5 decimales con '.'→'_' (p.ej.
+   'Bilbao-Ayto_43_26285_-2_92904' → 43.26285,-2.92904). */
+function parseCoordCamId(cid){
+  const m=/^(.+)_(-?\d{1,2})_(\d{5})_(-?\d{1,2})_(\d{5})$/.exec(String(cid||''));
+  if(!m)return null;
+  const dg=parseInt(m[2],10),df=parseInt(m[3],10),og=parseInt(m[4],10),of=parseInt(m[5],10);
+  return {lat:(dg<0?-1:1)*(Math.abs(dg)+df/1e5), lon:(og<0?-1:1)*(Math.abs(og)+of/1e5)};
+}
+/* Resuelve lat/lon/nombre de una entrada de /api/cache (aunque el backend ya
+   los devuelva, es robusto ante cámaras sin catálogo). */
+function resolverCacheCam(c){
+  let lat=c.lat, lon=c.lon, nom=c.nombre, fu=c.fuente;
+  if(!(typeof lat==='number'&&isFinite(lat)&&typeof lon==='number'&&isFinite(lon))){
+    const p=parseCoordCamId(c.cam_id);
+    if(p){lat=p.lat;lon=p.lon;}
+  }
+  // enriquecer con el catálogo: el id del catálogo (con puntos) al sanitizar
+  // coincide con el cam_id del directorio del caché (con guiones bajos)
+  if(!S.cat||!S.cat.length)return {lat,lon,nombre:nom,fuente:fu};
+  const cand=S.cat.find(x=>String(x.id||'').replace(/[^A-Za-z0-9_-]/g,'_').slice(0,80)===c.cam_id);
+  if(cand){
+    if(typeof cand.lat==='number')lat=cand.lat;
+    if(typeof cand.lon==='number')lon=cand.lon;
+    if(cand.nombre)nom=cand.nombre;
+    if(cand.fuente)fu=cand.fuente;
+  }
+  return {lat,lon,nombre:nom,fuente:fu};
+}
+function llaveCam(lat,lon){return (typeof lat==='number'&&typeof lon==='number'&&isFinite(lat)&&isFinite(lon))
+  ?(Math.round(lat*1e5)/1e5)+'|'+(Math.round(lon*1e5)/1e5):null;}
+function naranjaIcon(combo){
+  return L.divIcon({className:'',html:'<div class="dotN">'+(combo?'<span class="v" title="también con pasadas 🟢"></span>':'')+'</div>',
+    iconSize:[19,19],iconAnchor:[9,9]});
+}
+/* Pinta un marcador naranja por cámara con fotos en el caché. El naranja NO
+   depende del filtro temporal (es caché real guardado); solo cambia si cambia
+   el ?usuario= (admin «ver como») o cada ~15 s (poll). */
+function pintarNaranjas(){
+  capaNaranja.clearLayers();
+  const llV=new Set();
+  S.verdes.forEach(v=>{llV.add('id:'+v.cam_id);const k=llaveCam(v.lat,v.lon);if(k)llV.add('p:'+k);});
+  S.eventos.forEach(e=>{llV.add('id:'+e.cam_id);const k=llaveCam(e.lat,e.lon);if(k)llV.add('p:'+k);});
+  (S.cache||[]).forEach(c=>{
+    const r=resolverCacheCam(c);
+    if(!(typeof r.lat==='number'&&isFinite(r.lat)&&typeof r.lon==='number'&&isFinite(r.lon)))return; // sin coordenadas
+    const combo=llV.has('id:'+c.cam_id)||(r.lat!=null&&llV.has('p:'+llaveCam(r.lat,r.lon)));
+    const mk=L.marker([r.lat,r.lon],{icon:naranjaIcon(combo),zIndexOffset:combo?4200:4000});
+    const ult=(c.ultima_ts!=null)?' · última '+fmtF(c.ultima_ts):'';
+    mk.bindTooltip(`📸 <b>${D(r.nombre)}</b><br>${c.n_fotos} foto${c.n_fotos!==1?'s':''} en caché${ult}${combo?'<br><span style="color:#86efac">🟢 también con pasadas</span>':''}`,{direction:'top',offset:[0,-10]});
+    mk.on('click',()=>abrirCache(c));
+    capaNaranja.addLayer(mk);
+  });
+}
+let cacheTimer=null;
+async function cargarCache(){
+  if(!S.token)return;
+  const us=vistaQS();                       // ?usuario= del admin ('' = verse a sí mismo)
+  if(S.cacheUser===us&&S.cacheUlt&&Date.now()-S.cacheUlt<5000)return; // throttle 5 s
+  S.cacheUser=us; S.cacheUlt=Date.now();
+  try{
+    const j=await api('/api/cache'+us);
+    S.cache=j.camaras||[]; S.cacheOK=true;
+    pintarNaranjas(); leyendaCapas();
+  }catch(e){/* el 401 ya cierra sesión; el resto silencioso */}
+}
+function leyendaCapas(){
+  const ci=$('catInfo'); if(!ci)return;
+  if(S.catOK&&S.cacheOK)ci.textContent=`🗺 Catálogo: ${S.cat.length.toLocaleString('es-ES')} cámaras (grises en el mapa) · 🟢 verde = pasadas (historial por días) · 🟠 naranja = fotos en caché (clic para verlas)`;
+  else if(S.cacheOK&&!S.catOK)ci.textContent='🟠 naranja = cámaras con fotos en el caché · clic para ver la galería';
+  else if(S.catOK)ci.textContent=`🗺 Catálogo: ${S.cat.length.toLocaleString('es-ES')} cámaras (grises en el mapa) · 🟢 verde = pasadas · clic en verde = historial`;
+}
+/* Click en un naranja: abre el panel «Historial» pero con la GALERÍA del caché */
+async function abrirCache(c){
+  const r=resolverCacheCam(c);
+  S.cacheRec=Object.assign({},c,{lat:r.lat,lon:r.lon,nombre:r.nombre,fuente:r.fuente});
+  S.cacheCam=c.cam_id; S.cacheIdx=0; S.modoHist='cache';
+  switchTab('hist');
 }
 
 /* ═══════════════ VELOCÍMETRO EN VIVO (poll 4 s) ═══════════════ */
@@ -927,7 +1032,9 @@ async function cerrarSesion(silencioso){
   if(S.token&&!silencioso){try{await fetch('/api/logout',{method:'POST',headers:{'Authorization':'Bearer '+S.token}});}catch(e){}}
   localStorage.removeItem(LS_AUTH); S.token=null;S.user=null;S.rol=null;S.uid=null;S.vista=null;
   S.cat=null;S.catOK=false;S.verdes=[];S.eventos=[];S.pts=[];
-  capaVerde.clearLayers();capaGris.clearLayers();
+  S.cache=[];S.cacheCam=null;S.cacheRec=null;S.cacheOK=false;S.modoHist='pasadas';
+  capaVerde.clearLayers();capaGris.clearLayers();capaNaranja.clearLayers();
+  if(cacheTimer){clearInterval(cacheTimer);cacheTimer=null;}
   pararVel(); setVel('—','❔',false);
   perfilV=null; ocultarVelHover();
   mostrarLogin();
@@ -958,6 +1065,9 @@ async function entrar(st){
   actualizarChip();
   setInterval(async()=>{ if(S.token){try{const st=await api('/api/estado'+vistaQS());pintaEstado(st);}catch(e){}} },20000);
   arrancarVel();
+  cargarCache();                                      // naranjas 🟠 iniciales
+  if(cacheTimer)clearInterval(cacheTimer);
+  cacheTimer=setInterval(()=>{ if(S.token)cargarCache(); },15000);   // poll 15 s
   ajustarVel();
 }
 function vistaQS(){return S.rol==='admin'&&S.vista?qs({usuario:S.vista}):'';}
@@ -971,8 +1081,8 @@ function cargarCatalogo(){
   $('catInfo').textContent='⏳ Cargando catálogo de cámaras (≈10 MB) en segundo plano…';
   api('/api/catalogo').then(j=>{
     S.cat=j.camaras||[]; S.catOK=true;
-    $('catInfo').textContent=`🗺 Catálogo: ${S.cat.length.toLocaleString('es-ES')} cámaras (gris/agrupadas en el mapa) · clic en verde 🟢 = historial de pasadas`;
-    pintarGrises(); pintarVerdes();
+    leyendaCapas();
+    pintarGrises(); pintarVerdes(); pintarNaranjas();   // el catálogo da nombre/coordenadas exactas a los naranjas
   }).catch(e=>{ $('catInfo').textContent='⚠ Catálogo no disponible: se muestran solo las cámaras verdes (pasadas).'; }).finally(()=>{catCargando=false;});
 }
 
@@ -1067,6 +1177,7 @@ async function refreshTodo(){
     renderEventos(); renderHist();
     pintaEstado(await api('/api/estado'+vistaQS()));
     actualizarChip();
+    cargarCache();           // naranjas: se recarga si cambió el ?usuario= (admin «ver como»)
   }catch(e){ if(e.message!=='no autorizado')toast('Error al cargar datos: '+e.message,true); }
   finally{S.busy=false;}
 }
@@ -1075,6 +1186,8 @@ $('btnRefrescar').onclick=()=>{autoFit=false;refreshTodo();};
 /* ═══════════════ PANEL ESTADO ═══════════════ */
 function pintaEstado(st){
   if(!st)return;
+  S.retDias=st.retencion_cache_dias!=null?st.retencion_cache_dias:30;
+  S.cuotaCacheG=st.cuota_cache_gb||30;
   const gb=st.cuota_eventos_gb||0, gbMax=st.cuota_eventos_gb_max||gb, tmb=st.cuota_temps_mb||0;
   const pctEv=Math.min(100,(st.tam_eventos||0)/(Math.max(1,gb)*1e9)*100);
   const pctTp=Math.min(100,(st.tam_temps||0)/(Math.max(1,tmb)*1e6)*100);
@@ -1101,13 +1214,26 @@ function pintaEstado(st){
    <div class="cuota"><div class="txt"><span class="lab">🧹 Temporales</span><span class="val"><b>${fmtBytes(st.tam_temps)}</b> de ${fmtBytes(tmb*1e6)}</span></div>
      <div class="barra"><div class="relleno" style="width:${pctTp.toFixed(1)}%;background:${cTp}"></div></div>
      <div class="meta"><span>archivos temporales de captura</span><span>${pctTp.toFixed(0)} % usado</span></div></div>
+   ${cacheCuotaHTML(st)}
    <div class="cuota"><div class="txt"><span class="lab">🗃️ Base de datos</span><span class="val"><b>${fmtBytes(st.tam_tracks_db)}</b> de tracks</span></div></div>
    <div class="expRow">
      <a class="dl" href="${au('/api/exportar/kml'+qs(S.rol==='admin'&&S.vista?{usuario:S.vista}:{}))}">🌍 KML</a>
      <a class="dl" href="${au('/api/exportar/gpx'+qs(S.rol==='admin'&&S.vista?{usuario:S.vista}:{}))}">🗺 GPX</a>
      <a class="dl" href="${au('/api/exportar/todo'+qs(S.rol==='admin'&&S.vista?{usuario:S.vista}:{}))}">📦 Todo JSON</a>
-   </div>`;
-}
+     </div>`;
+     }
+     /* Tarjeta del caché persistente en el panel de estado */
+     function cacheCuotaHTML(st){
+     if(st.tam_cache==null&&st.cuota_cache_gb==null)return '';
+     const cuota=st.cuota_cache_gb||0, cuotaMax=st.cuota_cache_gb_max||cuota;
+     const ret=S.retDias, tam=st.tam_cache||0;
+     const pct=Math.min(100,tam/(Math.max(1,cuota)*1e9)*100);
+     const col=pct>85?'var(--red)':pct>60?'var(--amb)':'var(--grn)';
+     const nCams=(S.cache||[]).length;
+     return `<div class="cuota"><div class="txt"><span class="lab">📸 Caché (${ret} días)</span><span class="val"><b>${fmtBytes(tam)}</b> de ${fmtBytes(cuota*1e9)}</span></div>
+     <div class="barra"><div class="relleno" style="width:${pct.toFixed(1)}%;background:${col}"></div></div>
+     <div class="meta"><span>retención ${ret} días · dedup umbral ${st.umbral_dedup!=null?st.umbral_dedup:4} bits</span><span>${nCams?nCams+' cámara'+(nCams!==1?'s':'')+' con caché 🟠':'cuota máx '+fmtBytes(cuotaMax*1e9)}</span></div></div>`;
+     }
 /* ═══════════════ RESUMEN ═══════════════ */
 /* Total de cámaras verdes: unión de /api/verdes con los cam_id de los eventos
    del rango (en modo hora /api/verdes no se consulta y se derivan de eventos). */
@@ -1178,7 +1304,7 @@ window.toggleEv=function(id){
 };
 /* ═══════════════ HISTORIAL DE PASADAS (por cámara verde) ═══════════════ */
 async function abrirHistorial(camId,nombre){
-  S.histCam=camId; S.histCamNom=nombre; switchTab('hist');
+  S.histCam=camId; S.histCamNom=nombre; S.modoHist='pasadas'; switchTab('hist');
   const v=$('vistaHist');
   v.innerHTML='<div class="vacio"><span class="spin"></span>Cargando historial de pasadas…</div>';
   try{
@@ -1191,15 +1317,129 @@ async function abrirHistorial(camId,nombre){
 }
 function renderHist(){
   const v=$('vistaHist'); if(S.tab!=='hist')return;
+  if(S.modoHist==='cache'){renderCache();return;}
   const cam=S.histCam;
-  if(!cam){v.innerHTML='<div class="vacio">Haz clic en una cámara <span style="color:#4ade80">verde</span> 🟢 del mapa para ver aquí<br>el historial de TODAS sus pasadas.</div>';return;}
+  if(!cam){v.innerHTML='<div class="vacio">Haz clic en una cámara <span style="color:#4ade80">verde</span> 🟢 del mapa para ver aquí<br>el historial de TODAS sus pasadas (agrupado por días),<br>o en una <span style="color:#fb923c">naranja</span> 🟠 para ver las fotos de su caché.</div>';return;}
   const evs=S._histEvs||[];
   const veces=new Set(S.eventos.filter(e=>e.cam_id===cam).map(e=>e.id)).size;
   const cab=`<div class="seccion"><span>📷 ${D(S.histCamNom)}</span>
      <span style="color:var(--grn)">🟢 ${evs.length} pasada${evs.length!==1?'s':''}${veces?` · ${veces} en filtro`:''}</span></div>`;
   if(!evs.length){v.innerHTML=cab+'<div class="vacio">Sin pasadas registradas todavía.</div>';return;}
-  v.innerHTML=cab+evs.map(e=>tarjetaEvento(e,false)).join('')
-    +'<div style="font-size:10.5px;color:var(--mut2);text-align:center;padding:4px">Historial completo de la cámara (sin filtro temporal)</div>';
+  const dias=agruparPorDia(evs);
+  v.innerHTML=cab+dias.map(d=>diaHTML(d)).join('')
+    +'<div style="font-size:10.5px;color:var(--mut2);text-align:center;padding:4px">Historial completo de la cámara (sin filtro temporal) · cada día se pliega con un clic</div>';
+}
+
+/* ── Agrupación del historial por día calendario LOCAL ── */
+function diaClave(ts){const d=new Date(ts*1000);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
+function diaLbl(ts){
+  const d=new Date(ts*1000), hoy=new Date(), ayer=new Date(); ayer.setDate(hoy.getDate()-1);
+  const eq=(a,b)=>a.getFullYear()===b.getFullYear()&&a.getMonth()===b.getMonth()&&a.getDate()===b.getDate();
+  const rel=eq(d,hoy)?'hoy':(eq(d,ayer)?'ayer':'');
+  const base=d.toLocaleDateString('es-ES',{weekday:'long',day:'numeric',month:'short',year:'numeric'}).replace(/,/g,'').replace(/\s+de\s+/g,' ');
+  const cap=base.charAt(0).toUpperCase()+base.slice(1);
+  return rel?cap+' · '+rel:cap;
+}
+function agruparPorDia(evs){
+  const m=new Map();
+  evs.forEach(e=>{
+    const ts=e.ts_inicio; if(ts==null)return;
+    const d=new Date(ts*1000);
+    const cl=diaClave(ts);
+    let g=m.get(cl);
+    if(!g){g={clave:cl,tsDia:new Date(d.getFullYear(),d.getMonth(),d.getDate()).getTime()/1000,lbl:diaLbl(ts),evs:[]};m.set(cl,g);}
+    g.evs.push(e);
+  });
+  const out=[...m.values()].sort((a,b)=>b.tsDia-a.tsDia);   // días descendentes
+  out.forEach(g=>g.evs.sort((a,b)=>(a.ts_inicio||0)-(b.ts_inicio||0)));
+  return out;
+}
+window.diaClick=function(el){
+  const dia=el.closest('.dia'); if(!dia)return;
+  dia.classList.toggle('plegado');
+  const ch=el.querySelector('.chev'); if(ch)ch.textContent=dia.classList.contains('plegado')?'▴':'▾';
+};
+function diaHTML(g){
+  return `<div class="dia" data-d="${g.clave}">
+    <div class="dCab" onclick="diaClick(this)" title="Plegar/desplegar este día">
+      <span class="fecha">📅 ${D(g.lbl)}</span>
+      <span class="cnt">🎥 ${g.evs.length} grabaci${g.evs.length!==1?'ones':'ón'}</span>
+      <span class="chev">▾</span>
+    </div>
+    <div class="dCuerpo">${g.evs.map(e=>tarjetaEvento(e,false)).join('')}</div>
+  </div>`;
+}
+
+/* ── GALERÍA DEL CACHÉ (clic en un naranja 🟠) ── */
+function cacheFotoUrl(cam,i){return au('/api/cache/'+encodeURIComponent(cam)+'/foto/'+pad3(i));}
+function renderCache(){
+  const v=$('vistaHist'); if(S.tab!=='hist'||S.modoHist!=='cache')return;
+  const cam=S.cacheCam;
+  if(!cam){v.innerHTML='<div class="vacio">Haz clic en una cámara <span style="color:#fb923c">naranja</span> 🟠 del mapa<br>para ver aquí las fotos guardadas en su caché.</div>';return;}
+  const r=S.cacheRec||{};
+  const nf=Math.max(1,r.n_fotos||1);
+  const nom=r.nombre||cam;
+  const prim=(r.primera_ts!=null)?fmtF(r.primera_ts):'—';
+  const ult=(r.ultima_ts!=null)?fmtF(r.ultima_ts):'—';
+  v.innerHTML=`<div class="seccion"><span>📸 Caché · ${D(nom)}</span>
+     <span style="color:var(--amb)">🟠 ${nf} foto${nf!==1?'s':''} guardada${nf!==1?'s':''}</span></div>
+   <div class="cmeta">
+     <span>🗓 desde <b>${prim}</b></span><span>hasta <b>${ult}</b></span>
+     <span>💾 <b>${r.tam!=null?fmtBytes(r.tam):'—'}</b></span>
+     <span>🧭 <b>${D(r.fuente||'—')}</b></span>
+   </div>
+   <div style="display:flex;gap:5px;margin:2px 0 7px">
+     <button style="flex:1;font-size:11px;padding:4px;border-radius:7px;background:rgba(245,158,11,.15);color:#fcd34d;border:1px solid rgba(245,158,11,.45);cursor:default">🟠 Fotos del caché</button>
+     <button id="btnCachePasadas" style="display:none;flex:1;font-size:11px;padding:4px;border-radius:7px;background:rgba(34,197,94,.14);color:#86efac;border:1px solid rgba(34,197,94,.4);cursor:pointer"></button>
+   </div>
+   <div id="visorCache">
+     <button class="nav izq" onclick="navCache(-1)">◀</button>
+     <img id="cachFoto" alt="foto del caché">
+     <button class="nav der" onclick="navCache(1)">▶</button>
+     <div class="cnt" id="cachCnt">1 / ${nf}</div>
+   </div>
+   <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:7px" id="cachThumbs"></div>
+   <div class="mnote" style="margin-top:6px">Imágenes del caché persistente de proximidad: se conservan <b>${S.retDias||30} días</b> con dedup (solo cambios reales) y cuota ${S.cuotaCacheG||30} GB. Este marcador no depende del filtro temporal: muestra lo que hay guardado de verdad.</div>`;
+  const img=$('cachFoto'); if(img)img.src=cacheFotoUrl(cam,0);
+  const th=$('cachThumbs');
+  for(let i=0;i<Math.min(nf,120);i++){
+    const im=document.createElement('img');
+    im.src=cacheFotoUrl(cam,i); im.alt='Foto '+(i+1);
+    im.dataset.i=i;
+    im.style.cssText='width:46px;height:46px;object-fit:cover;border-radius:6px;cursor:pointer;border:1px solid var(--line2);background:#000';
+    im.title='Foto '+(i+1);
+    th.appendChild(im);
+  }
+  th.onclick=e=>{const t=e.target.closest('img'); if(t)setCacheFoto(+t.dataset.i||0);};
+  const bp=$('btnCachePasadas');
+  if(bp)bp.onclick=()=>abrirHistorial(cam,nom);
+  /* botón para saltar al historial de pasadas si la cámara tiene eventos */
+  (async()=>{
+    try{
+      const p={cam_id:cam}; if(S.rol==='admin'&&S.vista)p.usuario=S.vista;
+      const evs=await api('/api/eventos'+qs(p));
+      if(S.modoHist!=='cache'||S.cacheCam!==cam)return;   // respuesta obsoleta
+      const b=$('btnCachePasadas');
+      if(b){
+        if(evs.length){b.style.display='';b.textContent='🟢 '+evs.length+' pasada'+(evs.length!==1?'s':'')+' · ver historial';}
+        else b.remove();
+      }
+    }catch(e){}
+  })();
+  setCacheFoto(0);
+}
+window.navCache=function(d){
+  const nf=Math.max(1,(S.cacheRec&&S.cacheRec.n_fotos)||1);
+  S.cacheIdx=(S.cacheIdx+d+nf)%nf;
+  setCacheFoto(S.cacheIdx);
+};
+function setCacheFoto(i){
+  S.cacheIdx=i;
+  const img=$('cachFoto'); if(!img)return;
+  const nf=Math.max(1,(S.cacheRec&&S.cacheRec.n_fotos)||1);
+  img.src=cacheFotoUrl(S.cacheCam,i);
+  const c=$('cachCnt'); if(c)c.textContent=(i+1)+' / '+nf;
+  const th=$('cachThumbs'); if(th)th.querySelectorAll('img').forEach((im,j)=>im.style.borderColor=(j===i)?'var(--acc)':'var(--line2)');
 }
 
 /* ═══════════════ VISOR: vídeo + fotos ◀▶ ═══════════════ */
