@@ -359,6 +359,69 @@ button.mchip.pel:hover{background:#3b1620}
 .perfAcc button{font-size:11.5px;padding:6px 11px;border-radius:9px;cursor:pointer;
   border:1px solid var(--line2);background:var(--bg3);color:var(--txt);font-weight:600}
 .perfAcc button:hover{border-color:var(--acc);color:#bae6fd}
+/* ══════════ MEJORAS MAPA: popups oscuros, foto en vivo, pins 📍, navegación de pasadas ══════════ */
+.leaflet-popup-content-wrapper{background:#0d1a2e;color:var(--txt);border:1px solid var(--line2);
+  border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.55)}
+.leaflet-popup-tip{background:#0d1a2e;border:1px solid var(--line2)}
+.leaflet-popup-close-button{color:#7dd3fc !important}
+.leaflet-tooltip{background:#0d1a2e;color:var(--txt);border:1px solid var(--line2);border-radius:8px;
+  box-shadow:0 4px 14px rgba(0,0,0,.5)}
+.leaflet-tooltip-top:before{border-top-color:#0d1a2e}
+.leaflet-tooltip-bottom:before{border-bottom-color:#0d1a2e}
+.leaflet-tooltip-left:before{border-left-color:#0d1a2e}
+.leaflet-tooltip-right:before{border-right-color:#0d1a2e}
+/* popup 🔵 de FOTO EN VIVO (clic en cámara del catálogo) */
+.leaflet-popup.vivo .leaflet-popup-content{margin:10px 12px}
+.vivoPopup{width:332px;font-size:12px}
+.vivoNom{font-size:12.5px;font-weight:700;margin-bottom:1px}
+.vivoMeta{color:var(--mut);font-size:10.5px;margin-bottom:6px}
+.vivoBox{position:relative;background:#000;border:1px solid var(--line2);border-radius:9px;overflow:hidden;min-height:120px}
+.vivoBox img.vivoImg{display:block;width:100%;max-height:200px;min-height:120px;object-fit:contain;background:#000}
+.vivoBox img.vivoImg.err{opacity:.25}
+.vivoSt{position:absolute;inset:0;display:none;place-items:center;color:#fca5a5;font-size:11.5px;text-align:center;
+  background:rgba(4,8,16,.6);padding:8px}
+.vivoBox.no .vivoSt{display:grid}
+.vivoBox.grande img.vivoImg{max-height:min(72vh,700px);min-height:220px}
+.vivoMsg{color:var(--mut);font-size:10.5px;margin:6px 1px 0}
+.vivoBtns{display:flex;gap:6px;margin-top:8px}
+.vivoBtn{flex:1;font-size:11px;padding:5px 8px;border-radius:8px;cursor:pointer;border:1px solid var(--line2);
+  background:var(--bg4);color:var(--txt);font-weight:600}
+.vivoBtn:hover{border-color:var(--acc)}
+.vivoBtn.pri{background:linear-gradient(135deg,rgba(14,165,233,.25),rgba(37,99,235,.25));
+  border-color:rgba(56,189,248,.45);color:#bae6fd}
+/* pins 📍 (estabas aquí / ubicación actual) */
+.pinAqui,.pinYo{position:relative;width:24px;height:26px}
+.pinAqui .pin,.pinYo .pin{position:absolute;left:1px;top:1px;width:22px;height:22px;
+  border-radius:50% 50% 50% 0;transform:rotate(-45deg)}
+.pinAqui .pin{background:linear-gradient(135deg,#7dd3fc,#2563eb);border:2px solid #dbeafe;
+  box-shadow:0 0 10px rgba(59,130,246,.9),0 2px 4px rgba(0,0,0,.4)}
+.pinYo .pin{background:linear-gradient(135deg,#4ade80,#15803d);border:2px solid #dcfce7;
+  box-shadow:0 0 12px rgba(34,197,94,.9),0 2px 4px rgba(0,0,0,.4)}
+.pinAqui .pin::after,.pinYo .pin::after{content:"";position:absolute;left:50%;top:50%;
+  width:7px;height:7px;margin:-3.5px 0 0 -3.5px;border-radius:50%;background:#fff}
+.pinAqui .onda,.pinYo .onda{position:absolute;left:2px;top:2px;width:20px;height:20px;border-radius:50%;
+  border:2px solid rgba(96,165,250,.6);animation:onda 1.6s ease-out infinite;pointer-events:none}
+.pinYo .onda{border-color:rgba(34,197,94,.55)}
+.pinYo.viejo .pin{filter:grayscale(.75) opacity(.55)}
+.pinYo.viejo .onda{display:none}
+.pinYo.flash .pin{animation:pinLat 1s ease}
+@keyframes pinLat{0%,100%{transform:rotate(-45deg) scale(1)}35%{transform:rotate(-45deg) scale(1.65)}}
+/* botón flotante 📍 Mi ubicación (junto a 📈 Velocidad y 🖼 Visor) */
+#btnYoLoc{top:88px;right:calc(min(440px,94vw) + 16px)}
+#btnYoLoc.fuera{border-color:var(--acc);background:linear-gradient(135deg,rgba(34,197,94,.22),rgba(14,165,233,.25));
+  color:#fff;box-shadow:0 0 0 4px rgba(56,189,248,.18),0 0 16px rgba(56,189,248,.85);
+  animation:latido 1.7s ease-in-out infinite}
+/* barra de navegación ◀ ▶ entre pasadas de una cámara */
+#camNavBar{display:flex;align-items:center;gap:6px;border:1px solid rgba(56,189,248,.35);
+  background:rgba(14,165,233,.08);border-radius:9px;padding:4px 6px;margin-bottom:7px;flex-wrap:wrap}
+#camNavBar .nv{width:30px;height:25px;border-radius:7px;border:1px solid var(--line2);background:var(--bg4);
+  color:var(--txt);font-size:12px;cursor:pointer;font-weight:800;flex:none}
+#camNavBar .nv:hover:not(:disabled){border-color:var(--acc);background:rgba(14,165,233,.25);color:#bae6fd}
+#camNavBar .nv:disabled{opacity:.35;cursor:default}
+#camNavBar #nvLbl{flex:1;font-size:11.5px;font-weight:700;white-space:nowrap;min-width:0;
+  overflow:hidden;text-overflow:ellipsis}
+#camNavBar #nvLbl small{color:var(--mut);font-weight:600;font-size:10.5px}
+#camNavBar .nvNota{font-size:9.8px;color:var(--mut2);width:100%;line-height:1.35}
 @media (max-width:900px){
   #topbar{gap:7px;padding:7px 10px}
   #filtros{padding:7px 10px;gap:6px}
@@ -448,6 +511,7 @@ button.mchip.pel:hover{background:#3b1620}
     <div id="map"></div>
     <button class="flot" id="btnVelFlot" title="Reabrir la sección de velocidad (velocímetro en vivo + gráfica)">📈 Velocidad</button>
     <button class="flot" id="btnVisorFlot" title="Reabrir el visor del último evento abierto">🖼 Visor</button>
+    <button class="flot" id="btnYoLoc" title="Ir a mi ubicación actual (pin 📍 del track)">📍 Mi ubicación</button>
     <button id="fabPanel" title="Reabrir el panel lateral">📋 Panel</button>
   </div>
 
@@ -507,6 +571,7 @@ const S = {token:null, user:null, rol:null, uid:null, vista:null /*null=yo, ''=g
            camLat:null, camLon:null, _histEvs:null, _histFetched:null, _cercList:[], ultEv:null, _estado:null};
 let velCerrado=false;       // F5.4-F: sección de velocidad cerrada del todo (botón 📈 flotante para reabrir)
 let crono=null;             // F5.4-C: estado de la reproducción de cronología {evs,i,play,modo,mk,vid,raf,t}
+let navEvs=null,navI=-1,navCam=null;  // navegación ◀ ▶ entre pasadas de la cámara activa
 
 /* ───────── utilidades ───────── */
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
@@ -614,9 +679,14 @@ function pintarGrises(){
     const b=map.getBounds();
     const vis=S.cat.filter(c=>c.lat>=b.getSouth()&&c.lat<=b.getNorth()&&c.lon>=b.getWest()&&c.lon<=b.getEast());
     if(vis.length<=MAX_PUNTOS){
+      const halo=vis.length<=1500;        // halo solo con densidades manejables (2 capas por cámara)
       for(const c of vis){
-        const mk=L.circleMarker([c.lat,c.lon],{radius:3.5,color:'#60a5fa',weight:1,fillColor:'#3b82f6',fillOpacity:.9});
-        mk.on('click',()=>mk.bindPopup(`<b>${D(c.nombre)}</b><br>${D(c.fuente)}${c.pais?' · '+D(c.pais):''}<br><span style="color:#7dd3fc">🔵 sin caché ni pasadas</span>`).openPopup());
+        const ll=[c.lat,c.lon];
+        /* punto azul grande y brillante (#4f9dff, radio 6) + halo para que se noten */
+        if(halo)capaGris.addLayer(L.circleMarker(ll,{radius:11,stroke:false,fillColor:'#60a5fa',fillOpacity:.15,interactive:false}));
+        const mk=L.circleMarker(ll,{radius:6,color:'#bfdbfe',weight:1.5,fillColor:'#4f9dff',fillOpacity:.95});
+        mk.bindTooltip(`📷 <b>${esc(c.nombre)}</b><br>${esc(c.fuente||'')}${c.pais?' · '+esc(c.pais):''}`,{sticky:true});
+        mk.on('click',function(){abrirVivoPopup(c,this);});   // clic → FOTO EN VIVO (refresco 5 s)
         capaGris.addLayer(mk);
       }
     }else{
@@ -629,6 +699,123 @@ function pintarGrises(){
 const redibujar=debounce(pintarGrises,140);
 map.on('moveend',redibujar); map.on('zoomend',redibujar);
 window.addEventListener('resize',debounce(()=>{map.invalidateSize();ocultarVelHover();dibujaPerfil(null);},200));
+
+/* ═══════════════ FOTO EN VIVO de una cámara del catálogo (clic en azul 🔵) ═══════════════ */
+/* Toda cámara del catálogo trae `url` de imagen directa. El popup muestra la foto
+   ACTUAL: primero la URL directa; si falla (hotlink/403), se usa el proxy del
+   propio backend (/api/img_proxy?u=…&token=… — relativo, funciona también por
+   túnel/móvil). Auto-refresco ~5 s mientras el popup (o el visor en grande)
+   esté abierto. */
+const PROXY_IMG=()=>'/api/img_proxy?u=';
+let vivo={cam:null,proxy:false,img:null,popImg:null,msgEl:null,timer:null,modo:null,grandeAbierto:false};
+function vivoSrcBust(){
+  const u=(vivo.cam&&vivo.cam.url)||''; if(!u)return '';
+  const t=Date.now();
+  return vivo.proxy
+    ? PROXY_IMG()+encodeURIComponent(u.split('?')[0])+'&token='+encodeURIComponent(S.token||'')+'&_='+t
+    : u+(u.includes('?')?'&':'?')+'_tc='+t;   // parámetro único para forzar recarga real
+}
+function vivoCargar(){
+  if(!vivo.img||!vivo.cam)return;
+  const im=vivo.img; im.classList.remove('err');
+  const box=im.closest('.vivoBox'); if(box)box.classList.remove('no');
+  const s=vivoSrcBust(); if(s)im.src=s;
+}
+function imgErrHandler(){
+  const im=this;
+  if(!vivo.proxy){vivo.proxy=true; const s=vivoSrcBust(); if(s)im.src=s; return;} // directa rota → proxy
+  im.classList.add('err');
+  const box=im.closest('.vivoBox'); if(box)box.classList.add('no');
+  if(vivo.msgEl)vivo.msgEl.textContent='📡 sin señal · se reintenta en unos segundos…';
+}
+function imgLoadHandler(){
+  const im=this; im.classList.remove('err');
+  const box=im.closest('.vivoBox'); if(box)box.classList.remove('no');
+  if(vivo.msgEl)vivo.msgEl.textContent='🔄 foto actual · refresco cada 5 s · '+horaPunto(ahoraE());
+}
+function vivoEstadoTxt(t){if(vivo.msgEl)vivo.msgEl.textContent=t;}
+function nuevoImgVivo(){
+  const im=document.createElement('img');
+  im.className='vivoImg'; im.alt='foto en vivo de la cámara';
+  im.onerror=imgErrHandler; im.onload=imgLoadHandler;
+  return im;
+}
+function vivoArranca(cam,imgEl,modo){
+  if(!cam||!imgEl)return;
+  if(vivo.cam&&vivo.cam.id===cam.id&&vivo.img===imgEl)return;   // ya en marcha sobre esa imagen
+  if(!(vivo.cam&&vivo.cam.id===cam.id))vivo.proxy=false;        // cámara nueva: probar directa otra vez
+  vivo.cam=cam; vivo.img=imgEl; vivo.modo=modo;
+  const caja=imgEl.closest('.vivoPopup')||imgEl.parentElement;
+  vivo.msgEl=caja?caja.querySelector('.vivoMsg'):null;
+  vivoEstadoTxt('🔄 cargando foto actual…');
+  vivoCargar();
+  if(!vivo.timer)vivo.timer=setInterval(()=>{ if(vivo.img&&document.body.contains(vivo.img))vivoCargar(); },5000);
+}
+function vivoParar(){
+  if(vivo.timer){clearInterval(vivo.timer);vivo.timer=null;}
+  vivo.cam=null;vivo.img=null;vivo.msgEl=null;vivo.modo=null;vivo.proxy=false;
+}
+function popupVivoHTML(c){
+  const pai=c.pais?(' · '+esc(c.pais)):'';
+  return `<div class="vivoPopup">
+    <div class="vivoNom">📷 <b>${esc(c.nombre)}</b></div>
+    <div class="vivoMeta">${esc(c.fuente||'')}${pai} · foto actual de la cámara</div>
+    <div class="vivoBox"><img class="vivoImg" alt="foto en vivo"><div class="vivoSt">📡 sin señal — se reintenta cada 5 s</div></div>
+    <div class="vivoMsg"></div>
+    <div class="vivoBtns">
+      <button type="button" class="vivoBtn" data-act="ref" title="Descargar la foto ahora mismo">🔄 Refrescar</button>
+      <button type="button" class="vivoBtn pri" data-act="grande" title="Abrir la foto en grande">👁 Ver en grande</button>
+    </div>
+  </div>`;
+}
+function abrirVivoPopup(c,mk){
+  if(!c||!mk)return;
+  map.closePopup();                       // cierra el popup anterior (y su refresco)
+  vivoParar();
+  const tmp=document.createElement('div');
+  tmp.innerHTML=popupVivoHTML(c).trim();
+  const cont=tmp.firstChild;
+  const img=cont.querySelector('.vivoImg');
+  img.onerror=imgErrHandler; img.onload=imgLoadHandler;
+  cont.querySelector('[data-act="ref"]').onclick=()=>{ if(vivo.cam&&vivo.img)vivoCargar(); else vivoArranca(c,img,'popup'); };
+  cont.querySelector('[data-act="grande"]').onclick=()=>verVivoGrande(c);
+  mk.on('popupclose',()=>{ if(vivo.modo==='popup'&&!vivo.grandeAbierto)vivoParar(); });
+  vivo.popImg=img;                        // para reanudar el refresco del popup al cerrar el grande
+  mk.bindPopup(cont,{maxWidth:366,className:'vivo'}).openPopup();
+  vivoArranca(c,img,'popup');
+}
+/* red de seguridad: si el popup se cierra por cualquier motivo (mapa, zoom, otro
+   popup…), se detiene el refresco de 5 s */
+map.on('popupclose',()=>{ if(vivo.modo==='popup'&&!vivo.grandeAbierto)vivoParar(); });
+/* «👁 Ver en grande»: modal con la foto en vivo (mismo refresco de 5 s) */
+function verVivoGrande(c){
+  if(!c)return;
+  const nom=c.nombre||'cámara';
+  abrirModal(`<div class="mhead"><span class="t">👁 ${esc(nom)} · foto en vivo</span><button class="x" onclick="cerrarModal()">✕</button></div>
+  <div class="mbody">
+    <div class="vivoPopup grd">
+      <div class="vivoBox grande"><img class="vivoImg" alt="foto en vivo"><div class="vivoSt">📡 sin señal — se reintenta cada 5 s</div></div>
+      <div class="vivoMsg"></div>
+      <div class="vivoBtns"><button type="button" class="vivoBtn pri" data-act="ref">🔄 Refrescar ahora</button></div>
+    </div>
+  </div>`);
+  const im=$('modalCard').querySelector('.vivoImg');
+  im.onerror=imgErrHandler; im.onload=imgLoadHandler;
+  $('modalCard').querySelector('[data-act="ref"]').onclick=()=>vivoCargar();
+  vivo.grandeAbierto=true;
+  vivoArranca(c,im,'grande');
+}
+/* al cerrar el modal, si el popup sigue abierto vuelve a refrescarse él */
+function vivoCerrarGrande(){
+  if(!vivo.grandeAbierto)return;
+  vivo.grandeAbierto=false;
+  if(vivo.popImg&&vivo.cam&&document.body.contains(vivo.popImg)&&vivo.popImg!==vivo.img){
+    vivoArranca(vivo.cam,vivo.popImg,'popup');
+  }else vivoParar();
+}
+/* Iconos pin: 📍 azul = «estabas aquí» en un evento; 📍 verde = mi ubicación actual */
+function pinAquiIcon(){return L.divIcon({className:'',html:'<div class="pinAqui"><div class="pin"></div><div class="onda"></div></div>',iconSize:[24,26],iconAnchor:[12,25]});}
+function yoIcon(){return L.divIcon({className:'',html:'<div class="pinYo"><div class="pin"></div><div class="onda"></div></div>',iconSize:[24,26],iconAnchor:[12,25]});}
 
 function verdeIcon(){return L.divIcon({className:'',html:'<div class="dotG"></div>',iconSize:[18,18],iconAnchor:[9,9]});}
 /* ═══════════════ RUTA COLOREADA POR VELOCIDAD ═══════════════ */
@@ -810,9 +997,9 @@ async function cargarCache(){
 }
 function leyendaCapas(){
   const ci=$('catInfo'); if(!ci)return;
-  if(S.catOK&&S.cacheOK)ci.textContent=`🗺 Catálogo: ${S.cat.length.toLocaleString('es-ES')} cámaras · 🔵 azul = sin dato · 🟢 verde = pasadas (historial por días) · 🟠 naranja = fotos en caché (clic para verlas)`;
-  else if(S.cacheOK&&!S.catOK)ci.textContent='🟠 naranja = cámaras con fotos en el caché · clic para ver la galería';
-  else if(S.catOK)ci.textContent=`🗺 Catálogo: ${S.cat.length.toLocaleString('es-ES')} cámaras (grises en el mapa) · 🟢 verde = pasadas · clic en verde = historial`;
+  const cat=S.catOK?`🗺 ${S.cat.length.toLocaleString('es-ES')} cámaras · 🔵 azul = sin datos en el filtro actual (clic → 📷 foto en vivo) · `:'';
+  if(S.cacheOK)ci.textContent=cat+'🟢 verde = pasada en el filtro · 🟠 naranja = fotos en caché (persistente) · 🟠 con punto 🟢 = caché y pasada en el filtro.';
+  else if(S.catOK)ci.textContent=cat+'🟢 verde = pasadas (historial) · clic en verde = historial';
 }
 /* Click en un naranja: abre el panel de cámara con minipestañas y la GALERÍA del caché por defecto */
 async function abrirCache(c){
@@ -836,6 +1023,7 @@ async function actualizarVel(){
     const j=await api('/api/ultimo_punto'+vistaQS());
     const u=j&&j.ultimo;
     const edad=(u&&u.ts!=null)?(Math.round(Date.now()/1000)-u.ts):Infinity;
+    actualizarPinYo(u,edad);                 // 📍 pin de mi ubicación (se atenúa si >2 min)
     if(!u||u.ts==null||edad>120){            // sin track reciente (>2 min)
       setVel('—','❔',false);
       $('velUn').textContent='km/h · sin track reciente';
@@ -859,6 +1047,39 @@ function arrancarVel(){
 function pararVel(){
   if(velTimer){clearInterval(velTimer);velTimer=null;}
 }
+/* ═══════════════ PIN 📍 DE MI UBICACIÓN ACTUAL (poll /api/ultimo_punto ~4 s) ═══════════════ */
+/* El pin vive solo con track reciente: <2 min normal, 2-15 min atenuado, >15 min
+   (o sin datos) desaparece. El botón flotante «📍 Mi ubicación» hace flyTo y se
+   ilumina cuando el pin queda fuera del viewport. */
+let mkYo=null, yoUlt=null;
+function fmtEdad(s){s=Math.max(0,Math.round(s));if(s<60)return s+' s';if(s<3600)return Math.round(s/60)+' min';return Math.round(s/3600)+' h';}
+function actualizarBtnYo(){
+  const btn=$('btnYoLoc'); if(!btn)return;
+  btn.classList.toggle('on',!!mkYo);           // visible solo si hay posición que mostrar
+  const fuera=!(mkYo&&yoUlt&&map.getBounds().contains([yoUlt.lat,yoUlt.lon]));
+  btn.classList.toggle('fuera',fuera);         // se ilumina si el pin está fuera del viewport
+}
+function actualizarPinYo(u,edad){
+  const viejo=edad>120, muyViejo=edad>900;     // >2 min se atenúa · >15 min se quita
+  const quitar=()=>{ if(mkYo){map.removeLayer(mkYo);mkYo=null;} yoUlt=null; actualizarBtnYo(); };
+  if(!u||u.ts==null||u.lat==null||isNaN(u.lat)||u.lon==null||isNaN(u.lon)||muyViejo){quitar();return;}
+  yoUlt={lat:u.lat,lon:u.lon,ts:u.ts,v:u.v};
+  const ll=[u.lat,u.lon];
+  if(!mkYo){
+    mkYo=L.marker(ll,{icon:yoIcon(),zIndexOffset:8000}).addTo(map);
+    mkYo.bindTooltip('',{direction:'top',offset:[0,-26]});
+  }else mkYo.setLatLng(ll);
+  const el=mkYo.getElement(); if(el)el.classList.toggle('viejo',viejo);
+  mkYo.setTooltipContent(`📍 ${viejo?'último punto hace '+fmtEdad(edad):'estás aquí (en vivo)'}${u.v!=null&&!isNaN(u.v)?' · '+fmtVkmh(u.v)+' km/h':''} · ${horaPunto(u.ts)}`);
+  actualizarBtnYo();
+}
+map.on('moveend',actualizarBtnYo);             // al salir el pin del viewport se ilumina el botón
+$('btnYoLoc').onclick=()=>{
+  if(!yoUlt||!mkYo){toast('Sin posición reciente del track (pin 📍)',true);return;}
+  map.flyTo([yoUlt.lat,yoUlt.lon],Math.max(map.getZoom(),16),{duration:.9});
+  const el=mkYo.getElement();
+  if(el){el.classList.remove('flash');void el.offsetWidth;el.classList.add('flash');}
+};
 /* F5.4-F: botones flotantes de reapertura (📈 Velocidad / 🖼 Visor). La sección de
    velocidad y el visor viven en el panel lateral; si se cierran (o el panel está
    oculto), quedan botones visibles sobre el mapa para volver a abrirlos. */
@@ -877,8 +1098,8 @@ function ajustarVel(){                        // reposiciona/muestra los botones
 function actualizarBotonesFlot(){
   const oc=$('panel').classList.contains('oculto');
   const r=oc?'12px':'';                       // al ocultar el panel, se pegan al borde derecho del mapa
-  const vf=$('btnVelFlot'), vis=$('btnVisorFlot');
-  if(vf)vf.style.right=r; if(vis)vis.style.right=r;
+  const vf=$('btnVelFlot'), vis=$('btnVisorFlot'), yb=$('btnYoLoc');
+  if(vf)vf.style.right=r; if(vis)vis.style.right=r; if(yb)yb.style.right=r;
   /* F5.6: 📋 Panel (fab) visible SIEMPRE que el panel esté oculto, en cualquier
      ancho de pantalla (antes display:none fijo en escritorio → imposible reabrir). */
   const fab=$('fabPanel'); if(fab)fab.classList.toggle('on',oc);
@@ -1470,6 +1691,8 @@ window.toggleEv=function(id){
   if(!el)return;
   const abriendo=!el.classList.contains('open');
   S.ultEv=id;                                 // F5.4-F: recordar último evento para el botón 🖼 Visor
+  const nb=$('camNavBar');                     // si la navegación ◀ ▶ está activa, sincronizar el índice
+  if(nb&&nb.offsetParent!==null&&navEvs){const ix=navEvs.findIndex(x=>String(x.id)===String(id));if(ix>=0){navI=ix;actNavBar();}}
   el.classList.toggle('open');
   if(abriendo){
     const ev=S.eventos.find(x=>x.id===id)||(S._histEvs||[]).find(x=>x.id===id);
@@ -1482,14 +1705,22 @@ window.toggleEv=function(id){
 };
 /* F5.6 (BUG 4): al expandir/reproducir un evento, el mapa vuela a la posición de
    su cámara (zoom ≥16) con un marcador temporal, y si la ruta está cargada
-   señala dónde estaba el track en ts_inicio. */
+   señala con un PIN 📍 dónde estaba el track en ts_inicio («estabas aquí»). */
 let mkEvCam=null, mkEvTrack=null, evFocoId=null;
 function limpiarFocoEvento(){
   if(mkEvCam){map.removeLayer(mkEvCam);mkEvCam=null;}
   if(mkEvTrack){map.removeLayer(mkEvTrack);mkEvTrack=null;}
   evFocoId=null;
 }
-function focoEventoEnMapa(ev){
+/* feature del track (S.pts) con el ts más próximo a `ts` (posición exacta en ese momento) */
+function puntoTs(ts){
+  const feats=S.pts||[]; let best=null,bd=Infinity;
+  if(ts!=null)for(const f of feats){const p=f&&f.properties;if(!p||p.ts==null)continue;
+    const d=Math.abs(p.ts-ts); if(d<bd){bd=d;best=f;}}
+  return best;
+}
+function focoEventoEnMapa(ev,opts){
+  opts=opts||{};
   if(!ev)return;
   limpiarFocoEvento();
   evFocoId=ev.id;
@@ -1500,24 +1731,22 @@ function focoEventoEnMapa(ev){
     mkEvCam.bindPopup(`📷 <b>${D(ev.cam_nombre||ev.cam_id)}</b><br>🎥 ${fmtF(ev.ts_inicio)} · ${ev.n_fotos||'?'} foto${ev.n_fotos!==1?'s':''}<br><span style="color:#888">evento seleccionado</span>`);
   }
   const ts=ev.ts_inicio;
-  if(ts!=null&&(S.pts||[]).length){
-    let best=null,bd=Infinity;
-    for(const f of S.pts){
-      const p=f&&f.properties; if(!p||p.ts==null)continue;
-      const d=Math.abs(p.ts-ts);
-      if(d<bd){bd=d;best=f;}
-    }
+  if(ts!=null){
+    const best=puntoTs(ts);
     if(best&&best.geometry&&best.geometry.coordinates&&typeof best.geometry.coordinates[1]==='number'){
       const ll=[best.geometry.coordinates[1],best.geometry.coordinates[0]];
-      mkEvTrack=L.circleMarker(ll,{radius:6,color:'#fff',weight:1.5,fillColor:'#38bdf8',fillOpacity:.9,zIndexOffset:5900}).addTo(map);
-      mkEvTrack.bindTooltip(`📍 track ${horaPunto(best.properties.ts)} · ${fmtVkmh(best.properties.v)} km/h`,{sticky:true});
+      const p=best.properties||{};
+      mkEvTrack=L.marker(ll,{icon:pinAquiIcon(),zIndexOffset:5950}).addTo(map);
+      mkEvTrack.bindTooltip(`📍 <b>estabas aquí</b> · ${horaPunto(p.ts)} · ${fmtVkmh(p.v)} km/h`,{direction:'top',offset:[0,-22]});
+      if(opts.abrirTooltip)setTimeout(()=>{ if(mkEvTrack&&map.hasLayer(mkEvTrack))mkEvTrack.openTooltip(); },480);
     }
   }
   const target=(lat!=null&&lon!=null)?[lat,lon]:(mkEvTrack?mkEvTrack.getLatLng():null);
   if(target){
+    const evId=ev.id;
     map.flyTo(target,Math.max(map.getZoom(),16),{duration:.6});
     // abre el popup al terminar el vuelo (openPopup inmediato con autoPan cortaba el flyTo)
-    setTimeout(()=>{ if(mkEvCam&&map.hasLayer(mkEvCam))mkEvCam.openPopup(); },680);
+    setTimeout(()=>{ if(mkEvCam&&map.hasLayer(mkEvCam)&&evFocoId===evId)mkEvCam.openPopup(); },700);
   }
 }
 map.on('click',limpiarFocoEvento);           // un clic en el mapa quita el marcador temporal
@@ -1624,12 +1853,79 @@ function pintarCuerpoPasadas(body){
     return;
   }
   if(!evs.length){body.innerHTML='<div class="vacio">🟢 Sin pasadas registradas todavía.<br>El historial es completo (sin filtro temporal).</div>';return;}
+  if(navCam!==cam){navCam=cam;navI=0;}        // cámara nueva ⇒ navegación desde el primer evento
+  navEvs=[...evs].sort((a,b)=>(a.ts_inicio||0)-(b.ts_inicio||0));   // orden cronológico
+  if(navI<0||navI>=navEvs.length)navI=0;
   const veces=new Set(S.eventos.filter(e=>e.cam_id===cam).map(e=>e.id)).size;
   const cab=`<div class="seccion" style="margin-top:0"><span>🟢 ${evs.length} pasada${evs.length!==1?'s':''} · historial completo</span>${veces?`<span>${veces} en el filtro actual</span>`:''}</div>`;
   const dias=agruparPorDia(evs);
-  body.innerHTML=cab+dias.map(d=>diaHTML(d)).join('')
-    +'<div style="font-size:10.5px;color:var(--mut2);text-align:center;padding:3px">cada día se pliega con un clic</div>';
+  body.innerHTML=cab+navBarHTML()+dias.map(d=>diaHTML(d)).join('')
+    +'<div style="font-size:10.5px;color:var(--mut2);text-align:center;padding:3px">cada día se pliega con un clic · recorre los eventos con ◀ ▶</div>';
+  actNavBar();
 }
+
+/* ── Navegación ◀ ▶ entre las pasadas de la cámara activa (pin 📍 en el mapa) ── */
+/* Cada paso expande la tarjeta del evento (vídeo/fotos), marca en el MAPA un PIN
+   📍 con tu posición exacta (feature del track más cercano a ts_inicio) y muestra
+   la hora. Se maneja con los botones ◀ ▶ o las flechas ← → del teclado. */
+function navBarHTML(){
+  if(!navEvs||navEvs.length<2)return '';
+  return `<div id="camNavBar">
+    <button class="nv" id="nvAnt" onclick="navEvento(-1)" title="Evento anterior (←)">◀</button>
+    <span id="nvLbl"></span>
+    <button class="nv" id="nvSig" onclick="navEvento(1)" title="Evento siguiente (→)">▶</button>
+    <span class="nvNota">Recorre las pasadas con ◀ ▶ o las flechas ← → · el pin 📍 del mapa marca dónde estabas en cada evento</span>
+  </div>`;
+}
+function actNavBar(){
+  const lbl=$('nvLbl'); if(!lbl||!navEvs||!navEvs.length)return;
+  const i=Math.max(0,Math.min(navI,navEvs.length-1));
+  const e=navEvs[i];
+  lbl.innerHTML=`evento <b>${i+1}</b>/${navEvs.length}${e&&e.ts_inicio!=null?` <small>· ${fmtF(e.ts_inicio)}</small>`:''}`;
+  const ant=$('nvAnt'),sig=$('nvSig');
+  if(ant)ant.disabled=i<=0;
+  if(sig)sig.disabled=i>=navEvs.length-1;
+}
+function expandirEv(id){
+  const el=evEl(id); if(!el)return null;
+  if(!el.classList.contains('open')){
+    el.classList.add('open');
+    const ev=S.eventos.find(x=>x.id===id)||(S._histEvs||[]).find(x=>x.id===id);
+    if(ev&&!el.querySelector('.det video'))el.querySelector('.det').innerHTML=visorHTML(ev);
+  }
+  const dia=el.closest('.dia');               // desplegar el día si estaba plegado
+  if(dia&&dia.classList.contains('plegado')){
+    dia.classList.remove('plegado');
+    const ch=dia.querySelector('.chev'); if(ch)ch.textContent='▾';
+  }
+  el.scrollIntoView({block:'nearest'});
+  return el;
+}
+window.navEvento=function(dir){
+  if(!navEvs||!navEvs.length)return;
+  const ni=navI+dir;
+  if(ni<0||ni>=navEvs.length){toast(dir>0?'Ya estás en el último evento de esta cámara':'Ya estás en el primer evento de esta cámara');return;}
+  navI=ni; const e=navEvs[ni];
+  S.ultEv=e.id;
+  // al saltar de evento, solo la tarjeta actual queda abierta (las demás se pliegan)
+  document.querySelectorAll('#vistaHist .ev.open').forEach(el=>{
+    if(el.dataset.id===String(e.id))return;
+    const v=el.querySelector('.det video'); if(v){try{v.pause();}catch(err){}}
+    el.classList.remove('open');
+  });
+  expandirEv(e.id);
+  focoEventoEnMapa(e,{abrirTooltip:true});    // PIN 📍 «estabas aquí» + hora en el mapa
+  actNavBar();
+  actualizarBotonesFlot();
+};
+/* flechas ← → del teclado: navegan las pasadas de la cámara (solo con la barra visible) */
+document.addEventListener('keydown',e=>{
+  if(e.key!=='ArrowLeft'&&e.key!=='ArrowRight')return;
+  const t=e.target;
+  if(t&&(t.tagName==='INPUT'||t.tagName==='TEXTAREA'||t.tagName==='SELECT'||t.tagName==='VIDEO'||t.isContentEditable))return;
+  const nb=$('camNavBar');
+  if(nb&&nb.offsetParent!==null){e.preventDefault();navEvento(e.key==='ArrowRight'?1:-1);}
+});
 
 /* ── Agrupación del historial por día calendario LOCAL ── */
 function diaClave(ts){const d=new Date(ts*1000);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
@@ -2056,7 +2352,10 @@ function abrirModal(html,corto){
   $('modalCard').innerHTML=html;
   $('modalOverlay').classList.add('on');
 }
-window.cerrarModal=function(){$('modalOverlay').classList.remove('on');};
+window.cerrarModal=function(){
+  $('modalOverlay').classList.remove('on');
+  vivoCerrarGrande();                          // si el «visor en grande» estaba abierto, volver al popup
+};
 $('modalOverlay').addEventListener('click',e=>{if(e.target===$('modalOverlay'))window.cerrarModal();});
 document.addEventListener('keydown',e=>{if(e.key==='Escape')window.cerrarModal();});
 

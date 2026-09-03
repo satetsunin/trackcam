@@ -780,6 +780,53 @@ def api_cache(request: Request):
     return {"total_camaras": len(out), "camaras": out}
 
 
+@app.get("/api/img_proxy")
+def api_img_proxy(request: Request):
+    """Proxy de imágenes de cámaras (foto ACTUAL en vivo).
+
+    Autenticado (Bearer/?token=). Uso: /api/img_proxy?u=<url-encoded>.
+    Añade Referer del dominio origen (anti-hotlink) y valida que la
+    respuesta sea una imagen. Evita SSRF: solo admite http/https y
+    resuelve el dominio (sin IPs privadas).
+    """
+    u = _auth(request)
+    if not u:
+        return _pedir_auth()
+    import urllib.parse as _up
+    url = request.query_params.get("u", "")
+    if not url:
+        return JSONResponse({"error": "falta u"}, status_code=400)
+    try:
+        p = _up.urlparse(url)
+        if p.scheme not in ("http", "https") or not p.netloc:
+            return JSONResponse({"error": "url inválida"}, status_code=400)
+        import socket
+        host = p.hostname or ""
+        try:
+            ip = socket.gethostbyname(host)
+        except Exception:
+            return JSONResponse({"error": "dns"}, status_code=502)
+        if ip.startswith(("10.", "192.168.", "172.")) or ip == "127.0.0.1":
+            return JSONResponse({"error": "dominio no permitido"},
+                                status_code=403)
+        import urllib.request as _ur
+        req = _ur.Request(url, headers={
+            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) TrackCam/1.0",
+            "Referer": f"https://{p.netloc}/",
+            "Accept": "image/*,*/*;q=0.8",
+        })
+        with _ur.urlopen(req, timeout=8) as r:
+            datos = r.read()
+        if datos[:3] == b"\xff\xd8\xff" or datos[:4] == b"\x89PNG" \
+                or datos[:3] == b"GIF":
+            from fastapi.responses import Response
+            return Response(content=datos,
+                            media_type="image/jpeg" if datos[:3] == b"\xff\xd8\xff" else "image/png")
+        return JSONResponse({"error": "no es imagen"}, status_code=502)
+    except Exception as e:
+        return JSONResponse({"error": f"proxy: {e}"}, status_code=502)
+
+
 @app.get("/api/cache/{cam_id}/foto/{n}")
 def api_cache_foto(cam_id: str, n: str, request: Request):
     """Sirve una foto del caché (n = índice 000, 001... ordenado por ts)."""
