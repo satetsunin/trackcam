@@ -1168,8 +1168,8 @@ async def api_ajustes_set(request: Request):
 
 # ── OTA (F4/F5): versión y descarga de la APK ───────────────────────────
 APK_FILE = os.path.join(BASE, "apk", "trackcam-release.apk")
-APK_VERSION_CODE = 5
-APK_VERSION_NAME = "1.7"
+APK_VERSION_CODE = 6
+APK_VERSION_NAME = "1.8"
 
 @app.get("/api/apk/version")
 def apk_version():

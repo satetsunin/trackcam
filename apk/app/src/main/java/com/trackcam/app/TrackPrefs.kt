@@ -14,8 +14,8 @@ object TrackPrefs {
     /** Servidor por defecto (túnel Cloudflare del usuario). */
     const val DEFAULT_BASE_URL = "https://track.satetsunin.com"
 
-    /** Intervalo por defecto: 5 s (mínimo permitido 1 s). */
-    const val DEFAULT_INTERVAL = 5
+    /** Intervalo por defecto: 2 s (modo prueba v1.8; mínimo 1 s). */
+    const val DEFAULT_INTERVAL = 2
 
     private fun prefs(ctx: Context) =
         ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)

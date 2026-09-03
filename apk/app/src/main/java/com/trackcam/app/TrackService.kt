@@ -118,26 +118,11 @@ class TrackService : LifecycleService() {
             lastAcc = loc.accuracy
             lastVel = if (loc.hasSpeed()) loc.speed else 0f
 
-            // ── Frecuencia ADAPTATIVA por velocidad (config remota) ──
-            // vehiculo (>20 km/h) → enviar cada 2 s
-            // andando            → enviar cada 10 s
-            // parado             → enviar cada 10 min
-            val modo = TrackPrefs.modoPorVelocidad(this@TrackService, lastVel ?: 0f)
-            if (modoActual != modo) {
-                modoActual = modo
-                Log.i(TAG, "Modo transporte: $modo")
-                // Re-ajustar la frecuencia de ESCUCHA del GPS según el modo
-                // (parado escucha cada 30 s para poder detectar que arrancas)
-                startLocationUpdates()
-            }
-
-            // Filtro de envío: respetar el intervalo del modo actual
-            val intervaloEnvioMs =
-                TrackPrefs.intervaloParaModo(this@TrackService, modo) * 1000L
-            val desdeUltimoOk = System.currentTimeMillis() - lastOkAtMillis
-            if (desdeUltimoOk < intervaloEnvioMs) return
-
-            // Envío INMEDIATO (si toca según el intervalo del modo)
+            // ── MODO PRUEBA (v1.8): envío DIRECTO de cada fix ──────────────
+            // El intervalo de escucha del GPS (2 s por defecto) ES el intervalo
+            // de envío: cada posición que llega se manda al servidor.
+            // (La frecuencia adaptativa por velocidad se reintroducirá cuando
+            //  validemos que el pipeline 2 s funciona de punta a punta.)
             enqueue(loc)
         }
     }
@@ -306,15 +291,12 @@ class TrackService : LifecycleService() {
             // nada que quitar
         }
 
-        // Intervalo de ESCUCHA del GPS según el modo de transporte:
-        // vehiculo → 2 s · andando → 10 s · parado → 30 s (suficiente para
-        // detectar que arrancas; el ENVÍO sí espera 10 min si estás parado).
-        val escuchaS = when (modoActual) {
-            "vehiculo" -> TrackPrefs.cfgIntervaloVehiculoS(this)
-            "andando" -> TrackPrefs.cfgIntervaloAndandoS(this)
-            else -> 30
-        }
-        val intervalMs = escuchaS.coerceIn(1, 300) * 1000L
+        // MODO PRUEBA (v1.8): escucha GPS FIJA a 2 s, pase lo que pase.
+        // Cada fix que llega se envía directo (ver locationCallback).
+        // La config remota de intervalos por modo queda desactivada hasta
+        // validar el pipeline; luego se reintroduce la adaptación.
+        val escuchaS = TrackPrefs.intervalSeconds(this).coerceIn(1, 60)
+        val intervalMs = escuchaS * 1000L
         // Servicios de ubicación elegidos por el usuario (GPS/WiFi/red):
         //  - GPS activo  → precisión total (GNSS + WiFi + red)
         //  - Solo WiFi/red → modo equilibrado (sin GPS, ahorra batería)
@@ -413,6 +395,8 @@ class TrackService : LifecycleService() {
                 latitude = p[1]; longitude = p[2]
                 accuracy = p[3].toFloat()
                 speed = p[4].toFloat()
+                // Restaurar la hora EXACTA del fix original (buildJson la usa)
+                time = p[0].toLong()
             }
             val ok = sendWithRetry(loc)
             if (!ok) {
@@ -429,9 +413,11 @@ class TrackService : LifecycleService() {
     /** Guarda un punto en la cola offline (sin cobertura → no se pierde). */
     private fun guardarOffline(loc: Location) {
         if (!TrackPrefs.cfgColaOffline(this)) return
+        // Hora EXACTA del fix (loc.time), no la de guardado
+        val tsMs = if (loc.time > 0) loc.time else System.currentTimeMillis()
         val ok = TrackPrefs.colaOfflineAdd(
             this,
-            System.currentTimeMillis(),
+            tsMs,
             loc.latitude,
             loc.longitude,
             loc.accuracy,
@@ -531,10 +517,13 @@ class TrackService : LifecycleService() {
     }
 
     private fun buildJson(loc: Location): String {
+        // Hora EXACTA del fix GPS (loc.time) — no la hora de envío. Así los
+        // puntos reenviados desde la cola offline conservan su hora real.
+        val tsMs = if (loc.time > 0) loc.time else System.currentTimeMillis()
         return JSONObject()
             .put("lat", loc.latitude)
             .put("lon", loc.longitude)
-            .put("ts", System.currentTimeMillis() / 1000.0)
+            .put("ts", tsMs / 1000.0)
             .put("acc", if (loc.hasAccuracy()) loc.accuracy.toDouble() else 0.0)
             .put("vel", if (loc.hasSpeed()) loc.speed.toDouble() else 0.0)
             .put("dev", deviceId())
