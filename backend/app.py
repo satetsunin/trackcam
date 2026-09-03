@@ -168,13 +168,43 @@ if MODO_VISION:
     async def _vision_no_ajustes(request: Request):
         return _solo_lectura()
 
-    @app.api_route("/api/app_config", methods=["POST"])
-    async def _vision_no_config(request: Request):
-        return _solo_lectura()
+    # En visión SÍ se permite el panel de control (/control + POST
+    # /api/app_config) porque trackcam está detrás de Cloudflare Access y
+    # el POST exige rol admin. El resto de escritura sigue bloqueado.
 
-    @app.api_route("/control", methods=["GET", "POST"])
-    async def _vision_no_control(request: Request):
-        return _solo_lectura()
+elif MODO == "ingesta":
+    # track.satetsunin.com es SOLO la API que usa la app Android:
+    #   POST /api/login · POST /track · GET /api/app_config
+    #   GET /api/apk/version · GET /api/apk/download · POST /api/logout
+    # NADA de web/mapa/control/eventos se expone aquí (sin Cloudflare Access).
+    _INGESTA_MSG = "track.satetsunin.com es solo API de la app — usa trackcam.satetsunin.com para el mapa/control"
+
+    def _solo_ingesta():
+        return JSONResponse({"error": _INGESTA_MSG}, status_code=404)
+
+    # Páginas web → fuera (el mapa/control viven en trackcam)
+    for _p in ("/", "/replay", "/control", "/static"):
+        @app.api_route(_p, methods=["GET", "POST", "PUT", "DELETE"])
+        async def _ingesta_no_web(request: Request, _p: str = _p):
+            return _solo_ingesta()
+
+    # APIs de lectura/datos → fuera (solo trackcam las sirve)
+    for _p in ("/api/track", "/api/ultimo_punto", "/api/eventos", "/api/pasadas",
+               "/api/catalogo", "/api/verdes", "/api/cache", "/api/cache/{cam_id}/foto/{n}",
+               "/api/temps", "/api/estado", "/api/evento/{eid}/video",
+               "/api/evento/{eid}/foto/{n}", "/api/evento/{eid}/metadata",
+               "/api/exportar/kml", "/api/exportar/gpx", "/api/exportar/todo",
+               "/api/ajustes", "/api/usuarios"):
+        @app.api_route(_p, methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+        async def _ingesta_no_api(request: Request, _p: str = _p):
+            return _solo_ingesta()
+
+    # Escritura de datos → fuera (solo recibe /track)
+    for _p in ("/api/evento/{eid}", "/api/limpiar_temps", "/api/usuarios/{uid}",
+               "/api/usuarios/{uid}/password", "/api/app_config"):
+        @app.api_route(_p, methods=["POST", "PUT", "PATCH", "DELETE"])
+        async def _ingesta_no_write(request: Request, _p: str = _p):
+            return _solo_ingesta()
 
 
 @app.post("/api/login")
@@ -928,7 +958,10 @@ def api_estado(request: Request):
 
 # ── Web estática ────────────────────────────────────────────────────────────
 WEB = os.path.join(BASE, "web")
-app.mount("/static", StaticFiles(directory=WEB), name="static")
+# Los estáticos solo se montan en visión (trackcam, tras Cloudflare Access).
+# En ingesta (track) las páginas ya están bloqueadas arriba → no hace falta.
+if MODO_VISION:
+    app.mount("/static", StaticFiles(directory=WEB), name="static")
 
 
 @app.get("/")
