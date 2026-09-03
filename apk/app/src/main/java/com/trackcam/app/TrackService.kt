@@ -368,9 +368,11 @@ class TrackService : LifecycleService() {
     }
 
     private suspend fun senderLoop() {
+        var ultimoOk = false
         while (coroutineContext.isActive && tracking) {
             val loc = synchronized(queueLock) { queue.pollFirst() } ?: break
             val ok = sendWithRetry(loc)
+            ultimoOk = ok
             synchronized(queueLock) {
                 // Si falló por red, sendWithRetry ya guardó el punto en la cola
                 // offline persistente (guardarOffline) → NO re-encolar aquí
@@ -382,8 +384,11 @@ class TrackService : LifecycleService() {
             if (!ok) break
         }
         workerRunning.set(false)
-        // Tras drenar la cola en memoria, reenviar los puntos offline guardados
-        if (tracking) flushOfflineCola()
+        // Reenviar la cola offline SOLO si el último envío fue OK (hay red).
+        // Si el envío falló, flushOfflineCola también fallaría y duplicaría
+        // puntos (cada reintento guardaría copias). El próximo fix con red
+        // disparará el flush.
+        if (tracking && ultimoOk) flushOfflineCola()
     }
 
     /** Reenvía los puntos guardados sin cobertura (cola offline persistente). */
@@ -398,7 +403,7 @@ class TrackService : LifecycleService() {
                 // Restaurar la hora EXACTA del fix original (buildJson la usa)
                 time = p[0].toLong()
             }
-            val ok = sendWithRetry(loc)
+            val ok = sendWithRetry(loc, guardarSiFalla = false)
             if (!ok) {
                 // Sin red todavía: devolver el punto a la cola y esperar
                 TrackPrefs.colaOfflineAdd(
@@ -415,6 +420,13 @@ class TrackService : LifecycleService() {
         if (!TrackPrefs.cfgColaOffline(this)) return
         // Hora EXACTA del fix (loc.time), no la de guardado
         val tsMs = if (loc.time > 0) loc.time else System.currentTimeMillis()
+        // Dedupe: si el último punto de la cola ya tiene este ts exacto (mismo
+        // fix repetido por el GPS), no guardar otra copia.
+        val cola = TrackPrefs.colaOffline(this)
+        if (cola.isNotEmpty() && cola.last()[0].toLong() == tsMs) {
+            Log.d(TAG, "Fix duplicado (ts=$tsMs): se omite guardar offline")
+            return
+        }
         val ok = TrackPrefs.colaOfflineAdd(
             this,
             tsMs,
@@ -434,7 +446,7 @@ class TrackService : LifecycleService() {
      * Un 401 (token caducado) no se reintenta: se limpia la sesión y se
      * avisa a la UI para volver al login.
      */
-    private suspend fun sendWithRetry(loc: Location): Boolean {
+    private suspend fun sendWithRetry(loc: Location, guardarSiFalla: Boolean = true): Boolean {
         val token = TrackPrefs.token(this)
         if (token.isNullOrBlank()) {
             Log.w(TAG, "Sin token de sesión: no se puede enviar la posición")
@@ -492,7 +504,7 @@ class TrackService : LifecycleService() {
         broadcastStatus()
         updateNotification()
         Log.w(TAG, "Envío fallido definitivo — guardando offline si procede")
-        guardarOffline(loc)
+        if (guardarSiFalla) guardarOffline(loc)
         return false
     }
 
