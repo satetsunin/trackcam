@@ -1305,4 +1305,16 @@ if not MODO_VISION:
     )
     motor.start()
 else:
-    print("[trackcam] MODO VISIÓN (solo lectura) — motor de captura NO iniciado")
+    # Visión: el motor existe pero NO arranca (no captura nada). Así
+    # /api/estado, /api/temps y /api/ajustes funcionan (ceros/vacíos)
+    # sin romper con NameError: motor. El constructor solo carga cfg y
+    # crea estructuras vacías; start() es lo que lanza hilos.
+    from backend.captura import MotorCaptura
+
+    motor = MotorCaptura(
+        db_path=DB,
+        data_dir=DATA,
+        get_db_fn=get_db,
+        cams_cerca_fn=cams_cerca,
+    )
+    print("[trackcam] MODO VISIÓN (solo lectura) — motor creado sin arrancar (captura inactiva)")
