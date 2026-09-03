@@ -778,6 +778,16 @@ def api_cache(request: Request):
         by_id.setdefault(sanitizar_dir(cid), c)
     base = os.path.join(DATA, "cache", sanitizar_dir(uid))
     out = []
+    # Filtro temporal opcional (punto F5.x): solo cámaras con fotos en
+    # [desde, hasta]. Igual que /api/verdes y /api/eventos.
+    try:
+        ts_ini = float(request.query_params["desde"]) if request.query_params.get("desde") else None
+    except ValueError:
+        ts_ini = None
+    try:
+        ts_fin = float(request.query_params["hasta"]) if request.query_params.get("hasta") else None
+    except ValueError:
+        ts_fin = None
     if os.path.isdir(base):
         for cdir in sorted(os.listdir(base)):
             p = os.path.join(base, cdir)
@@ -787,7 +797,30 @@ def api_cache(request: Request):
                      if f.startswith("foto_") and f.endswith(".jpg")]
             if not fotos:
                 continue
+            # Filtrar por rango [desde, hasta]: la cámara entra si alguna de
+            # sus fotos cae dentro. Si no hay fotos en el rango, se salta.
+            if ts_ini is not None or ts_fin is not None:
+                _dentro = False
+                for f in fotos:
+                    try:
+                        fts = float(f[5:-4].split("_")[0])
+                    except ValueError:
+                        continue
+                    if (ts_ini is None or fts >= ts_ini) and \
+                       (ts_fin is None or fts <= ts_fin):
+                        _dentro = True
+                        break
+                if not _dentro:
+                    continue
             tam = sum(os.path.getsize(os.path.join(p, f)) for f in fotos)
+            # Detección de "sin señal": si todas las fotos del caché tienen
+            # exactamente el mismo tamaño, la fuente sirve un placeholder fijo
+            # (imagen de error) → la cámara no tiene señal real.
+            try:
+                _tams = {os.path.getsize(os.path.join(p, f)) for f in fotos}
+                sin_senal = len(_tams) == 1 and len(fotos) >= 3
+            except OSError:
+                sin_senal = False
             ts_list = []
             for f in fotos:
                 try:
@@ -805,6 +838,7 @@ def api_cache(request: Request):
                 "tam": tam,
                 "primera_ts": min(ts_list) if ts_list else None,
                 "ultima_ts": max(ts_list) if ts_list else None,
+                "sin_senal": sin_senal,
             })
     out.sort(key=lambda x: -(x["ultima_ts"] or 0))
     return {"total_camaras": len(out), "camaras": out}

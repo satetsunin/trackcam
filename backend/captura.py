@@ -654,6 +654,23 @@ class MotorCaptura:
                   f"user={user_id} cámara {cid}")
             return
 
+        # Placeholder / imagen congelada: si TODAS las fotos de la ventana
+        # tienen exactamente el mismo tamaño de bytes, la fuente está
+        # sirviendo una imagen de error fija (p.ej. el placeholder de 11015 B
+        # de geobilbao) o un JPEG cacheado sin refrescar. Un vídeo así no
+        # tiene contenido → descartar el evento (no crear vídeo congelado).
+        try:
+            _tams = {os.path.getsize(p) for _, p in fotos}
+            if len(_tams) == 1 and len(fotos) >= 3:
+                est["entrada_ts"] = None
+                est["salida_ts"] = None
+                print(f"[captura] evento descartado (placeholder/imagen "
+                      f"congelada {list(_tams)[0]}B, {len(fotos)} fotos) "
+                      f"user={user_id} cámara {cid}")
+                return
+        except OSError:
+            pass
+
         eid = uuid.uuid4().hex[:12]
         dir_ev = os.path.join(self.eventos_dir, str(user_id), eid)
         os.makedirs(dir_ev, exist_ok=True)

@@ -163,6 +163,11 @@ a.dl{font-size:11px;padding:4px 9px;border-radius:7px;text-decoration:none;font-
   animation:onda 1.6s ease-out infinite}
 .dotN .v{position:absolute;right:-4px;bottom:-4px;width:9px;height:9px;border-radius:50%;background:#22c55e;
   border:2px solid #04121d;box-shadow:0 0 6px rgba(34,197,94,.95)}
+/* naranja SIN SEÑAL 📵 (placeholder de la fuente): atenuado, gris, borde discontinuo */
+.dotS{width:17px;height:17px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#9ca3af,#4b5563 60%,#1f2937);
+  border:2px dashed #cbd5e1;opacity:.5;box-shadow:0 0 6px rgba(156,163,175,.35);position:relative}
+.dotS .v{position:absolute;right:-4px;bottom:-4px;width:9px;height:9px;border-radius:50%;background:#22c55e;
+  border:2px solid #04121d;box-shadow:0 0 6px rgba(34,197,94,.95)}
 /* ────────── HISTORIAL POR DÍAS + GALERÍA DEL CACHÉ ────────── */
 .dia{border:1px solid var(--line);border-radius:11px;overflow:hidden;background:var(--bg3)}
 .dia .dCab{display:flex;align-items:center;gap:8px;padding:8px 11px;cursor:pointer;user-select:none;background:var(--bg3)}
@@ -960,13 +965,16 @@ function resolverCacheCam(c){
 }
 function llaveCam(lat,lon){return (typeof lat==='number'&&typeof lon==='number'&&isFinite(lat)&&isFinite(lon))
   ?(Math.round(lat*1e5)/1e5)+'|'+(Math.round(lon*1e5)/1e5):null;}
-function naranjaIcon(combo){
-  return L.divIcon({className:'',html:'<div class="dotN">'+(combo?'<span class="v" title="también con pasadas 🟢"></span>':'')+'</div>',
+function naranjaIcon(combo,sin){
+  return L.divIcon({className:'',html:'<div class="'+(sin?'dotS':'dotN')+'">'+(combo?'<span class="v" title="también con pasadas 🟢"></span>':'')+'</div>',
     iconSize:[19,19],iconAnchor:[9,9]});
 }
-/* Pinta un marcador naranja por cámara con fotos en el caché. El naranja NO
-   depende del filtro temporal (es caché real guardado); solo cambia si cambia
-   el ?usuario= (admin «ver como») o cada ~15 s (poll). */
+/* Pinta un marcador naranja por cámara con fotos en el caché DENTRO del rango
+   temporal del filtro (desde/hasta igual que verdes; con «Todo» = caché completo).
+   Cambia al cambiar el filtro, el ?usuario= (admin «ver como») o cada ~15 s (poll).
+   Las cámaras sin_senal=true (placeholder: la fuente sirve una imagen de error
+   fija) se pintan ATENUADAS (gris + borde discontinuo) y al hacer clic muestran
+   un aviso 📵 en vez de abrir la galería (no se borran del mapa). */
 function pintarNaranjas(){
   capaNaranja.clearLayers();
   const llV=new Set();
@@ -976,21 +984,45 @@ function pintarNaranjas(){
     const r=resolverCacheCam(c);
     if(!(typeof r.lat==='number'&&isFinite(r.lat)&&typeof r.lon==='number'&&isFinite(r.lon)))return; // sin coordenadas
     const combo=llV.has('id:'+c.cam_id)||(r.lat!=null&&llV.has('p:'+llaveCam(r.lat,r.lon)));
-    const mk=L.marker([r.lat,r.lon],{icon:naranjaIcon(combo),zIndexOffset:combo?4200:4000});
-    const ult=(c.ultima_ts!=null)?' · última '+fmtF(c.ultima_ts):'';
-    mk.bindTooltip(`📸 <b>${D(r.nombre)}</b><br>${c.n_fotos} foto${c.n_fotos!==1?'s':''} en caché${ult}${combo?'<br><span style="color:#86efac">🟢 también con pasadas</span>':''}`,{direction:'top',offset:[0,-10]});
-    mk.on('click',()=>abrirCache(c));
+    const sin=!!c.sin_senal;
+    const mk=L.marker([r.lat,r.lon],{icon:naranjaIcon(combo,sin),zIndexOffset:sin?3900:(combo?4200:4000)});
+    if(sin){
+      mk.bindTooltip(`📵 <b>${D(r.nombre)}</b><br><span style="color:#cbd5e1">sin señal · placeholder de la fuente</span>${combo?'<br><span style="color:#86efac">🟢 también con pasadas</span>':''}`,{direction:'top',offset:[0,-10]});
+      mk.bindPopup(`<div class="vivoPopup" style="min-width:230px">
+        <div class="vivoNom">📷 <b>${D(r.nombre)}</b></div>
+        <div class="vivoMeta">${D(r.fuente||'')} · ⬤ gris discontinuo = sin señal</div>
+        <div class="aviso" style="margin-top:8px">📵 cámara sin señal (placeholder — la fuente sirve imagen de error). No hay fotos reales que mostrar de esta cámara.</div>
+      </div>`,{maxWidth:340,className:'vivo'});
+    }else{
+      const ult=(c.ultima_ts!=null)?' · última '+fmtF(c.ultima_ts):'';
+      mk.bindTooltip(`📸 <b>${D(r.nombre)}</b><br>${c.n_fotos} foto${c.n_fotos!==1?'s':''} en caché${ult}${combo?'<br><span style="color:#86efac">🟢 también con pasadas</span>':''}`,{direction:'top',offset:[0,-10]});
+      mk.on('click',()=>abrirCache(c));
+    }
     capaNaranja.addLayer(mk);
   });
 }
 let cacheTimer=null;
+/* Naranjas 🟠 respetando el RANGO temporal del filtro: desde/hasta (igual que
+   verdes/eventos) se pasan a /api/cache → solo salen cámaras con fotos dentro
+   del periodo. La clave de throttle incluye el filtro: al cambiar de rango se
+   refresca aunque hayan pasado <5 s del último poll. */
+function cacheRango(){                      // {desde,hasta} en seg. epoch (null = sin tope)
+  const r=rangoSeleccion();
+  return {desde:r.desde,hasta:r.hasta};
+}
 async function cargarCache(){
   if(!S.token)return;
   const us=vistaQS();                       // ?usuario= del admin ('' = verse a sí mismo)
-  if(S.cacheUser===us&&S.cacheUlt&&Date.now()-S.cacheUlt<5000)return; // throttle 5 s
-  S.cacheUser=us; S.cacheUlt=Date.now();
+  const rg=cacheRango();
+  const clave=us+'|'+S.perf+'|'+(S.rangoD||'')+'|'+(S.rangoH||'')+(S.horaActiva?'|h':'');
+  if(S.cacheUser===clave&&S.cacheUlt&&Date.now()-S.cacheUlt<5000)return; // throttle 5 s (misma vista+mismo filtro)
+  S.cacheUser=clave; S.cacheUlt=Date.now();
   try{
-    const j=await api('/api/cache'+us);
+    const params={};
+    if(S.rol==='admin'&&S.vista)params.usuario=S.vista;
+    if(rg.desde!==null)params.desde=rg.desde;
+    if(rg.hasta!==null)params.hasta=rg.hasta;
+    const j=await api('/api/cache'+qs(params));
     S.cache=j.camaras||[]; S.cacheOK=true;
     pintarNaranjas(); leyendaCapas();
   }catch(e){/* el 401 ya cierra sesión; el resto silencioso */}
@@ -998,7 +1030,8 @@ async function cargarCache(){
 function leyendaCapas(){
   const ci=$('catInfo'); if(!ci)return;
   const cat=S.catOK?`🗺 ${S.cat.length.toLocaleString('es-ES')} cámaras · 🔵 azul = sin datos en el filtro actual (clic → 📷 foto en vivo) · `:'';
-  if(S.cacheOK)ci.textContent=cat+'🟢 verde = pasada en el filtro · 🟠 naranja = fotos en caché (persistente) · 🟠 con punto 🟢 = caché y pasada en el filtro.';
+  const conSin=(S.cache||[]).some(c=>c.sin_senal);
+  if(S.cacheOK)ci.textContent=cat+'🟢 verde = pasada en el filtro · 🟠 naranja = caché EN EL RANGO (fotos en el periodo del filtro) · 🟠 con punto 🟢 = caché y pasada.'+(conSin?' · ⬤ gris discontinuo = cámara sin señal 📵 (placeholder de la fuente)':'');
   else if(S.catOK)ci.textContent=cat+'🟢 verde = pasadas (historial) · clic en verde = historial';
 }
 /* Click en un naranja: abre el panel de cámara con minipestañas y la GALERÍA del caché por defecto */
@@ -1046,6 +1079,58 @@ function arrancarVel(){
 }
 function pararVel(){
   if(velTimer){clearInterval(velTimer);velTimer=null;}
+}
+/* ═══════════════ TRACK EN VIVO QUE CRECE (poll ~5 s) ═══════════════ */
+/* Solo cuando el filtro incluye «ahora» (24 h, Todo, o un rango de fechas que
+   llegue al presente): se pide /api/track?desde=<último ts conocido> y los
+   features nuevos se CONCATENAN a S.pts repintando la ruta — la línea crece
+   mientras caminas. NO toca cámaras, caché, verdes ni eventos en cada ciclo.
+   Con 7 días / 1 mes / 3 meses o un rango cerrado en el pasado no hay polling. */
+let trackVivoTimer=null, ultTsTrack=0, trackVivoBusy=false;
+function trackVivoActivo(){
+  const p=S.perf;
+  if(p==='p24h'||p==='ptodo')return true;
+  if(p==='prango'){const r=rangoSeleccion();return r.hasta!=null&&(r.hasta+300)>=ahoraE();} // rango que llega a «ahora»
+  return false;
+}
+function ultTsDePts(feats){               // último ts (epoch s) presente en S.pts
+  let mx=0; const fs=feats||[];
+  for(let i=fs.length-1;i>=0;i--){const p=fs[i]&&fs[i].properties;if(p&&typeof p.ts==='number'&&p.ts>mx)mx=p.ts;}
+  return mx;
+}
+async function crecerTrack(){
+  if(!S.token||trackVivoBusy||!trackVivoActivo())return;
+  trackVivoBusy=true;
+  try{
+    const params={desde:ultTsTrack||0};  // el API es inclusivo (ts>=desde): el borde se descarta abajo
+    if(S.rol==='admin'&&S.vista)params.usuario=S.vista;
+    const j=await api('/api/track'+qs(params));
+    const fs=j.features||[];
+    const horaAct=S.horaActiva;
+    let mx=ultTsTrack, nuevos=[];
+    for(const f of fs){
+      const ts=f&&f.properties&&f.properties.ts;
+      if(!(typeof ts==='number'&&isFinite(ts)))continue;
+      if(ts>mx)mx=ts;
+      if(ts<=ultTsTrack)continue;         // ya lo tenemos (borde inclusivo / solape con refreshTodo)
+      if(horaAct&&!enHora(ts))continue;   // mismo filtro de franja horaria que refreshTodo
+      nuevos.push(f);
+    }
+    if(mx>ultTsTrack)ultTsTrack=mx;       // avanzar el marcador aunque el filtro hora descarte (evita re-pedir la cola)
+    if(!nuevos.length)return;
+    S.pts=S.pts.concat(nuevos);
+    pintarRuta();                         // borra y redibuja (submuestreo automático si >8000 pts)
+    resumen();                            // 📍 contador de puntos del track
+  }catch(e){/* silencioso; el 401 ya cierra sesión */}
+  finally{trackVivoBusy=false;}
+}
+function arrancarTrackVivo(){
+  if(trackVivoTimer)return;
+  crecerTrack();
+  trackVivoTimer=setInterval(crecerTrack,5000);
+}
+function pararTrackVivo(){
+  if(trackVivoTimer){clearInterval(trackVivoTimer);trackVivoTimer=null;}
 }
 /* ═══════════════ PIN 📍 DE MI UBICACIÓN ACTUAL (poll /api/ultimo_punto ~4 s) ═══════════════ */
 /* El pin vive solo con track reciente: <2 min normal, 2-15 min atenuado, >15 min
@@ -1400,9 +1485,10 @@ async function cerrarSesion(silencioso){
   localStorage.removeItem(LS_AUTH); S.token=null;S.user=null;S.rol=null;S.uid=null;S.vista=null;
   S.cat=null;S.catOK=false;S.verdes=[];S.eventos=[];S.pts=[];
   S.cache=[];S.cacheCam=null;S.cacheRec=null;S.cacheOK=false;S.modoHist='pasadas';
+  S.cacheUser=null;S.cacheUlt=0;ultTsTrack=0;trackVivoBusy=false;
   capaVerde.clearLayers();capaGris.clearLayers();capaNaranja.clearLayers();
   if(cacheTimer){clearInterval(cacheTimer);cacheTimer=null;}
-  pararVel(); setVel('—','❔',false);
+  pararVel(); pararTrackVivo(); setVel('—','❔',false);
   perfilV=null; ocultarVelHover();
   mostrarLogin();
 }
@@ -1432,6 +1518,7 @@ async function entrar(st){
   actualizarChip();
   setInterval(async()=>{ if(S.token){try{const st=await api('/api/estado'+vistaQS());pintaEstado(st);}catch(e){}} },20000);
   arrancarVel();
+  arrancarTrackVivo();                                // línea del track que crece en vivo (24h/Todo)
   cargarCache();                                      // naranjas 🟠 iniciales
   if(cacheTimer)clearInterval(cacheTimer);
   cacheTimer=setInterval(()=>{ if(S.token)cargarCache(); },15000);   // poll 15 s
@@ -1530,6 +1617,7 @@ async function refreshTodo(){
       pts=pts.filter(f=>enHora(f.properties.ts));
     }
     S.eventos=eventos; S.verdes=vd; S.pts=pts;
+    ultTsTrack=ultTsDePts(S.pts);       // marca de agua para el poll incremental (desde=)
     pintarRuta();
     pintarVel();
     if(autoFit){
