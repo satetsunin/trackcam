@@ -610,20 +610,61 @@ def api_track(request: Request):
     q += " ORDER BY ts ASC"
     filas = con.execute(q, params).fetchall()
     con.close()
-    pts = [(r[0], r[1], r[2]) for r in filas]
+
+    # ── Filtros correctores de GPS (lectura) ───────────────────────────
+    # La BD guarda TODO (el motor de captura depende de puntos frecuentes),
+    # pero al SERVIR el track se limpia: anti-deriva (quita los cientos de
+    # puntos que genera el GPS parado en casa/bar) y autocompletado de
+    # huecos cortos (pérdida breve de señal mientras te mueves).
+    # En modo incremental (?desde=, usado por el "track en vivo" del mapa)
+    # solo se aplica anti-deriva: el autocompletado necesita contexto y
+    # los puntos nuevos llegan en el siguiente ciclo.
+    from backend import geo_filtro as _gf
+    crudos = [(r[0], r[1], r[2],
+               r[3] if len(r) > 3 else 0,
+               r[4] if len(r) > 4 else 0) for r in filas]
+    if request.query_params.get("desde"):
+        sel = _gf.filtro_anti_deriva(crudos)
+        # features directas con sus metadatos
+        vels = _vel_entre([(p[0], p[1], p[2]) for p in sel])
+        feats = []
+        for i, p in enumerate(sel):
+            v = vels[i] if i < len(vels) else None
+            feats.append({"type": "Feature",
+                          "geometry": {"type": "Point",
+                                       "coordinates": [p[2], p[1]]},
+                          "properties": {"ts": p[0], "acc": p[3],
+                                         "vel": p[4], "v": v,
+                                         "modo": _modo_vel(v),
+                                         "dev": "", "user_id": u["id"]}})
+        # último ts REAL de la BD (aunque el filtro lo descarte): así el
+        # frontend avanza su marca de agua sin re-pedir puntos ya vistos
+        ult_db = filas[-1][0] if filas else None
+        return {"type": "FeatureCollection", "features": feats,
+                "vel_media": None, "filtro": True,
+                "ultimo_ts_db": ult_db}
+    # modo completo: anti-deriva + autocompletar. Construimos un índice
+    # ts→fila original para conservar acc/vel/dev en los no interpolados.
+    por_ts = {r[0]: r for r in filas}
+    limpios = _gf.limpiar_track(crudos)
+    pts = [(p[0], p[1], p[2]) for p in limpios]
     vels = _vel_entre(pts)
     feats = []
-    for i, r in enumerate(filas):
+    for i, (ts, lat, lon) in enumerate(pts):
+        orig = por_ts.get(ts)
         v = vels[i] if i < len(vels) else None
         feats.append({"type": "Feature",
                       "geometry": {"type": "Point",
-                                   "coordinates": [r[2], r[1]]},
-                      "properties": {"ts": r[0], "acc": r[3],
-                                     "vel": r[4], "v": v,
+                                   "coordinates": [lon, lat]},
+                      "properties": {"ts": ts,
+                                     "acc": orig[3] if orig else 0,
+                                     "vel": orig[4] if orig else 0,
+                                     "v": v,
                                      "modo": _modo_vel(v),
-                                     "dev": r[5], "user_id": r[6]}})
+                                     "dev": orig[5] if orig and len(orig) > 5 else "",
+                                     "user_id": orig[6] if orig and len(orig) > 6 else u["id"]}})
     return {"type": "FeatureCollection", "features": feats,
-            "vel_media": None}
+            "vel_media": None, "filtro": True, "n_crudos": len(crudos)}
 
 
 @app.get("/api/ultimo_punto")
@@ -988,6 +1029,60 @@ def api_estado(request: Request):
         "cuota_temps_mb": motor.cfg["cuota_temps_mb"],
         "usuarios_trackeando": est["usuarios_trackeando"],
     }
+
+
+@app.get("/api/diag")
+def api_diag(request: Request):
+    """Diagnóstico remoto del track en vivo (para debug de cortes).
+
+    Muestra por usuario: último punto recibido (hace cuántos segundos),
+    dispositivos, y los CORTES recientes (huecos > 60 s entre puntos
+    consecutivos) con su duración y posición — permite ver en remoto si la
+    APK deja de enviar (cortes cíclicos de ~10 min = sistema Android
+    congelando el servicio) o si es pérdida puntual de GPS.
+    """
+    u = _auth(request)
+    if not u:
+        return _pedir_auth()
+    if u["rol"] != "admin":
+        return JSONResponse({"error": "requiere rol admin"}, status_code=403)
+    con = get_db()
+    ahora = time.time()
+    out = {}
+    for uid in con.execute("SELECT DISTINCT user_id FROM tracks").fetchall():
+        uid = uid[0]
+        filas = con.execute(
+            "SELECT ts,lat,lon,dev FROM tracks WHERE user_id=? "
+            "ORDER BY ts DESC LIMIT 20000", (uid,)).fetchall()
+        filas = filas[::-1]  # cronológico
+        if not filas:
+            continue
+        devs = {}
+        for r in filas:
+            devs[r[3]] = devs.get(r[3], 0) + 1
+        cortes = []
+        for i in range(1, len(filas)):
+            dt = filas[i][0] - filas[i - 1][0]
+            if dt > 60:
+                cortes.append({
+                    "desde": round(filas[i - 1][0], 1),
+                    "hasta": round(filas[i][0], 1),
+                    "duracion_s": round(dt, 1),
+                    "lat": round(filas[i][1], 5),
+                    "lon": round(filas[i][2], 5),
+                })
+        ult = filas[-1]
+        out[str(uid)] = {
+            "puntos_ultimas_24h": len(filas),
+            "dispositivos": devs,
+            "ultimo_punto_hace_s": round(ahora - ult[0], 1),
+            "ultimo_punto": {"ts": round(ult[0], 1), "lat": round(ult[1], 5),
+                             "lon": round(ult[2], 5)},
+            "cortes_60s_ultimas_24h": len(cortes),
+            "cortes_muestra": cortes[-15:],
+        }
+    con.close()
+    return {"ahora": round(ahora, 1), "usuarios": out}
 
 
 # ── Web estática ────────────────────────────────────────────────────────────

@@ -1106,6 +1106,9 @@ async function crecerTrack(){
     if(S.rol==='admin'&&S.vista)params.usuario=S.vista;
     const j=await api('/api/track'+qs(params));
     const fs=j.features||[];
+    // Si el servidor filtra (anti-deriva) y descarta todo el ciclo, avanzar
+    // igualmente la marca de agua con el último ts real que reporta la BD.
+    if(typeof j.ultimo_ts_db==='number'&&j.ultimo_ts_db>ultTsTrack)ultTsTrack=j.ultimo_ts_db;
     const horaAct=S.horaActiva;
     let mx=ultTsTrack, nuevos=[];
     for(const f of fs){
