@@ -402,7 +402,7 @@ def haversine(lat1, lon1, lat2, lon2):
 
 
 def load_camaras():
-    global camaras, grid
+    global camaras, grid, CAMARAS_CARGADO_TS
     if not os.path.exists(EUROCAMS_JSON):
         print(f"[trackcam] AVISO: no existe {EUROCAMS_JSON}")
         return 0
@@ -413,7 +413,7 @@ def load_camaras():
     camaras = []
     for c in cams:
         lat, lon = c.get("lat"), c.get("lon")
-        if lat is None or lon is None:
+        if not isinstance(lat, (int, float)) or not isinstance(lon, (int, float)):
             continue
         url = c.get("imagen") or c.get("url_imagen")
         if not url:
@@ -425,6 +425,7 @@ def load_camaras():
     for i, c in enumerate(camaras):
         gx, gy = int(c["lon"]/CELL), int(c["lat"]/CELL)
         grid.setdefault((gx, gy), []).append(i)
+    CAMARAS_CARGADO_TS = time.time()
     print(f"[trackcam] {len(camaras)} cámaras cargadas de EuroCams")
     return len(camaras)
 
@@ -754,6 +755,28 @@ def api_pasadas(request: Request):
     return out
 
 
+CAMARAS_CARGADO_TS = 0.0
+
+
+@app.get("/api/catalogo/recargar")
+def api_catalogo_recargar(request: Request):
+    """Recarga el catálogo desde el JSON de EuroCams SIN reiniciar.
+
+    Solo admin y solo en modo visión (el mapa). Devuelve cuántas cámaras
+    había y cuántas hay tras recargar (útil tras actualizar EuroCams).
+    """
+    u = _auth(request)
+    if not u:
+        return _pedir_auth()
+    if u["rol"] != "admin":
+        return JSONResponse({"error": "requiere rol admin"}, status_code=403)
+    if not MODO_VISION:
+        return JSONResponse({"error": "solo en modo visión"}, status_code=403)
+    antes = len(camaras)
+    n = load_camaras()
+    return {"antes": antes, "ahora": n, "fuente": EUROCAMS_JSON}
+
+
 @app.get("/api/catalogo")
 def api_catalogo(request: Request):
     """Catálogo completo de cámaras (para pintar todas en el mapa).
@@ -772,7 +795,9 @@ def api_catalogo(request: Request):
                     "fuente": c.get("fuente", "?"),
                     "pais": c.get("pais", "?"),
                     "url": c.get("url", "")})
-    return {"total": len(out), "camaras": out}
+    return {"total": len(out), "camaras": out,
+            "fuente": EUROCAMS_JSON,
+            "cargado_ts": CAMARAS_CARGADO_TS}
 
 
 @app.get("/api/verdes")
