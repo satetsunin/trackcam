@@ -194,7 +194,7 @@ elif MODO == "ingesta":
                "/api/temps", "/api/estado", "/api/evento/{eid}/video",
                "/api/evento/{eid}/foto/{n}", "/api/evento/{eid}/metadata",
                "/api/exportar/kml", "/api/exportar/gpx", "/api/exportar/todo",
-               "/api/ajustes", "/api/usuarios"):
+               "/api/ajustes", "/api/usuarios", "/api/muertas"):
         @app.api_route(_p, methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
         async def _ingesta_no_api(request: Request, _p: str = _p):
             return _solo_ingesta()
@@ -833,6 +833,48 @@ def api_verdes(request: Request):
     return _cams_geo_verdes(uid,
                             float(ts_ini) if ts_ini else None,
                             float(ts_fin) if ts_fin else None)
+
+
+@app.get("/api/muertas")
+def api_muertas(request: Request):
+    """Cámaras detectadas como MUERTAS al intentar capturar.
+
+    El motor registra una cámara cuando una pasada se descarta por
+    placeholder real de la fuente (imagen de error fija) o cuando la
+    descarga falla repetidamente (3+). Devuelve con coordenadas resueltas
+    para pintarlas ⚪ gris en el mapa. Estado global (no por usuario).
+    """
+    u = _auth(request)
+    if not u:
+        return _pedir_auth()
+    try:
+        with open(os.path.join(DATA, "muertas.json"), encoding="utf-8") as f:
+            raw = json.load(f)
+    except Exception:
+        raw = {}
+    if not isinstance(raw, dict):
+        raw = {}
+    # Resolver contra el catálogo (igual que _cams_geo_verdes)
+    by_id = {}
+    for c in camaras:
+        cid = str(c.get("id") or "%s_%.5f_%.5f" % (c.get("fuente", "cam"),
+                                                    c["lat"], c["lon"]))
+        by_id[cid] = c
+    out = []
+    for cid, info in raw.items():
+        c = by_id.get(cid)
+        if not c:
+            continue  # ya no está en el catálogo → no se pinta
+        out.append({
+            "cam_id": cid,
+            "nombre": c.get("nombre", "?"),
+            "lat": c["lat"], "lon": c["lon"],
+            "fuente": c.get("fuente", "?"),
+            "ts": info.get("ts") if isinstance(info, dict) else None,
+            "motivo": info.get("motivo") if isinstance(info, dict) else "?",
+        })
+    out.sort(key=lambda x: -(x["ts"] or 0))
+    return {"total": len(out), "muertas": out}
 
 
 @app.get("/api/cache")

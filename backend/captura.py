@@ -160,6 +160,14 @@ class MotorCaptura:
         self.descargas_ok = 0
         self.descargas_fallo = 0
         self.eventos_creados = 0
+        self._fallos_cam = {}   # cid -> fallos de descarga seguidos
+
+        # Cámaras detectadas como MUERTAS al intentar capturar (placeholder
+        # real o descarga fallida repetida). Persistente: el mapa las pinta
+        # ⚪ gris. El id es el ORIGINAL (con puntos, mismo que eventos/BD).
+        self.muertas_file = os.path.join(data_dir, "muertas.json")
+        self.muertas = {}       # cid -> {ts, motivo}
+        self._cargar_muertas()
 
         self.pool = ThreadPoolExecutor(max_workers=POOL_HILOS)
         self.pendientes = {}    # (user_id, cid) -> lista de futures
@@ -184,6 +192,44 @@ class MotorCaptura:
                 json.dump(self.cfg, f, ensure_ascii=False, indent=2)
         except OSError:
             pass
+
+    # ── registro de cámaras MUERTAS (placeholder / fallo al capturar) ──
+    def _cargar_muertas(self):
+        try:
+            with open(self.muertas_file, encoding="utf-8") as f:
+                datos = json.load(f)
+            if isinstance(datos, dict):
+                self.muertas = datos
+        except Exception:
+            self.muertas = {}
+
+    def _guardar_muertas(self):
+        try:
+            with open(self.muertas_file, "w", encoding="utf-8") as f:
+                json.dump(self.muertas, f, ensure_ascii=False, indent=1)
+        except OSError:
+            pass
+
+    def _marcar_muerta(self, cid, motivo):
+        """Registra una cámara como muerta (placeholder real o fallo)."""
+        with self.lock:
+            self.muertas[str(cid)] = {"ts": time.time(), "motivo": motivo}
+            self._guardar_muertas()
+
+    def _marcar_viva(self, cid):
+        """Si la cámara vuelve a servir imagen real, sale de la lista."""
+        with self.lock:
+            if str(cid) in self.muertas:
+                del self.muertas[str(cid)]
+                self._guardar_muertas()
+
+    def _es_placeholder(self, datos: bytes) -> bool:
+        """True si los bytes son el JPEG de error CONOCIDO de una fuente.
+
+        Solo tamaños verificados (geobilbao 11015/3915/0 B). Un tamaño grande
+        aunque sea una imagen fija NO es placeholder (refresco lento ≠ muerta).
+        """
+        return len(datos) in (11015, 3915, 0)
 
     def actualizar_cfg(self, cambios: dict) -> dict:
         validos = {k: v for k, v in cambios.items() if k in self.cfg}
@@ -575,8 +621,17 @@ class MotorCaptura:
             datos = None
         if not datos:
             self.descargas_fallo += 1
+            # fallo repetido (3+) ⇒ cámara inalcanzable → muerta
+            nf = self._fallos_cam.get(cid, 0) + 1
+            self._fallos_cam[cid] = nf
+            if nf >= 3:
+                self._marcar_muerta(cid, "fallo descarga")
             return
         self.descargas_ok += 1
+        self._fallos_cam[cid] = 0
+        # Si la fuente vuelve a servir imagen REAL (no placeholder) → viva
+        if not self._es_placeholder(datos):
+            self._marcar_viva(cid)
         # Buffer temporal (alimenta eventos con su ventana)
         dir_buf = self._dir_buffer(user_id, cid)
         os.makedirs(dir_buf, exist_ok=True)
@@ -748,6 +803,7 @@ class MotorCaptura:
                     and list(_tams)[0] in _ph_tams:
                 est["entrada_ts"] = None
                 est["salida_ts"] = None
+                self._marcar_muerta(cid, "placeholder")   # ⚪ gris en el mapa
                 print(f"[captura] evento descartado (placeholder real "
                       f"{list(_tams)[0]}B, {len(fotos)} fotos) "
                       f"user={user_id} cámara {cid}")
