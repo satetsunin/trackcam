@@ -469,7 +469,7 @@ class MotorCaptura:
         est["en_post"] = False
         est["ctx_hecho"] = False
 
-    def _poda_buffer(self, user_id, cid, _con_lock=False):
+    def _poda_buffer(self, user_id, cid, _est=None):
         """Poda el buffer temporal SOLO cuando es seguro hacerlo.
 
         Regla (corrige pérdida de pasadas):
@@ -482,18 +482,19 @@ class MotorCaptura:
           un futuro evento podría necesitar (buffer_s, con margen amplio).
         - EST_ACTIVA (>500 m) / INACTIVA: sin evento posible → cortar todo.
 
-        _con_lock=True cuando el llamador ya tiene self.lock (evita
-        deadlock: threading.Lock no es reentrante).
+        IMPORTANTE: se llama desde hilos del pool (descargas) que NO pueden
+        tomar self.lock (lo retiene _procesar_punto durante la finalización
+        de eventos → deadlock). Por eso el estado se pasa como argumento
+        (_est) cuando el llamador ya lo tiene, o se lee SIN lock aquí (la
+        lectura de un dict es atómica en CPython; el riesgo de una decisión
+        de poda con 1 ciclo de retraso es despreciable).
         """
         dir_buf = self._dir_buffer(user_id, cid)
         if not os.path.isdir(dir_buf):
             return
-        # Estado actual de la cámara (si existe)
-        if _con_lock:
-            est = (self.cams.get(str(user_id)) or {}).get(cid)
-        else:
-            with self.lock:
-                est = (self.cams.get(str(user_id)) or {}).get(cid)
+        # Estado actual de la cámara: usar el pasado o leer sin lock
+        est = _est if _est is not None else (
+            (self.cams.get(str(user_id)) or {}).get(cid))
         estado = est["estado"] if est else EST_INACTIVA
         entrada_ts = est.get("entrada_ts") if est else None
         en_post = est.get("en_post") if est else False
@@ -532,8 +533,9 @@ class MotorCaptura:
 
     def _poda_global(self, user_id):
         with self.lock:
-            for cid in self.cams.get(str(user_id), {}):
-                self._poda_buffer(user_id, cid, _con_lock=True)
+            cams_u = self.cams.get(str(user_id), {})
+            for cid, est in cams_u.items():
+                self._poda_buffer(user_id, cid, _est=est)
 
     def _cortar_buffer(self, user_id, cid):
         dir_buf = self._dir_buffer(user_id, cid)
