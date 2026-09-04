@@ -43,8 +43,9 @@ INTERVALO_S = 2.0           # ciclo del motor
 RADIO_ACTIVA = 1500.0       # m → cámara activa (snapshot de contexto)
 RADIO_CAPTURA = 500.0       # m → captura continua (ring buffer)
 RADIO_EVENTO = 100.0        # m → evento
-BUFFER_S = 600.0            # profundidad ring buffer (s) — amplio para no
-                            # perder pasadas largas ni cámaras de refresco lento
+BUFFER_S = 1800.0           # profundidad ring buffer (s) = 30 min — con el
+                            # caché de 30 días como respaldo, el buffer amplio
+                            # garantiza cinta completa incluso en pasadas lentas
 VENTANA_ANTES = 60.0        # s antes de ENTRAR en los 100 m que se conservan
 VENTANA_DESPUES = 60.0      # s después de SALIR de los 100 m que se conservan
 FPS_VIDEO = 2
@@ -545,8 +546,10 @@ class MotorCaptura:
             cam.get("fuente", "cam"), cam["lat"], cam["lon"])
         return str(base)
 
-    def _encolar_descarga(self, user_id, cid, cam, ts, tipo):
-        fut = self.pool.submit(self._descargar_y_guardar, user_id, cid, cam, ts, tipo)
+    def _encolar_descarga(self, user_id, cid, cam, ts, tipo,
+                          forzar_cache=False):
+        fut = self.pool.submit(self._descargar_y_guardar, user_id, cid,
+                               cam, ts, tipo, forzar_cache)
         self.pendientes.setdefault((str(user_id), cid), []).append(fut)
 
     def _encolar_captura(self, user_id, cid, cam, ts, est):
@@ -555,9 +558,15 @@ class MotorCaptura:
         if ult is not None and (ts - ult) < (inter - 0.1):
             return
         est["ultima_captura_ts"] = ts
-        self._encolar_descarga(user_id, cid, cam, ts, tipo="captura")
+        # Durante una pasada real (dentro de 100 m, o en post-evento) el
+        # caché guarda TODAS las fotos sin dedup (cinta completa por
+        # coincidencia de timestamp); fuera de la pasada, dedup normal.
+        en_pasada = (est["estado"] == EST_EVENTO) or bool(est.get("en_post"))
+        self._encolar_descarga(user_id, cid, cam, ts, tipo="captura",
+                               forzar_cache=en_pasada)
 
-    def _descargar_y_guardar(self, user_id, cid, cam, ts, tipo):
+    def _descargar_y_guardar(self, user_id, cid, cam, ts, tipo,
+                             forzar_cache=False):
         try:
             datos = self._descargar_url(cam["url"])
         except Exception:
@@ -580,34 +589,41 @@ class MotorCaptura:
         except OSError:
             return
         self._poda_buffer(user_id, cid)
-        # Caché persistente con dedup (F5.3): guardar solo si la imagen
-        # cambió de verdad respecto a la última guardada (dHash).
+        # Caché persistente (F5.3): con dedup fuera de la pasada; SIN dedup
+        # (cinta completa) durante la pasada → el caché de 30 días puede
+        # reconstruir el evento por coincidencia de timestamp.
         if tipo == "captura":
-            self._cache_dedup(user_id, cid, ts, datos)
+            self._cache_dedup(user_id, cid, ts, datos, forzar=forzar_cache)
 
     def _dir_cache(self, user_id, cid):
         return os.path.join(self.cache_dir, sanitizar_id(str(user_id)),
                             sanitizar_id(cid))
 
-    def _cache_dedup(self, user_id, cid, ts, datos):
+    def _cache_dedup(self, user_id, cid, ts, datos, forzar=False):
         """Guarda en el caché persistente si el dHash difiere del último.
 
         El umbral (cfg['umbral_dedup'], 4 bits por defecto) decide si una
         imagen es 'la misma' (ruido/compresión) o un cambio real de escena.
+
+        forzar=True (pasada en curso, dentro de 100 m): guarda SIEMPRE, sin
+        dedup. Así el caché de 30 días contiene la cinta COMPLETA de la
+        pasada (foto_<ts>.jpg por cada captura) y puede reconstruir el
+        evento por coincidencia temporal aunque el buffer temporal falle.
         """
         try:
-            h = dhash_bytes(datos)
-            if h < 0:
-                return
-            clave = (str(user_id), cid)
-            with self.lock:
-                ultimo = getattr(self, "_ultimo_hash", {}).get(clave)
-                if ultimo is not None and hamming(h, ultimo) <= int(
-                        self.cfg.get("umbral_dedup", 4)):
-                    return  # misma imagen → descartar
-                if not hasattr(self, "_ultimo_hash"):
-                    self._ultimo_hash = {}
-                self._ultimo_hash[clave] = h
+            if not forzar:
+                h = dhash_bytes(datos)
+                if h < 0:
+                    return
+                clave = (str(user_id), cid)
+                with self.lock:
+                    ultimo = getattr(self, "_ultimo_hash", {}).get(clave)
+                    if ultimo is not None and hamming(h, ultimo) <= int(
+                            self.cfg.get("umbral_dedup", 4)):
+                        return  # misma imagen → descartar
+                    if not hasattr(self, "_ultimo_hash"):
+                        self._ultimo_hash = {}
+                    self._ultimo_hash[clave] = h
             dir_c = self._dir_cache(user_id, cid)
             os.makedirs(dir_c, exist_ok=True)
             ruta = os.path.join(dir_c, "foto_%s.jpg" % ts)
@@ -661,26 +677,42 @@ class MotorCaptura:
     def _fotos_ventana(self, user_id, cid, entrada_ts, salida_ts):
         """Fotos en [entrada - antes, (salida o entrada+despues) + despues].
 
-        Si no hay salida registrada (evento cortado por inactividad o salida
-        del radio de captura), se recorta al último fotograma disponible.
+        Primero busca en el buffer temporal; si no hay suficientes, usa el
+        CACHÉ persistente (30 días) como respaldo: el caché guarda la cinta
+        completa de la pasada (foto_<ts>.jpg sin dedup desde F5.4), así que
+        el evento se reconstruye por COINCIDENCIA TEMPORAL aunque el buffer
+        se haya perdido/podado. Devuelve lista [(ts, ruta)] ordenada.
         """
         antes = self.cfg["ventana_antes_s"]
         despues = self.cfg["ventana_despues_s"]
         ini = entrada_ts - antes
         fin = (salida_ts if salida_ts else entrada_ts) + despues
-        dir_buf = self._dir_buffer(user_id, cid)
-        fotos = []
-        if os.path.isdir(dir_buf):
-            for fn in os.listdir(dir_buf):
-                if not (fn.startswith("foto_") and fn.endswith(".jpg")):
-                    continue
-                try:
-                    fts = float(fn[5:-4])
-                except ValueError:
-                    continue
-                if ini <= fts <= fin:
-                    fotos.append((fts, os.path.join(dir_buf, fn)))
-        fotos.sort()
+
+        def _listar(dirp):
+            out = []
+            if os.path.isdir(dirp):
+                for fn in os.listdir(dirp):
+                    if not (fn.startswith("foto_") and fn.endswith(".jpg")):
+                        continue
+                    try:
+                        fts = float(fn[5:-4])
+                    except ValueError:
+                        continue
+                    if ini <= fts <= fin:
+                        out.append((fts, os.path.join(dirp, fn)))
+            out.sort()
+            return out
+
+        fotos = _listar(self._dir_buffer(user_id, cid))
+        if len(fotos) >= 3:
+            return fotos
+        # Respaldo: caché persistente (cinta completa de la pasada)
+        cache = _listar(self._dir_cache(user_id, cid))
+        if len(cache) > len(fotos):
+            print(f"[captura] evento reconstruido desde CACHÉ "
+                  f"({len(cache)} fotos, buffer tenía {len(fotos)}) "
+                  f"user={user_id} cámara {cid}")
+            return cache
         return fotos
 
     def _finalizar_evento(self, user_id, cid, est):
