@@ -654,18 +654,23 @@ class MotorCaptura:
                   f"user={user_id} cámara {cid}")
             return
 
-        # Placeholder / imagen congelada: si TODAS las fotos de la ventana
-        # tienen exactamente el mismo tamaño de bytes, la fuente está
-        # sirviendo una imagen de error fija (p.ej. el placeholder de 11015 B
-        # de geobilbao) o un JPEG cacheado sin refrescar. Un vídeo así no
-        # tiene contenido → descartar el evento (no crear vídeo congelado).
+        # Placeholder REAL (imagen de error): solo si las fotos son el JPEG
+        # de error CONOCIDO de la fuente (p.ej. geobilbao sirve un fijo de
+        # 11015 B o 3915 B cuando la cámara está caída/placeholder). NO basta
+        # con que todas las fotos tengan el mismo tamaño: las cámaras con
+        # refresco lento (DGT 3 min, EJGV, windy...) sirven la MISMA imagen
+        # real durante toda la pasada (20-40 s) y eso NO es un placeholder —
+        # descartarlo borraría eventos legítimos. Comprobamos el tamaño de la
+        # primera foto contra los tamaños de error conocidos.
         try:
+            _ph_tams = {11015, 3915, 0}   # JPEG de error de geobilbao
             _tams = {os.path.getsize(p) for _, p in fotos}
-            if len(_tams) == 1 and len(fotos) >= 3:
+            if len(_tams) == 1 and len(fotos) >= 3 \
+                    and list(_tams)[0] in _ph_tams:
                 est["entrada_ts"] = None
                 est["salida_ts"] = None
-                print(f"[captura] evento descartado (placeholder/imagen "
-                      f"congelada {list(_tams)[0]}B, {len(fotos)} fotos) "
+                print(f"[captura] evento descartado (placeholder real "
+                      f"{list(_tams)[0]}B, {len(fotos)} fotos) "
                       f"user={user_id} cámara {cid}")
                 return
         except OSError:
