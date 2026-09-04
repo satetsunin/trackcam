@@ -452,6 +452,20 @@ button.mchip.pel:hover{background:#3b1620}
 #btnYoLoc.fuera{border-color:var(--acc);background:linear-gradient(135deg,rgba(34,197,94,.22),rgba(14,165,233,.25));
   color:#fff;box-shadow:0 0 0 4px rgba(56,189,248,.18),0 0 16px rgba(56,189,248,.85);
   animation:latido 1.7s ease-in-out infinite}
+/* ────────── (F5.8) ZONAS DE NO-MONITORIZACIÓN 🚫 (círculo rosa en el mapa) ────────── */
+#btnZonaFlot{top:128px;right:calc(min(440px,94vw) + 16px);color:#f9a8d4;
+  border-color:rgba(244,114,182,.4);background:linear-gradient(135deg,rgba(244,114,182,.16),rgba(190,24,93,.18))}
+#btnZonaFlot:hover{border-color:#f472b6;background:rgba(244,114,182,.28)}
+#btnZonaFlot.act{border-color:#f472b6;color:#fbcfe8;
+  box-shadow:0 0 0 4px rgba(244,114,182,.18),0 6px 18px rgba(0,0,0,.45)}
+.zonaIcon{font-size:15px;line-height:1;width:16px;height:16px;display:grid;place-items:center;
+  filter:drop-shadow(0 0 4px rgba(244,114,182,.9))}
+.zonaRow{display:flex;align-items:center;gap:8px;border:1px solid rgba(244,114,182,.28);
+  background:var(--bg3);border-radius:10px;padding:7px 10px;flex-wrap:wrap}
+.zonaRow .zN{font-weight:700;font-size:12.5px;flex:1;min-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.zonaRow .zR{font-size:11px;color:var(--mut);white-space:nowrap}
+.zonaRow .zR b{color:#f9a8d4}
+.zonaRow .zBtns{display:flex;gap:5px;margin-left:auto}
 /* barra de navegación ◀ ▶ entre pasadas de una cámara */
 #camNavBar{display:flex;align-items:center;gap:6px;border:1px solid rgba(56,189,248,.35);
   background:rgba(14,165,233,.08);border-radius:9px;padding:4px 6px;margin-bottom:7px;flex-wrap:wrap}
@@ -553,6 +567,7 @@ button.mchip.pel:hover{background:#3b1620}
     <button class="flot" id="btnVelFlot" title="Reabrir la sección de velocidad (velocímetro en vivo + gráfica)">📈 Velocidad</button>
     <button class="flot" id="btnVisorFlot" title="Reabrir el visor del último evento abierto">🖼 Visor</button>
     <button class="flot" id="btnYoLoc" title="Ir a mi ubicación actual (pin 📍 del track)">📍 Mi ubicación</button>
+    <button class="flot" id="btnZonaFlot" title="Crear una zona de no-monitorización (🚫 círculo rosa: silencia cámaras/eventos dentro)">🚫 Zona</button>
     <button id="fabPanel" title="Reabrir el panel lateral">📋 Panel</button>
   </div>
 
@@ -569,7 +584,7 @@ button.mchip.pel:hover{background:#3b1620}
     <div id="scrol">
       <div id="vistaEvs"></div>
       <div id="vistaHist" style="display:none"></div>
-      <div id="vistaPerfil" style="display:none"><div id="estado"></div></div>
+      <div id="vistaPerfil" style="display:none"><div id="estado"></div><div id="zonasSec"></div></div>
     </div>
     <div id="velPanel">
       <div class="vpT">
@@ -625,6 +640,7 @@ const S = {token:null, user:null, rol:null, uid:null, vista:null /*null=yo, ''=g
            histCam:null, histCamNom:null, fotoPat:null, busy:false, tab:'evs',
            modoHist:'pasadas', cache:[], cacheCam:null, cacheRec:null, cacheIdx:0, cacheUser:null, cacheUlt:0, cacheOK:false,
            muertas:[], muertasOK:false,   // 📵 cámaras sin señal (/api/muertas)
+           zonas:[],                     // 🚫 F5.8 zonas de no-monitorización (círculos rosa)
            camLat:null, camLon:null, _histEvs:null, _histFetched:null, _cercList:[], ultEv:null, _estado:null};
 let velCerrado=false;       // F5.4-F: sección de velocidad cerrada del todo (botón 📈 flotante para reabrir)
 let crono=null;             // F5.4-C: estado de la reproducción de cronología {evs,i,play,modo,mk,vid,raf,t}
@@ -696,6 +712,7 @@ const capaGris=L.layerGroup().addTo(map);      // catálogo (grises/celdas)
 const capaVerde=L.layerGroup().addTo(map);     // pasadas → verdes
 const capaNaranja=L.layerGroup().addTo(map);   // caché persistente → naranjas 🟠
 const capaMue=L.layerGroup().addTo(map);       // muertas 📵 → gris oscuro (.dotM)
+const capaZonas=L.layerGroup().addTo(map);     // 🚫 F5.8 zonas de no-monitorización (círculos rosa)
 const capaRuta=L.layerGroup().addTo(map);      // polilínea del track
 let rutaLinea=null;
 const Z_EXACT=15, MAX_PUNTOS=2500;
@@ -1039,11 +1056,14 @@ function pintarNaranjas(){
     const r=resolverCacheCam(c);
     if(!(typeof r.lat==='number'&&isFinite(r.lat)&&typeof r.lon==='number'&&isFinite(r.lon)))return; // sin coordenadas
     if(muertaMatch(c.cam_id,r.lat,r.lon))return;   // 📵 muerta → la pinta .dotM gris (prioridad: nada de naranja)
-    const combo=llV.has('id:'+c.cam_id)||(r.lat!=null&&llV.has('p:'+llaveCam(r.lat,r.lon)));
+    // NORMA de colores (F5.7): si HAY pasada (verde) el naranja NO se pinta —
+    // la cámara ya sale 🟢 verde en pintarVerdes. El naranja es SOLO caché sin
+    // pasada. Antes se pintaba "naranja con mini punto verde" (combo).
+    if(llV.has('id:'+c.cam_id)||(r.lat!=null&&llV.has('p:'+llaveCam(r.lat,r.lon))))return;
     const sin=!!c.sin_senal;
-    const mk=L.marker([r.lat,r.lon],{icon:naranjaIcon(combo,sin),zIndexOffset:sin?3900:(combo?4200:4000)});
+    const mk=L.marker([r.lat,r.lon],{icon:naranjaIcon(false,sin),zIndexOffset:sin?3900:4000});
     if(sin){
-      mk.bindTooltip(`📵 <b>${D(r.nombre)}</b><br><span style="color:#cbd5e1">sin señal · placeholder de la fuente</span>${combo?'<br><span style="color:#86efac">🟢 también con pasadas</span>':''}`,{direction:'top',offset:[0,-10]});
+      mk.bindTooltip(`📵 <b>${D(r.nombre)}</b><br><span style="color:#cbd5e1">sin señal · placeholder de la fuente</span>`,{direction:'top',offset:[0,-10]});
       mk.bindPopup(`<div class="vivoPopup" style="min-width:230px">
         <div class="vivoNom">📷 <b>${D(r.nombre)}</b></div>
         <div class="vivoMeta">${D(r.fuente||'')} · ⬤ gris discontinuo = sin señal</div>
@@ -1051,7 +1071,7 @@ function pintarNaranjas(){
       </div>`,{maxWidth:340,className:'vivo'});
     }else{
       const ult=(c.ultima_ts!=null)?' · última '+fmtF(c.ultima_ts):'';
-      mk.bindTooltip(`📸 <b>${D(r.nombre)}</b><br>${c.n_fotos} foto${c.n_fotos!==1?'s':''} en caché${ult}${combo?'<br><span style="color:#86efac">🟢 también con pasadas</span>':''}`,{direction:'top',offset:[0,-10]});
+      mk.bindTooltip(`📸 <b>${D(r.nombre)}</b><br>${c.n_fotos} foto${c.n_fotos!==1?'s':''} en caché${ult}`,{direction:'top',offset:[0,-10]});
       mk.on('click',()=>abrirCache(c));
     }
     capaNaranja.addLayer(mk);
@@ -1154,8 +1174,157 @@ function leyendaCapas(){
   const cat=S.catOK?`🗺 ${S.cat.length.toLocaleString('es-ES')} cámaras · 🔵 azul = sin datos en el filtro actual (clic → 📷 foto en vivo) · `:'';
   const conSin=(S.cache||[]).some(c=>c.sin_senal);
   const conMue=(S.muertasOK&&S.muertas&&S.muertas.length)?' · ⬤ gris oscuro = cámara muerta 📵 (sin señal / fallo al capturar)':'';
-  if(S.cacheOK)ci.textContent=cat+'🟢 verde = pasada en el filtro · 🟠 naranja = caché EN EL RANGO (fotos en el periodo del filtro) · 🟠 con punto 🟢 = caché y pasada.'+(conSin?' · ⬤ gris discontinuo = cámara sin señal 📵 (placeholder de la fuente)':'')+conMue;
-  else if(S.catOK)ci.textContent=cat+'🟢 verde = pasadas (historial) · clic en verde = historial'+conMue;
+  const conZonas=(S.zonas&&S.zonas.length)?' · 🚫 círculo rosa = zona sin monitorizar':'';
+  if(S.cacheOK)ci.textContent=cat+'🟢 verde = pasada en el filtro · 🟠 naranja = caché EN EL RANGO (fotos en el periodo del filtro) · 🟠 con punto 🟢 = caché y pasada.'+(conSin?' · ⬤ gris discontinuo = cámara sin señal 📵 (placeholder de la fuente)':'')+conMue+conZonas;
+  else if(S.catOK)ci.textContent=cat+'🟢 verde = pasadas (historial) · clic en verde = historial'+conMue+conZonas;
+}
+/* ═══════════════ (F5.8) ZONAS DE NO-MONITORIZACIÓN 🚫 ═══════════════ */
+/* Círculos rosa sobre el mapa (casa, bar, oficina…): el backend silencia los
+   puntos/eventos que caen dentro. GET/POST /api/zonas · PUT/DELETE /api/zonas/{id}.
+   El círculo es interactivo:false (no roba el clic de las cámaras); el tooltip
+   va en un mini-marcador central 🚫 (zonaIcon). */
+let zonaModo=false;             // modo «crear zona»: el próximo clic en el mapa abre el formulario
+let zonaLat=null, zonaLon=null; // centro elegido para la nueva zona
+let zonaEditId=null;            // id en edición (null = crear)
+let zonaSigAnt='', zonaLastHTML=null;
+
+function fmtRadioZona(m){
+  m=Math.max(0,Number(m)||0);
+  if(m<1000)return Math.round(m)+' m';
+  return (m/1000).toLocaleString('es-ES',{maximumFractionDigits:1})+' km';
+}
+function pintarZonas(){
+  capaZonas.clearLayers();
+  (S.zonas||[]).forEach(z=>{
+    const lat=Number(z.lat), lon=Number(z.lon), rad=Math.max(5,Number(z.radio_m)||30);
+    if(!(isFinite(lat)&&isFinite(lon)))return;
+    const ll=[lat,lon];
+    capaZonas.addLayer(L.circle(ll,{radius:rad,color:'#f472b6',weight:1.5,
+      fillColor:'#f472b6',fillOpacity:.12,dashArray:'6 4',interactive:false}));
+    const ic=L.divIcon({className:'',html:'<div class="zonaIcon">🚫</div>',
+      iconSize:[16,16],iconAnchor:[8,8]});
+    const mk=L.marker(ll,{icon:ic,zIndexOffset:500});
+    mk.bindTooltip(`🚫 <b>${D(z.nombre||'Zona')}</b> · ${fmtRadioZona(rad)}`,{direction:'top',offset:[0,-8]});
+    capaZonas.addLayer(mk);
+  });
+}
+async function cargarZonas(){
+  if(!S.token)return;
+  try{
+    const j=await api('/api/zonas'+vistaQS());   // el admin «ver como» ?usuario= también aplica
+    const arr=(j&&j.zonas)||[];
+    S.zonas=arr;
+    const sig=arr.map(z=>String(z.id)+'|'+(z.nombre||'')+'|'+(z.radio_m||0)+'|'+(z.lat??'')+'|'+(z.lon??'')).join(';');
+    if(sig!==zonaSigAnt){zonaSigAnt=sig;pintarZonas();}   // no repintar si nada cambió (poll 15 s)
+    renderZonas();
+    leyendaCapas();
+  }catch(e){/* el 401 ya cierra sesión; el resto silencioso */}
+}
+function zonaRowHTML(z){
+  return `<div class="zonaRow" data-id="${D(z.id)}">
+    <span class="zN">🚫 ${D(z.nombre||'Zona')}</span>
+    <span class="zR">📏 <b>${fmtRadioZona(z.radio_m)}</b></span>
+    <span class="zBtns">
+      <button class="mchip" onclick="abrirZonaForm(${D(z.id)})" title="Editar nombre o radio">✏️</button>
+      <button class="mchip pel" onclick="zonaBorrar(${D(z.id)})" title="Borrar esta zona">🗑</button>
+    </span>
+  </div>`;
+}
+function renderZonas(){
+  const cont=$('zonasSec'); if(!cont)return;
+  const lista=S.zonas||[];
+  const html=`<div class="seccion" style="margin-top:10px"><span>🚫 Zonas de no-monitorización</span>
+    <span style="display:inline-flex;align-items:center;gap:5px">${lista.length}<button class="mchip" onclick="zonaCrearDesdePanel()" title="Añadir zona: elige el centro con un clic en el mapa">➕ Crear</button></span></div>
+    <div class="mnote" style="margin:0 2px 6px">Círculos rosas 🚫 en el mapa: las cámaras/eventos dentro dejan de aparecer en el seguimiento (casa, bar, oficina…).</div>
+    ${lista.length?lista.map(zonaRowHTML).join(''):'<div class="vacio" style="padding:12px 8px">Sin zonas. Crea una con el botón 🚫 Zona del mapa o ➕ Crear.</div>'}`;
+  if(html===zonaLastHTML)return;               // no reescribir si no cambió (poll 15 s)
+  zonaLastHTML=html;
+  cont.innerHTML=html;
+}
+function zonaSalirModo(){
+  zonaModo=false; zonaLat=null; zonaLon=null;
+  const m=$('map'); if(m)m.style.cursor='';
+  const b=$('btnZonaFlot'); if(b)b.classList.remove('act');
+}
+function zonaActivarModo(){
+  if(!S.token){toast('Inicia sesión para crear zonas',true);return;}
+  zonaModo=true;
+  const m=$('map'); if(m)m.style.cursor='crosshair';
+  const b=$('btnZonaFlot'); if(b)b.classList.add('act');
+  toast('🚫 Haz clic en el mapa para poner el centro de la zona');
+}
+function zonaCrearDesdePanel(){
+  zonaActivarModo();
+  $('panel').classList.add('oculto');          // deja el mapa a la vista para el clic
+  ajustarVel();
+}
+function zonaCancelar(){
+  window.cerrarModal();
+  zonaSalirModo();
+}
+function onMapClickZona(ev){
+  if(!zonaModo||!S.token)return;
+  if($('znNombre'))return;                     // formulario ya abierto: ignorar clics de más
+  zonaLat=ev.latlng.lat; zonaLon=ev.latlng.lng; zonaEditId=null;
+  abrirZonaForm(null);
+}
+map.on('click',onMapClickZona);
+$('btnZonaFlot').onclick=()=>{ if(zonaModo)zonaSalirModo(); else zonaActivarModo(); };
+/* Esc / clic en el fondo cierran el formulario y salen del modo crear */
+document.addEventListener('keydown',e=>{ if(e.key==='Escape'&&zonaModo&&$('znNombre'))zonaSalirModo(); });
+$('modalOverlay').addEventListener('click',e=>{ if(e.target===$('modalOverlay')&&$('znNombre'))zonaSalirModo(); });
+/* Modal compartido: crear (zid=null, centro en zonaLat/Lon) o editar nombre/radio */
+function abrirZonaForm(zid){
+  const z=(zid!=null)?(S.zonas||[]).find(x=>String(x.id)===String(zid)):null;
+  zonaEditId=(z?z.id:null);
+  const edit=!!z;
+  abrirModal(`<div class="mhead"><span class="t">${edit?'✏️ Editar zona':'🚫 Nueva zona'}</span><button class="x" onclick="zonaCancelar()">✕</button></div>
+  <div class="mbody">
+    ${edit?'<div class="mnote">El centro se mantiene donde está: cambia el nombre y/o el radio.</div>'
+          :`<div class="mnote">Centro: <b>${zonaLat!=null?zonaLat.toFixed(5):'?'}, ${zonaLon!=null?zonaLon.toFixed(5):'?'}</b> — el clic en el mapa que diste. Silenciará todo lo que caiga dentro del radio.</div>`}
+    <div class="mfield"><label>Nombre</label><input id="znNombre" maxlength="40" placeholder="Casa" value="${D(z?z.nombre:'')}"></div>
+    <div class="mfield"><label>Radio (metros)</label><input id="znRadio" type="number" min="5" max="5000" step="5" value="${z&&z.radio_m?z.radio_m:30}"></div>
+    <div class="mrow" style="justify-content:flex-end;margin-top:4px">
+      <button class="fbtn sec" onclick="zonaCancelar()">Cancelar</button>
+      <button class="fbtn" id="btnZonaOk">${edit?'Guardar cambios':'Guardar zona'}</button>
+    </div>
+  </div>`,true);
+  $('znNombre').focus();
+  $('znNombre').addEventListener('keydown',ev=>{if(ev.key==='Enter')zonaGuardar();});
+  $('znRadio').addEventListener('keydown',ev=>{if(ev.key==='Enter')zonaGuardar();});
+  $('btnZonaOk').onclick=zonaGuardar;
+}
+async function zonaGuardar(){
+  const nom=$('znNombre').value.trim();
+  const rad=Math.round(Number($('znRadio').value));
+  if(!nom){toast('Ponle un nombre a la zona',true);$('znNombre').focus();return;}
+  if(!(isFinite(rad)&&rad>=5&&rad<=5000)){toast('El radio debe estar entre 5 y 5000 m',true);return;}
+  const b=$('btnZonaOk'); b.disabled=true;
+  try{
+    if(zonaEditId!=null){
+      await api('/api/zonas/'+zonaEditId,{method:'PUT',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({nombre:nom,radio_m:rad})});
+      toast('✅ Zona «'+nom+'» actualizada');
+    }else{
+      await api('/api/zonas',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({nombre:nom,lat:zonaLat,lon:zonaLon,radio_m:rad})});
+      toast('✅ Zona «'+nom+'» creada ('+fmtRadioZona(rad)+')');
+    }
+    window.cerrarModal();
+    zonaSalirModo();
+    await cargarZonas();
+  }catch(e){toast('No se pudo guardar la zona: '+e.message,true);}
+  finally{b.disabled=false;}
+}
+async function zonaBorrar(zid){
+  const z=(S.zonas||[]).find(x=>String(x.id)===String(zid)); if(!z)return;
+  if(!confirm('¿Borrar la zona 🚫 «'+(z.nombre||'Zona')+'» ('+fmtRadioZona(z.radio_m)+')?\nLos puntos/eventos de esa zona volverán a monitorizarse.'))return;
+  try{
+    await api('/api/zonas/'+zid,{method:'DELETE'});
+    toast('🗑 Zona «'+(z.nombre||'Zona')+'» borrada');
+    if(String(zonaEditId)===String(zid))zonaEditId=null;
+    await cargarZonas();
+  }catch(e){toast('No se pudo borrar la zona: '+e.message,true);}
 }
 /* Click en un naranja: abre el panel de cámara con minipestañas y la GALERÍA del caché por defecto */
 async function abrirCache(c){
@@ -1311,6 +1480,9 @@ function actualizarBotonesFlot(){
   const r=oc?'12px':'';                       // al ocultar el panel, se pegan al borde derecho del mapa
   const vf=$('btnVelFlot'), vis=$('btnVisorFlot'), yb=$('btnYoLoc');
   if(vf)vf.style.right=r; if(vis)vis.style.right=r; if(yb)yb.style.right=r;
+  /* F5.8: 🚫 Zona flotante — visible con sesión; reposiciona como sus hermanos */
+  const zf=$('btnZonaFlot');
+  if(zf){zf.style.right=r; zf.classList.toggle('on',!!S.token); if(!S.token)zf.classList.remove('act');}
   /* F5.6: 📋 Panel (fab) visible SIEMPRE que el panel esté oculto, en cualquier
      ancho de pantalla (antes display:none fijo en escritorio → imposible reabrir). */
   const fab=$('fabPanel'); if(fab)fab.classList.toggle('on',oc);
@@ -1613,8 +1785,10 @@ async function cerrarSesion(silencioso){
   S.cat=null;S.catOK=false;S.verdes=[];S.eventos=[];S.pts=[];
   S.cache=[];S.cacheCam=null;S.cacheRec=null;S.cacheOK=false;S.modoHist='pasadas';
   S.muertas=[];S.muertasOK=false;_mue.ids=null;
+  S.zonas=[];zonaSigAnt='';zonaLastHTML=null;
+  zonaSalirModo();                                 // 🚫 sal del modo crear zona (cursor/cursor .act)
   S.cacheUser=null;S.cacheUlt=0;ultTsTrack=0;trackVivoBusy=false;
-  capaVerde.clearLayers();capaGris.clearLayers();capaNaranja.clearLayers();capaMue.clearLayers();
+  capaVerde.clearLayers();capaGris.clearLayers();capaNaranja.clearLayers();capaMue.clearLayers();capaZonas.clearLayers();
   if(cacheTimer){clearInterval(cacheTimer);cacheTimer=null;}
   pararVel(); pararTrackVivo(); setVel('—','❔',false);
   perfilV=null; ocultarVelHover();
@@ -1649,8 +1823,9 @@ async function entrar(st){
   arrancarTrackVivo();                                // línea del track que crece en vivo (24h/Todo)
   cargarCache();                                      // naranjas 🟠 iniciales
   cargarMuertas();                                    // 📵 grises iniciales (F5.7)
+  cargarZonas();                                      // 🚫 zonas de no-monitorización iniciales (F5.8)
   if(cacheTimer)clearInterval(cacheTimer);
-  cacheTimer=setInterval(()=>{ if(S.token){cargarCache();cargarMuertas();} },15000);   // poll 15 s (caché + muertas)
+  cacheTimer=setInterval(()=>{ if(S.token){cargarCache();cargarMuertas();cargarZonas();} },15000);   // poll 15 s (caché + muertas + zonas)
   ajustarVel();
 }
 function vistaQS(){return S.rol==='admin'&&S.vista?qs({usuario:S.vista}):'';}
