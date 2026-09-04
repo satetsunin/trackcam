@@ -122,13 +122,18 @@ button.mini.salir:hover{background:#2a1116}
 a.dl{font-size:11px;padding:4px 9px;border-radius:7px;text-decoration:none;font-weight:600;
   background:rgba(14,165,233,.12);border:1px solid rgba(56,189,248,.3);color:#7dd3fc}
 .ev{border:1px solid var(--line);border-radius:11px;overflow:hidden;background:var(--bg3)}
-.ev .cab{display:flex;gap:8px;align-items:center;padding:8px 10px;cursor:pointer;background:var(--bg3)}
+.ev .cab{display:flex;gap:8px;align-items:center;padding:8px 10px;cursor:pointer;background:var(--bg3);flex-wrap:wrap}
 .ev .cab:hover{background:var(--bg4)}
 .ev .cab .nom{font-weight:700;font-size:12.5px;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ev .cab .fecha{color:var(--mut);font-size:11px;text-align:right;white-space:nowrap}
 .ev .cab .fecha b{color:#7dd3fc;font-weight:600}
 .ev .chi{display:inline-flex;gap:4px;align-items:center;font-size:10.5px;color:var(--mut);
   background:var(--bg4);border-radius:6px;padding:1px 6px;margin-left:6px}
+/* F5.9: chips de distancia / «lejana» (evento que NO cuenta como pasada real) */
+.ev .chi.dist{color:#93c5fd;cursor:help;border:1px solid rgba(56,189,248,.18)}
+.ev .chi.lej{color:#f87171;background:rgba(239,68,68,.13);border:1px solid rgba(248,113,113,.38);cursor:help}
+.distCtx{font-size:10.5px;color:var(--mut2);line-height:1.45;margin-top:6px}
+.distCtx.lej{color:#fca5a5}
 /* F5.7: cabecera de PASADA (desplegable por evento en el historial de la cámara) */
 .ev .cab .hora{font-weight:800;color:#7dd3fc;font-size:11px;white-space:nowrap}
 .ev .cab .dur{color:var(--mut);font-size:10.5px;white-space:nowrap}
@@ -654,6 +659,47 @@ function toast(msg,err){const d=document.createElement('div');d.className='toast
 const fmtF = ts => new Date(ts*1000).toLocaleString('es-ES',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});
 const fmtD = ts => new Date(ts*1000).toLocaleDateString('es-ES',{day:'2-digit',month:'short',year:'numeric'});
 function fmtDur(s){s=Math.max(0,Math.round(s));const m=Math.floor(s/60);const r=s%60;return m?`${m} min ${r} s`:`${r} s`;}
+/* ═══════════════ F5.9 PASADA REAL (dist_min_m / es_pasada) ═══════════════ */
+/* Un evento cuenta como «pasada real» si pasaste a ≤ radio_pasada_m de la
+   cámara. El backend ya envía dist_min_m (m, número o null) y es_pasada
+   (bool; undefined en eventos viejos ⇒ se trata como pasada real, por
+   compatibilidad). Umbral local radio_pasada_m (default 60, igual que el
+   backend) refrescado desde /api/ajustes; se guarda en localStorage. */
+let umbralPasadaM=60;
+(function(){try{const v=parseInt(localStorage.getItem('tc_pasada_v1'),10);if(v>=5&&v<=500)umbralPasadaM=v;}catch(e){}})();
+function esPasadaReal(e){return !!e&&e.es_pasada!==false;}
+function umbralActivo(){return (typeof umbralPasadaM==='number'&&umbralPasadaM>=5&&umbralPasadaM<=500)?umbralPasadaM:60;}
+async function cargarUmbralPasada(){          // F5.9: lee radio_pasada_m de /api/ajustes y lo cachea
+  try{
+    const vals=await api('/api/ajustes');
+    if(vals&&typeof vals.radio_pasada_m==='number'){
+      umbralPasadaM=Math.min(500,Math.max(5,vals.radio_pasada_m));
+      try{localStorage.setItem('tc_pasada_v1',String(umbralPasadaM));}catch(e){}
+    }
+  }catch(e){/* 403 para no-admin o backend sin el campo: se queda el default/localStorage */}
+}
+function fmtDistMin(m){                     // metros → '0,7 m' / '66 m' / '1,2 km'
+  if(!(typeof m==='number'&&isFinite(m)))return null;
+  if(m<1000)return (m<10?m.toLocaleString('es-ES',{maximumFractionDigits:1}):Math.round(m).toLocaleString('es-ES'))+' m';
+  return (m/1000).toLocaleString('es-ES',{maximumFractionDigits:1})+' km';
+}
+/* F5.9: chips de distancia/lejana para la cabecera .ev .cab */
+function chipsDistHTML(e){
+  const m=e.dist_min_m; if(!(typeof m==='number'&&isFinite(m)))return '';
+  const s=fmtDistMin(m), umb=umbralActivo();
+  if(e.es_pasada===false)
+    return `<span class="chi dist" title="📍 distancia mínima a la que pasaste de la cámara: ${s}">📍 ${s}</span>`
+      +`<span class="chi lej" title="pasaste a ${s} — por encima del umbral de ${umb} m (no cuenta como pasada)">🚫 lejana</span>`;
+  return `<span class="chi dist" title="📍 pasada real: distancia mínima ${s} (≤ ${umb} m)">📍 ${s}</span>`;
+}
+/* F5.9: línea de contexto (distancia) dentro del detalle expandido del evento */
+function distCtxHTML(e){
+  const m=e.dist_min_m; if(!(typeof m==='number'&&isFinite(m)))return '';
+  const s=fmtDistMin(m), umb=umbralActivo();
+  if(e.es_pasada===false)
+    return `<div class="distCtx lej">📍 distancia mínima: <b>${s}</b> · 🚫 <b>no cuenta como pasada</b>: pasaste a más de ${umb} m de la cámara (umbral «pasada real» — súbelo en ⚙️ Ajustes del perfil para que cuente).</div>`;
+  return `<div class="distCtx">📍 distancia mínima de la pasada: <b>${s}</b></div>`;
+}
 function fmtMB(b){return (b/1048576).toFixed(1)+' MB';}
 function fmtGB(b){return (b/1e9).toFixed(2)+' GB';}
 /* Tamaño legible: GB si ≥1 GB, MB si ≥1 MB, KB si ≥1 KB, si no bytes */
@@ -988,7 +1034,8 @@ function abrirPopupPunto(f){
 function pintarVerdes(){
   capaVerde.clearLayers();
   const porCam=new Map();
-  S.eventos.forEach(e=>{const v=porCam.get(e.cam_id)||{n:0,ult:0};v.n++;v.ult=Math.max(v.ult,e.ts_inicio);porCam.set(e.cam_id,v);});
+  S.eventos.forEach(e=>{ if(!esPasadaReal(e))return;   // F5.9: lejanas (>umbral) NO son pasadas reales
+    const v=porCam.get(e.cam_id)||{n:0,ult:0};v.n++;v.ult=Math.max(v.ult,e.ts_inicio);porCam.set(e.cam_id,v);});
   const nIds=new Set(S.verdes.map(v=>v.cam_id));
   const todas=[];
   S.verdes.forEach(v=>todas.push({cam_id:v.cam_id,nombre:v.nombre,lat:v.lat,lon:v.lon,fuente:v.fuente}));
@@ -1051,7 +1098,8 @@ function pintarNaranjas(){
   capaNaranja.clearLayers();
   const llV=new Set();
   S.verdes.forEach(v=>{llV.add('id:'+v.cam_id);const k=llaveCam(v.lat,v.lon);if(k)llV.add('p:'+k);});
-  S.eventos.forEach(e=>{llV.add('id:'+e.cam_id);const k=llaveCam(e.lat,e.lon);if(k)llV.add('p:'+k);});
+  S.eventos.forEach(e=>{ if(!esPasadaReal(e))return;   // F5.9: lejanas no ocultan el naranja 🟠
+    llV.add('id:'+e.cam_id);const k=llaveCam(e.lat,e.lon);if(k)llV.add('p:'+k);});
   (S.cache||[]).forEach(c=>{
     const r=resolverCacheCam(c);
     if(!(typeof r.lat==='number'&&isFinite(r.lat)&&typeof r.lon==='number'&&isFinite(r.lon)))return; // sin coordenadas
@@ -1106,7 +1154,8 @@ function muertaCombo(camId,lat,lon,llV){    // ¿esa muerta tiene pasadas (verde
   if(!llV){
     llV=new Set();
     S.verdes.forEach(v=>{llV.add('id:'+v.cam_id);const k=llaveCam(v.lat,v.lon);if(k)llV.add('p:'+k);});
-    S.eventos.forEach(e=>{llV.add('id:'+e.cam_id);const k=llaveCam(e.lat,e.lon);if(k)llV.add('p:'+k);});
+    S.eventos.forEach(e=>{ if(!esPasadaReal(e))return;   // F5.9: lejanas no son pasada 🟢
+      llV.add('id:'+e.cam_id);const k=llaveCam(e.lat,e.lon);if(k)llV.add('p:'+k);});
   }
   const i=String(camId==null?'':camId);
   if(llV.has('id:'+i)||llV.has('id:'+_san(i))||llV.has('id:'+_san(i).slice(0,80)))return true;
@@ -1121,7 +1170,8 @@ function pintarMuertas(){
   mueReindex();
   const llV=new Set();
   S.verdes.forEach(v=>{llV.add('id:'+v.cam_id);const k=llaveCam(v.lat,v.lon);if(k)llV.add('p:'+k);});
-  S.eventos.forEach(e=>{llV.add('id:'+e.cam_id);const k=llaveCam(e.lat,e.lon);if(k)llV.add('p:'+k);});
+  S.eventos.forEach(e=>{ if(!esPasadaReal(e))return;   // F5.9: lejanas no marcan «pasaste por aquí» 🟢
+    llV.add('id:'+e.cam_id);const k=llaveCam(e.lat,e.lon);if(k)llV.add('p:'+k);});
   (S.muertas||[]).forEach(m=>{
     const lat=m.lat, lon=m.lon;
     if(!(typeof lat==='number'&&isFinite(lat)&&typeof lon==='number'&&isFinite(lon)))return; // sin coordenadas
@@ -1817,6 +1867,7 @@ async function entrar(st){
   }else $('verComoWrap').classList.remove('on');
   cargarCatalogo();          // en segundo plano (≈10 MB)
   refreshTodo();             // carga inicial
+  cargarUmbralPasada();      // F5.9: sincroniza el umbral de pasada real con el backend (silencioso)
   actualizarChip();
   setInterval(async()=>{ if(S.token){try{const st=await api('/api/estado'+vistaQS());pintaEstado(st);}catch(e){}} },20000);
   arrancarVel();
@@ -2011,7 +2062,7 @@ function cacheCuotaHTML(st){
    del rango (en modo hora /api/verdes no se consulta y se derivan de eventos). */
 function nVerdes(){
   const s=new Set(S.verdes.map(v=>v.cam_id));
-  S.eventos.forEach(e=>s.add(e.cam_id));
+  S.eventos.forEach(e=>{ if(esPasadaReal(e))s.add(e.cam_id); });   // F5.9: las lejanas no cuentan como verdes
   return s.size;
 }
 function resumen(){
@@ -2048,7 +2099,7 @@ function tarjetaEvento(e,expandido){
     <div class="cab" onclick="toggleEv('${e.id}')">
       <span class="nom">📷 ${D(e.cam_nombre)}</span>
       <span class="fecha">${fmtF(e.ts_inicio)}<br><span style="font-size:10px;color:var(--mut2)">${fmtDur(dur)}</span></span>
-      <span class="chi">${e.n_fotos} 📷</span>
+      <span class="chi">${e.n_fotos} 📷</span>${chipsDistHTML(e)}
     </div>
     <div class="det">${expandido?visorHTML(e):''}</div>
   </div>`;
@@ -2358,8 +2409,7 @@ function pasadaEvCard(e){
       <span class="hora">🕐 ${h}</span>
       <span class="nom">📷 ${D(e.cam_nombre||e.cam_id)}</span>
       <span class="dur">🎥 ${fmtDur(dur)}</span>
-      <span class="chi">${e.n_fotos} 📷</span>
-      <span class="chev">▾</span>
+      <span class="chi">${e.n_fotos} 📷</span>${chipsDistHTML(e)}<span class="chev">▾</span>
     </div>
     <div class="det"></div>
   </div>`;
@@ -2469,7 +2519,8 @@ function camarasCercanas(){
   // conjuntos de ids/posiciones: pasadas (verde) y muertas (gris 📵)
   const pasIds=new Set(),pasPos=new Set();
   (S.verdes||[]).forEach(v=>{pasIds.add(String(v.cam_id));const k=llaveCam(v.lat,v.lon);if(k)pasPos.add(k);});
-  (S.eventos||[]).forEach(e=>{pasIds.add(String(e.cam_id));const k=llaveCam(e.lat,e.lon);if(k)pasPos.add(k);});
+  (S.eventos||[]).forEach(e=>{ if(!esPasadaReal(e))return;   // F5.9: lejanas no marcan la cámara como pasada
+    pasIds.add(String(e.cam_id));const k=llaveCam(e.lat,e.lon);if(k)pasPos.add(k);});
   const mueIds=new Set(),muePos=new Set();
   (S.muertas||[]).forEach(m=>{const s=String(m.cam_id);mueIds.add(s);mueIds.add(_san(s));mueIds.add(_san(s).slice(0,80));const k=llaveCam(m.lat,m.lon);if(k)muePos.add(k);});
   (S.verdes||[]).forEach(v=>add(v.cam_id,v.nombre,v.lat,v.lon,v.fuente,null));
@@ -2491,14 +2542,22 @@ window.camCercana=function(i){
   abrirCamaraMapa({cam_id:o.cam_id,nombre:o.nombre,lat:o.lat,lon:o.lon,fuente:o.fuente,cache},mini);
 };
 
-/* ═══════════════ REPRODUCIR CRONOLOGÍA (F5.4-C) ═══════════════ */
-/* Reproduce los eventos del rango EN ORDEN temporal: abre cada uno en el visor
-   (vídeo; si el vídeo falla, fotos ~3 s) y, mientras suena, un punto recorre el
-   track (S.pts) marcando la posición del ts del evento. Controles ▶/⏸ ⏮ ⏭ ✕. */
+/* ═══════════════ REPRODUCIR CRONOLOGÍA (F5.4-C / F5.9) ═══════════════ */
+/* Reproduce las PASADAS REALES del rango (eventos con es_pasada!==false;
+   F5.9: las «lejanas» >umbral se saltan) EN ORDEN temporal: abre cada una en
+   el visor (vídeo; si el vídeo falla, fotos ~3 s) y, mientras suena, un punto
+   recorre el track (S.pts) marcando la posición del ts del evento. Controles
+   ▶/⏸ ⏮ ⏭ ✕. */
 function cronoBarHTML(){
   if(!crono){
+    const tot=S.eventos.length;
+    const pas=(S.eventos||[]).filter(esPasadaReal);
+    const desc=tot-pas.length, umb=umbralActivo();
+    const nota=pas.length
+      ? `🎞 Reproduce las <b>${pas.length}</b> pasada${pas.length!==1?'s':''} reales del rango (≤${umb} m)${desc?` · se saltan ${desc} eventos a &gt;${umb} m`:''} (vídeo o fotos); el punto recorre el track en el mapa.`
+      : `🎞 Ninguna pasada real (≤${umb} m) en el rango${tot?` — ${tot} evento${tot!==1?'s':''} a &gt;${umb} m (sube el umbral en ⚙️ Ajustes)`:''}.`;
     return `<div id="cronoBar">
-      <span class="nota">🎞 Reproduce en orden los ${S.eventos.length} evento${S.eventos.length!==1?'s':''} del rango (vídeo o fotos); el punto recorre el track en el mapa.</span>
+      <span class="nota">${nota}</span>
       <button class="cbtn pp" onclick="cronoIniciar()">▶ Reproducir cronología</button>
     </div>`;
   }
@@ -2529,7 +2588,9 @@ function cronoRenderBar(){                 // sustituye solo la barra (sin tocar
 window.cronoIniciar=async function(){
   if(!S.eventos.length)return;
   if(crono)return;
-  const evs=[...S.eventos].sort((a,b)=>(a.ts_inicio||0)-(b.ts_inicio||0));
+  const umb=umbralActivo();
+  const evs=[...S.eventos].filter(esPasadaReal).sort((a,b)=>(a.ts_inicio||0)-(b.ts_inicio||0));
+  if(!evs.length){toast(`Ninguna pasada real (≤${umb} m) en el rango — sube el umbral en Ajustes`,true);return;}
   crono={evs,i:0,play:false,modo:'video',mk:null,vid:null,raf:null,t:null};
   cronoRenderBar();                        // barra en modo reproducción (▶⏮⏭…)
   await cronoIr(0);
@@ -2731,7 +2792,8 @@ function visorHTML(e){
       <button onclick="abrirModalFoto('${e.id}',0)" title="Ver la foto en grande (⛶ pantalla completa)">⛶</button>
       <button onclick="borrarEv('${e.id}')" class="del" ${(S.rol==='admin'||String(e.user_id)===String(S.uid))?'':'style=display:none'}>🗑 Borrar</button>
     </div>
-    <div class="fotoInfo"></div>`;
+    <div class="fotoInfo"></div>
+    ${distCtxHTML(e)}`;
 }
 async function activarFotos(container,e){
   const fi=container.querySelector('.fotoInfo');
@@ -2957,11 +3019,16 @@ const CFG=[
   {k:'fps_video',       lbl:'🎞️ fps del vídeo',        desc:'Fotogramas por segundo del vídeo que se genera por evento.',                min:1,max:60,  step:1, un:'fps'},
   {k:'cuota_eventos_gb',lbl:'🗄️ Cuota de eventos',     desc:'Límite por usuario del almacenamiento de eventos (tope 50 GB).',            min:1,max:50,  step:1, un:'GB'},
   {k:'cuota_temps_mb',  lbl:'🧹 Cuota de temporales',   desc:'Límite de archivos temporales de captura en MB.',                          min:1,max:20000,step:100,un:'MB'},
+  {k:'radio_pasada_m',  lbl:'📍 Umbral de pasada real', desc:'Distancia (m) mínima a la que debes pasar de la cámara para contar como pasada real (🟢 en el mapa y 🎞 cronología). Las que superan el umbral se marcan 🚫 «lejana» y no cuentan.', min:5,max:500,step:5,un:'m'},
 ];
 $('btnAjustes').onclick=abrirAjustes;
 async function abrirAjustes(){
   let vals=null;
   try{vals=await api('/api/ajustes');}catch(e){toast('No se pudieron leer los ajustes: '+e.message,true);return;}
+  if(vals&&typeof vals.radio_pasada_m==='number'){   // F5.9: sincroniza el umbral local de pasada real
+    umbralPasadaM=Math.min(500,Math.max(5,vals.radio_pasada_m));
+    try{localStorage.setItem('tc_pasada_v1',String(umbralPasadaM));}catch(e2){}
+  }
   const rows=CFG.map(c=>{
     const v=(vals&&vals[c.k]!==undefined)?vals[c.k]:c.min;
     return `<div class="ajRow">
@@ -2990,6 +3057,7 @@ async function abrirAjustes(){
     const b=$('btnAjGuardar'); b.disabled=true; b.textContent='Guardando…';
     try{
       await api('/api/ajustes',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(cambios)});
+      const elP=$('aj_radio_pasada_m'); if(elP){umbralPasadaM=parseFloat(elP.value)||60;try{localStorage.setItem('tc_pasada_v1',String(umbralPasadaM));}catch(e3){}}   // F5.9
       toast('✅ Ajustes guardados y aplicados'); window.cerrarModal(); refreshTodo();
     }catch(e){toast('Error al guardar: '+e.message,true);}
     finally{b.disabled=false;b.textContent='💾 Guardar ajustes';}

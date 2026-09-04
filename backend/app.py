@@ -191,7 +191,7 @@ if MODO_VISION:
             cambios = await request.json()
         except Exception:
             return _solo_lectura()
-        if isinstance(cambios, dict) and set(cambios.keys()) <= {"radio_pasada_m"}:
+        if isinstance(cambios, dict) and cambios.get("radio_pasada_m") is not None:
             try:
                 v = float(cambios["radio_pasada_m"])
                 v = min(max(v, 5), 500)
@@ -202,7 +202,12 @@ if MODO_VISION:
                 with open(os.path.join(DATA, "ajustes.json"), "w",
                           encoding="utf-8") as f:
                     json.dump(cfg, f, ensure_ascii=False, indent=2)
-                return {"ok": True, "radio_pasada_m": v}
+                # En visión el panel envía todos los ajustes juntos; solo se
+                # aplica el umbral (el resto requiere el motor de la ingesta).
+                if set(cambios.keys()) <= {"radio_pasada_m"}:
+                    return {"ok": True, "radio_pasada_m": v}
+                return {"ok": True, "radio_pasada_m": v,
+                        "aviso": "solo se aplicó radio_pasada_m (el resto requiere el modo ingesta)"}
             except Exception:
                 return _solo_lectura()
         return _solo_lectura()
