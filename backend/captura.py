@@ -43,7 +43,8 @@ INTERVALO_S = 2.0           # ciclo del motor
 RADIO_ACTIVA = 1500.0       # m → cámara activa (snapshot de contexto)
 RADIO_CAPTURA = 500.0       # m → captura continua (ring buffer)
 RADIO_EVENTO = 100.0        # m → evento
-BUFFER_S = 150.0            # profundidad del ring buffer (s) — ≥ antes+después
+BUFFER_S = 600.0            # profundidad ring buffer (s) — amplio para no
+                            # perder pasadas largas ni cámaras de refresco lento
 VENTANA_ANTES = 60.0        # s antes de ENTRAR en los 100 m que se conservan
 VENTANA_DESPUES = 60.0      # s después de SALIR de los 100 m que se conservan
 FPS_VIDEO = 2
@@ -467,11 +468,55 @@ class MotorCaptura:
         est["en_post"] = False
         est["ctx_hecho"] = False
 
-    def _poda_buffer(self, user_id, cid):
+    def _poda_buffer(self, user_id, cid, _con_lock=False):
+        """Poda el buffer temporal SOLO cuando es seguro hacerlo.
+
+        Regla (corrige pérdida de pasadas):
+        - EST_EVENTO / post (usuario dentro del evento o finalizando):
+          NO se poda NADA — la pasada está ocurriendo y sus fotos son la
+          única copia hasta que el evento se materialice. Si el evento se
+          descarta o tarda, las fotos se conservan (las limpia _cortar_buffer
+          al alejarse o la poda por cuota global).
+        - EST_CAPTURANDO (100-500 m, sin evento aún): poda a la ventana que
+          un futuro evento podría necesitar (buffer_s, con margen amplio).
+        - EST_ACTIVA (>500 m) / INACTIVA: sin evento posible → cortar todo.
+
+        _con_lock=True cuando el llamador ya tiene self.lock (evita
+        deadlock: threading.Lock no es reentrante).
+        """
         dir_buf = self._dir_buffer(user_id, cid)
         if not os.path.isdir(dir_buf):
             return
+        # Estado actual de la cámara (si existe)
+        if _con_lock:
+            est = (self.cams.get(str(user_id)) or {}).get(cid)
+        else:
+            with self.lock:
+                est = (self.cams.get(str(user_id)) or {}).get(cid)
+        estado = est["estado"] if est else EST_INACTIVA
+        entrada_ts = est.get("entrada_ts") if est else None
+        en_post = est.get("en_post") if est else False
+        if estado == EST_EVENTO or en_post:
+            return  # pasada en curso o finalizando: no tocar
+        if estado in (EST_ACTIVA, EST_INACTIVA) or est is None:
+            # Sin evento posible: el buffer ya no servirá → vaciarlo entero
+            try:
+                for fn in os.listdir(dir_buf):
+                    p = os.path.join(dir_buf, fn)
+                    try:
+                        os.remove(p)
+                    except OSError:
+                        pass
+            except OSError:
+                pass
+            return
+        # EST_CAPTURANDO: podar a la ventana máxima + margen generoso.
+        # Si hay entrada reciente (evento que acaba de empezar), no bajar
+        # de (entrada - ventana_antes - margen) para no comer el inicio.
         limite = self.ultimo_ts.get(str(user_id), 0.0) - self.cfg["buffer_s"]
+        if entrada_ts is not None:
+            protege = entrada_ts - self.cfg["ventana_antes_s"] - 15.0
+            limite = min(limite, protege)
         for fn in os.listdir(dir_buf):
             if fn.startswith("foto_") and fn.endswith(".jpg"):
                 try:
@@ -487,7 +532,7 @@ class MotorCaptura:
     def _poda_global(self, user_id):
         with self.lock:
             for cid in self.cams.get(str(user_id), {}):
-                self._poda_buffer(user_id, cid)
+                self._poda_buffer(user_id, cid, _con_lock=True)
 
     def _cortar_buffer(self, user_id, cid):
         dir_buf = self._dir_buffer(user_id, cid)
