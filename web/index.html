@@ -1767,11 +1767,11 @@ function renderEventos(){
 /* Devuelve la tarjeta de evento VISIBLE que contiene ese id (un evento puede
    estar a la vez en "Eventos" y en "Historial"; evita tocar la oculta). */
 function evEl(id){
-  for(const sel of ['#vistaHist','#vistaEvs']){
+  for(const sel of ['#vistaHist','#vistaEvs','#camBody']){
     const el=document.querySelector(`${sel} .ev[data-id="${CSS.escape(id)}"]`);
     if(el&&el.offsetParent!==null)return el;
   }
-  for(const sel of ['#vistaHist','#vistaEvs']){
+  for(const sel of ['#vistaHist','#vistaEvs','#camBody']){
     const el=document.querySelector(`${sel} .ev[data-id="${CSS.escape(id)}"]`);
     if(el)return el;
   }
@@ -2401,7 +2401,7 @@ async function activarFotos(container,e){
   const tmp=document.createElement('div');tmp.innerHTML=html;
   container.appendChild(tmp);   // visor + miniaturas juntos
   const th=container.querySelector('#thumbs');
-  for(let i=0;i<Math.min(nf,60);i++){
+  for(let i=0;i<nf;i++){
     const im=document.createElement('img');
     im.src=urlFoto(e.id,i);im.style.cssText='width:46px;height:46px;object-fit:cover;border-radius:6px;cursor:pointer;border:1px solid var(--line2)';
     const tramo=enTramo(i);
@@ -2412,7 +2412,7 @@ async function activarFotos(container,e){
   }
   // si el evento tiene tramo marcable, indicarlo en la cabecera del visor
   const hayTramo=Array.from({length:nf},(_,i)=>enTramo(i)).some(Boolean);
-  if(hayTramo&&nf<=60)th.insertAdjacentHTML('afterend','<div style="font-size:11px;color:#4ade80;margin-top:4px">🟢 borde verde = fotos del momento en que estabas delante (en teoría sales en ellas)</div>');
+  if(hayTramo)th.insertAdjacentHTML('afterend','<div style="font-size:11px;color:#4ade80;margin-top:4px">🟢 borde verde = fotos del momento en que estabas delante (en teoría sales en ellas) · las grises son los 60 s anteriores/posteriores</div>');
   setFoto(0,nf);
 }
 window.navFoto=function(d){
