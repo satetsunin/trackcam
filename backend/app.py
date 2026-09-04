@@ -84,8 +84,13 @@ def init_db():
     con.execute("""CREATE TABLE IF NOT EXISTS eventos(
         user_id TEXT, id TEXT PRIMARY KEY, cam_id TEXT, cam_nombre TEXT,
         lat REAL, lon REAL, ts_inicio REAL, ts_fin REAL, video TEXT,
-        n_fotos INTEGER, tam INTEGER)""")
+        n_fotos INTEGER, tam INTEGER, dist_min_m REAL)""")
     con.execute("CREATE INDEX IF NOT EXISTS idx_eventos_user ON eventos(user_id, ts_inicio)")
+    # Migración: BD creadas antes de F5.9 no tienen dist_min_m
+    try:
+        con.execute("ALTER TABLE eventos ADD COLUMN dist_min_m REAL")
+    except Exception:
+        pass  # ya existe
     # Zonas de no-monitorización (F5.8): círculos donde el usuario NO quiere
     # puntos en el mapa ni eventos/capturas (casa, bar, trabajo…).
     con.execute("""CREATE TABLE IF NOT EXISTS zonas(
@@ -176,6 +181,30 @@ if MODO_VISION:
 
     @app.api_route("/api/ajustes", methods=["POST"])
     async def _vision_no_ajustes(request: Request):
+        # F5.9: en visión se permite cambiar SOLO radio_pasada_m (umbral de
+        # "pasada real"): se lee del archivo en cada consulta, no necesita el
+        # motor de captura. El resto de ajustes requieren el modo ingesta.
+        try:
+            u = _auth(request)
+            if not u or u["rol"] != "admin":
+                return _pedir_auth()
+            cambios = await request.json()
+        except Exception:
+            return _solo_lectura()
+        if isinstance(cambios, dict) and set(cambios.keys()) <= {"radio_pasada_m"}:
+            try:
+                v = float(cambios["radio_pasada_m"])
+                v = min(max(v, 5), 500)
+                with open(os.path.join(DATA, "ajustes.json"),
+                          encoding="utf-8") as f:
+                    cfg = json.load(f)
+                cfg["radio_pasada_m"] = v
+                with open(os.path.join(DATA, "ajustes.json"), "w",
+                          encoding="utf-8") as f:
+                    json.dump(cfg, f, ensure_ascii=False, indent=2)
+                return {"ok": True, "radio_pasada_m": v}
+            except Exception:
+                return _solo_lectura()
         return _solo_lectura()
 
     # En visión SÍ se permite el panel de control (/control + POST
@@ -480,10 +509,18 @@ def cams_cerca(lat, lon, radio):
 
 
 def _ids_camaras_por_pasadas(user_id, ts_ini=None, ts_fin=None):
-    """Cam_id distintos con evento en el periodo (para pintar verdes)."""
+    """Cam_id distintos con PASADA REAL en el periodo (para pintar verdes).
+
+    F5.9: un evento cuenta como pasada si la distancia mínima real a la que
+    pasaste (dist_min_m, medida por el motor) es <= radio_pasada_m (ajustes,
+    defecto 60 m). Los eventos antiguos sin dist_min_m (NULL) se cuentan
+    (compatibilidad) hasta que se recalculen.
+    """
+    umbral = _umbral_pasada()
     con = get_db()
-    q = "SELECT DISTINCT cam_id FROM eventos WHERE user_id=?"
-    params = [str(user_id)]
+    q = "SELECT DISTINCT cam_id FROM eventos WHERE user_id=?" \
+        " AND (dist_min_m IS NULL OR dist_min_m <= ?)"
+    params = [str(user_id), umbral]
     if ts_ini:
         q += " AND ts_fin >= ?"; params.append(ts_ini)
     if ts_fin:
@@ -491,6 +528,15 @@ def _ids_camaras_por_pasadas(user_id, ts_ini=None, ts_fin=None):
     filas = con.execute(q, params).fetchall()
     con.close()
     return {r[0] for r in filas}
+
+
+def _umbral_pasada() -> float:
+    """radio_pasada_m de ajustes.json (default 60). Funciona en ambos modos."""
+    try:
+        with open(os.path.join(DATA, "ajustes.json"), encoding="utf-8") as f:
+            return float(json.load(f).get("radio_pasada_m", 60.0))
+    except Exception:
+        return 60.0
 
 
 def _cams_geo_verdes(user_id, ts_ini=None, ts_fin=None):
@@ -750,7 +796,7 @@ def api_eventos(request: Request):
         return _pedir_auth()
     con = get_db()
     q = ("SELECT user_id,id,cam_id,cam_nombre,lat,lon,ts_inicio,ts_fin,video,"
-         "n_fotos,tam FROM eventos")
+         "n_fotos,tam,dist_min_m FROM eventos")
     conds, params = [], []
     if u["rol"] == "admin":
         vid = request.query_params.get("usuario")
@@ -772,10 +818,14 @@ def api_eventos(request: Request):
     filas = con.execute(q, params).fetchall()
     con.close()
     cols = ["user_id", "id", "cam_id", "cam_nombre", "lat", "lon",
-            "ts_inicio", "ts_fin", "video", "n_fotos", "tam"]
+            "ts_inicio", "ts_fin", "video", "n_fotos", "tam", "dist_min_m"]
     out = []
+    _umbral = _umbral_pasada()
     for r in filas:
         d = dict(zip(cols, r))
+        # F5.9: ¿cuenta como pasada real? (distancia mínima <= umbral)
+        dm = d.get("dist_min_m")
+        d["es_pasada"] = (dm is None) or (dm <= _umbral)
         # Enriquecer con ts_entrada/ts_salida/foto_ts desde metadata.json
         # (cuando existe — eventos creados por el motor moderno). Así el
         # frontend puede marcar las fotos del tramo exacto de la pasada.

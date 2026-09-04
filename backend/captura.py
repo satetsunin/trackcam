@@ -43,6 +43,9 @@ INTERVALO_S = 2.0           # ciclo del motor
 RADIO_ACTIVA = 1500.0       # m → cámara activa (snapshot de contexto)
 RADIO_CAPTURA = 500.0       # m → captura continua (ring buffer)
 RADIO_EVENTO = 100.0        # m → evento
+RADIO_PASADA = 60.0         # F5.9: dist. máx. (m) para que un evento cuente
+                            # como "pasada real" (verde en mapa / cronología).
+                            # Configurable en ajustes (radio_pasada_m).
 BUFFER_S = 1800.0           # profundidad ring buffer (s) = 30 min — con el
                             # caché de 30 días como respaldo, el buffer amplio
                             # garantiza cinta completa incluso en pasadas lentas
@@ -171,6 +174,7 @@ class MotorCaptura:
             "retencion_cache_dias": RETENCION_CACHE_DIAS,  # 30 días
             "umbral_dedup": UMBRAL_DEDUP,               # bits dHash
             "cuota_temps_mb": CUOTA_TEMPS_MB,
+            "radio_pasada_m": RADIO_PASADA,  # F5.9: dist. máx. para contar "pasada real"
         }
         self._cargar_cfg()
 
@@ -521,6 +525,10 @@ class MotorCaptura:
                 est = cams_u.setdefault(cid, self._estado_nuevo(cam))
                 est["dist_prev"] = est["ultima_dist"]
                 est["ultima_dist"] = dist
+                # F5.9: menor distancia alcanzada en esta pasada (para saber
+                # si de verdad pasaste por delante o solo "rozaste" el radio)
+                if est["dist_min"] is None or dist < est["dist_min"]:
+                    est["dist_min"] = dist
                 estado_ant = est["estado"]
 
                 if dist <= r_ev:
@@ -580,6 +588,7 @@ class MotorCaptura:
             "salida_ts": None,
             "en_post": False,
             "ctx_hecho": False,
+            "dist_min": None,          # F5.9: menor distancia alcanzada (m)
         }
 
     def _reset_estado(self, est):
@@ -591,6 +600,7 @@ class MotorCaptura:
         est["salida_ts"] = None
         est["en_post"] = False
         est["ctx_hecho"] = False
+        est["dist_min"] = None
 
     def _poda_buffer(self, user_id, cid, _est=None):
         """Poda el buffer temporal SOLO cuando es seguro hacerlo.
@@ -925,6 +935,7 @@ class MotorCaptura:
             "ts_fin": ts_fin,
             "foto_ts": foto_ts,
             "ventana_s": {"antes": antes, "despues": despues},
+            "dist_min_m": est.get("dist_min"),   # F5.9: menor distancia real
             "n_fotos": n,
             "video": video_rel,
             "tam": tam,
@@ -939,10 +950,11 @@ class MotorCaptura:
             con = self.get_db()
             con.execute(
                 "INSERT INTO eventos(user_id,id,cam_id,cam_nombre,lat,lon,"
-                "ts_inicio,ts_fin,video,n_fotos,tam) "
-                "VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                "ts_inicio,ts_fin,video,n_fotos,tam,dist_min_m) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
                 (str(user_id), eid, cid, meta["cam_nombre"], cam["lat"],
-                 cam["lon"], ts_ini, ts_fin, video_rel, n, tam))
+                 cam["lon"], ts_ini, ts_fin, video_rel, n, tam,
+                 est.get("dist_min")))
             con.commit()
             con.close()
         except sqlite3.Error as e:
