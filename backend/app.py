@@ -86,6 +86,16 @@ def init_db():
         lat REAL, lon REAL, ts_inicio REAL, ts_fin REAL, video TEXT,
         n_fotos INTEGER, tam INTEGER)""")
     con.execute("CREATE INDEX IF NOT EXISTS idx_eventos_user ON eventos(user_id, ts_inicio)")
+    # Zonas de no-monitorización (F5.8): círculos donde el usuario NO quiere
+    # puntos en el mapa ni eventos/capturas (casa, bar, trabajo…).
+    con.execute("""CREATE TABLE IF NOT EXISTS zonas(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        nombre TEXT NOT NULL,
+        lat REAL NOT NULL, lon REAL NOT NULL,
+        radio_m REAL NOT NULL DEFAULT 30,
+        creado REAL)""")
+    con.execute("CREATE INDEX IF NOT EXISTS idx_zonas_user ON zonas(user_id)")
     # Usuarios semilla (solo si no existen)
     for u, p, rol in (("alvaro", "1234", "admin"), ("test", "test", "user")):
         if not con.execute("SELECT 1 FROM usuarios WHERE username=?",
@@ -194,7 +204,8 @@ elif MODO == "ingesta":
                "/api/temps", "/api/estado", "/api/evento/{eid}/video",
                "/api/evento/{eid}/foto/{n}", "/api/evento/{eid}/metadata",
                "/api/exportar/kml", "/api/exportar/gpx", "/api/exportar/todo",
-               "/api/ajustes", "/api/usuarios", "/api/muertas"):
+               "/api/ajustes", "/api/usuarios", "/api/muertas", "/api/zonas",
+               "/api/zonas/{zid}"):
         @app.api_route(_p, methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
         async def _ingesta_no_api(request: Request, _p: str = _p):
             return _solo_ingesta()
@@ -399,6 +410,28 @@ def haversine(lat1, lon1, lat2, lon2):
     dp = math.radians(lat2 - lat1); dl = math.radians(lon2 - lon1)
     a = math.sin(dp/2)**2 + math.cos(p1)*math.cos(p2)*math.sin(dl/2)**2
     return 2*R*math.asin(math.sqrt(a))
+
+
+# ── Zonas de no-monitorización (F5.8) ───────────────────────────────────────
+def _zonas_usuario(user_id) -> list:
+    """Zonas del usuario: [{id, nombre, lat, lon, radio_m}]."""
+    con = get_db()
+    try:
+        filas = con.execute(
+            "SELECT id, nombre, lat, lon, radio_m FROM zonas "
+            "WHERE user_id=? ORDER BY id", (int(user_id),)).fetchall()
+    finally:
+        con.close()
+    return [{"id": r[0], "nombre": r[1], "lat": r[2], "lon": r[3],
+             "radio_m": r[4]} for r in filas]
+
+
+def _en_zona(zonas, lat, lon) -> bool:
+    """True si (lat,lon) cae dentro de alguna zona (radio ampliado 2 m)."""
+    for z in zonas:
+        if haversine(lat, lon, z["lat"], z["lon"]) <= z["radio_m"] + 2:
+            return True
+    return False
 
 
 def load_camaras():
@@ -621,6 +654,15 @@ def api_track(request: Request):
     # solo se aplica anti-deriva: el autocompletado necesita contexto y
     # los puntos nuevos llegan en el siguiente ciclo.
     from backend import geo_filtro as _gf
+    # Zonas de no-monitorización (F5.8): descartar puntos dentro de una zona
+    # del usuario (casa/bar) ANTES de los filtros — la BD guarda todo pero
+    # aquí no se sirven.
+    try:
+        _zonas = _zonas_usuario(u["id"])
+    except Exception:
+        _zonas = []
+    if _zonas:
+        filas = [r for r in filas if not _en_zona(_zonas, r[1], r[2])]
     crudos = [(r[0], r[1], r[2],
                r[3] if len(r) > 3 else 0,
                r[4] if len(r) > 4 else 0) for r in filas]
@@ -1536,3 +1578,148 @@ else:
         cams_cerca_fn=cams_cerca,
     )
     print("[trackcam] MODO VISIÓN (solo lectura) — motor creado sin arrancar (captura inactiva)")
+
+
+# ── Zonas de no-monitorización (F5.8) ────────────────────────────────────────
+@app.get("/api/zonas")
+def api_zonas_list(request: Request):
+    """Zonas del usuario (o de ?usuario=N si admin)."""
+    u = _auth(request)
+    if not u:
+        return _pedir_auth()
+    if u["rol"] == "admin":
+        vid = request.query_params.get("usuario")
+        uid = vid if vid else u["id"]
+    else:
+        uid = u["id"]
+    return {"zonas": _zonas_usuario(uid)}
+
+
+@app.post("/api/zonas")
+async def api_zonas_crear(request: Request):
+    """Crea una zona: {nombre, lat, lon, radio_m}. El dueño o un admin.
+
+    Se permite también en VISIÓN (el mapa web crea zonas desde aquí y la BD
+    es compartida con la ingesta): el motor de la ingesta refresca su caché
+    de zonas en ≤10 s (TTL). Cloudflare Access + auth protegen el endpoint.
+    """
+    u = _auth(request)
+    if not u:
+        return _pedir_auth()
+    try:
+        b = await request.json()
+    except Exception:
+        return JSONResponse({"error": "JSON inválido"}, status_code=400)
+    nombre = str(b.get("nombre") or "").strip()[:60]
+    try:
+        lat, lon = float(b["lat"]), float(b["lon"])
+        radio = float(b.get("radio_m") or 30)
+    except (KeyError, TypeError, ValueError):
+        return JSONResponse({"error": "lat/lon/radio_m inválidos"}, status_code=400)
+    if not nombre:
+        return JSONResponse({"error": "nombre obligatorio"}, status_code=400)
+    if not (-90 <= lat <= 90) or not (-180 <= lon <= 180):
+        return JSONResponse({"error": "coordenadas fuera de rango"}, status_code=400)
+    radio = min(max(radio, 5), 5000)
+    con = get_db()
+    try:
+        cur = con.execute(
+            "INSERT INTO zonas(user_id, nombre, lat, lon, radio_m, creado) "
+            "VALUES(?,?,?,?,?,?)", (u["id"], nombre, lat, lon, radio,
+                                    time.time()))
+        zid = cur.lastrowid
+        con.commit()
+    finally:
+        con.close()
+    # El motor refresca su caché en ≤10 s; invalidamos aquí para que sea inmediato
+    try:
+        motor._zonas_cache.pop(str(u["id"]), None)
+        motor._en_zona_user.pop(str(u["id"]), None)
+    except Exception:
+        pass
+    return {"ok": True, "id": zid}
+
+
+@app.put("/api/zonas/{zid}")
+async def api_zonas_editar(zid: int, request: Request):
+    """Edita una zona (nombre/radio). Solo su dueño o un admin."""
+    u = _auth(request)
+    if not u:
+        return _pedir_auth()
+    try:
+        b = await request.json()
+    except Exception:
+        return JSONResponse({"error": "JSON inválido"}, status_code=400)
+    con = get_db()
+    try:
+        fila = con.execute("SELECT user_id FROM zonas WHERE id=?",
+                           (zid,)).fetchone()
+        if not fila:
+            return JSONResponse({"error": "no existe"}, status_code=404)
+        if u["rol"] != "admin" and int(fila[0]) != int(u["id"]):
+            return JSONResponse({"error": "no autorizado"}, status_code=403)
+        campos, params = [], []
+        if "nombre" in b:
+            nombre = str(b["nombre"]).strip()[:60]
+            if not nombre:
+                return JSONResponse({"error": "nombre obligatorio"},
+                                    status_code=400)
+            campos.append("nombre=?"); params.append(nombre)
+        if "radio_m" in b:
+            try:
+                radio = min(max(float(b["radio_m"]), 5), 5000)
+            except (TypeError, ValueError):
+                return JSONResponse({"error": "radio_m inválido"},
+                                    status_code=400)
+            campos.append("radio_m=?"); params.append(radio)
+        if "lat" in b and "lon" in b:
+            try:
+                lat, lon = float(b["lat"]), float(b["lon"])
+            except (TypeError, ValueError):
+                return JSONResponse({"error": "lat/lon inválidos"},
+                                    status_code=400)
+            if not (-90 <= lat <= 90) or not (-180 <= lon <= 180):
+                return JSONResponse({"error": "coordenadas fuera de rango"},
+                                    status_code=400)
+            campos.append("lat=?"); campos.append("lon=?")
+            params += [lat, lon]
+        if not campos:
+            return JSONResponse({"error": "sin cambios"}, status_code=400)
+        params.append(zid)
+        con.execute("UPDATE zonas SET %s WHERE id=?" % ", ".join(campos),
+                    params)
+        con.commit()
+    finally:
+        con.close()
+    try:
+        motor._zonas_cache.pop(str(fila[0]), None)
+        motor._en_zona_user.pop(str(fila[0]), None)
+    except Exception:
+        pass
+    return {"ok": True}
+
+
+@app.delete("/api/zonas/{zid}")
+def api_zonas_borrar(zid: int, request: Request):
+    """Borra la zona zid (solo su dueño o un admin). También en visión."""
+    u = _auth(request)
+    if not u:
+        return _pedir_auth()
+    con = get_db()
+    try:
+        fila = con.execute("SELECT user_id FROM zonas WHERE id=?",
+                           (zid,)).fetchone()
+        if not fila:
+            return JSONResponse({"error": "no existe"}, status_code=404)
+        if u["rol"] != "admin" and int(fila[0]) != int(u["id"]):
+            return JSONResponse({"error": "no autorizado"}, status_code=403)
+        con.execute("DELETE FROM zonas WHERE id=?", (zid,))
+        con.commit()
+    finally:
+        con.close()
+    try:
+        motor._zonas_cache.pop(str(fila[0]), None)
+        motor._en_zona_user.pop(str(fila[0]), None)
+    except Exception:
+        pass
+    return {"ok": True}

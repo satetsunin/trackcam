@@ -118,6 +118,27 @@ def hamming(a: int, b: int) -> int:
     return bin(a ^ b).count("1")
 
 
+def haversine(lat1, lon1, lat2, lon2):
+    import math as _m
+    R = 6371000.0
+    p1, p2 = _m.radians(lat1), _m.radians(lat2)
+    dp = _m.radians(lat2 - lat1); dl = _m.radians(lon2 - lon1)
+    a = _m.sin(dp/2)**2 + _m.cos(p1)*_m.cos(p2)*_m.sin(dl/2)**2
+    return 2*R*_m.asin(_m.sqrt(a))
+
+
+def en_zona(zonas, lat, lon, margen=2.0) -> bool:
+    """True si (lat,lon) cae dentro de alguna zona (radio + margen)."""
+    for z in zonas or []:
+        try:
+            if haversine(lat, lon, float(z["lat"]), float(z["lon"])) \
+                    <= float(z["radio_m"]) + margen:
+                return True
+        except (KeyError, TypeError, ValueError):
+            continue
+    return False
+
+
 class MotorCaptura:
     def __init__(self, db_path, data_dir, get_db_fn, cams_cerca_fn,
                  intervalo=INTERVALO_S):
@@ -161,6 +182,13 @@ class MotorCaptura:
         self.descargas_fallo = 0
         self.eventos_creados = 0
         self._fallos_cam = {}   # cid -> fallos de descarga seguidos
+
+        # Zonas de no-monitorización por usuario (F5.8): caché {uid: {ts, zonas}}
+        # refrescada cada ~10 s desde la BD. El motor NO procesa puntos que
+        # caen dentro de una zona (casa/bar): sin activación, captura ni evento.
+        self._zonas_cache = {}      # str(uid) -> {ts: epoch, zonas: [...]}
+        self._zonas_ttl = 10.0
+        self._en_zona_user = {}     # str(uid) -> True (transición zona)
 
         # Cámaras detectadas como MUERTAS al intentar capturar (placeholder
         # real o descarga fallida repetida). Persistente: el mapa las pinta
@@ -279,6 +307,45 @@ class MotorCaptura:
                 print(f"[captura] error en ciclo: {e}")
             self._stop.wait(self.intervalo)
 
+    # ── zonas de no-monitorización (F5.8) ─────────────────────────────
+    def _zonas_de(self, user_id):
+        """Zonas del usuario con caché corta (la tabla cambia poco)."""
+        uid = str(user_id)
+        c = self._zonas_cache.get(uid)
+        if c and time.time() - c["ts"] < self._zonas_ttl:
+            return c["zonas"]
+        try:
+            con = self.get_db()
+            filas = con.execute(
+                "SELECT id, nombre, lat, lon, radio_m FROM zonas "
+                "WHERE user_id=? ORDER BY id", (int(user_id),)).fetchall()
+            con.close()
+            zonas = [{"id": r[0], "nombre": r[1], "lat": r[2], "lon": r[3],
+                      "radio_m": r[4]} for r in filas]
+        except Exception:
+            zonas = []
+        self._zonas_cache[uid] = {"ts": time.time(), "zonas": zonas}
+        return zonas
+
+    def _salir_de_zonas(self, user_id):
+        """El usuario está DENTRO de una zona: si venía de fuera (evento en
+        curso), finaliza y limpia. Solo actúa en la transición fuera→dentro
+        (flag _en_zona_user) para no repetir trabajo en cada punto."""
+        uid = str(user_id)
+        if self._en_zona_user.get(uid):
+            return  # ya estábamos en zona: nada que hacer
+        self._en_zona_user[uid] = True
+        print(f"[captura] user={uid} dentro de zona de no-monitorización — "
+              f"sin activación ni captura")
+        with self.lock:
+            cams_u = self.cams.get(uid, {})
+            for cid, est in list(cams_u.items()):
+                if est["estado"] != EST_INACTIVA:
+                    if est["entrada_ts"] is not None:
+                        self._finalizar_evento(uid, cid, est)
+                    self._cortar_buffer(uid, cid)
+                    self._reset_estado(est)
+
     def _ciclo(self):
         con = self.get_db()
         filas = con.execute(
@@ -295,8 +362,18 @@ class MotorCaptura:
 
         for user_id, pts in by_user.items():
             pts.sort(key=lambda x: x[0])
+            zonas = self._zonas_de(user_id)
             for ts, lat, lon in pts:
                 try:
+                    if zonas and en_zona(zonas, lat, lon):
+                        # Dentro de una zona de no-monitorización (casa/bar):
+                        # el usuario está parado y su GPS deriva — NO se activan
+                        # cámaras ni se captura. Si venía de un evento en curso
+                        # (cruzó el borde de la zona), se finaliza y se limpia.
+                        self._salir_de_zonas(user_id)
+                        continue
+                    # Punto FUERA de zona → el usuario está monitorizable
+                    self._en_zona_user[str(user_id)] = False
                     self._procesar_punto(user_id, ts, lat, lon)
                 except Exception as e:
                     print(f"[captura] error punto user={user_id} ts={ts}: {e}")
