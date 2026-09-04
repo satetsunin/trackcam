@@ -3,16 +3,19 @@
 
 Lógica pura (sin IO) para poder testearla.
 
-Criterios (calibrados con datos reales de Bilbao, Xiaomi M2004J19C):
-  - La velocidad GPS (vel, m/s) es el discriminador principal: si el receptor
-    dice que te mueves a > VEL_MOVIMIENTO (1.2 m/s ≈ 4.3 km/h, andar normal),
-    el punto es movimiento real y se guarda SIEMPRE (aunque esté cerca del
-    anterior — vas despacio o el fix llega cada 1-2 s).
-  - Con vel baja (parado): se aplica anti-deriva — el GPS parado deriva 5-30 m
-    y generaría cientos de puntos inútiles. Solo se acepta si el punto se ha
-    alejado >= umbral del último aceptado (umbral = max(MIN_MOVIMIENTO_M,
-    FACTOR_PRECISION * acc), típicamente 13-20 m con GPS de 5-8 m) o si han
-    pasado LATIDO_S (60 s) — latido de presencia para no perder el hilo.
+Criterios (recalibrados 2026-09-05 con datos reales de Bilbao, Xiaomi
+M2004J19C — el Redmi reporta vel GPS 0 o fantasma casi siempre, así que la
+velocidad NO es un discriminador fiable de movimiento):
+
+  - El discriminador es el DESPLAZAMIENTO REAL EN VENTANA: se compara cada
+    punto con el de ~VENTANA_POS_S (60 s) antes. Si entre ambos hay >=
+    UMBRAL_POS_M (15 m), hubo movimiento real en ese minuto → el punto se
+    guarda SIEMPRE (línea continua en viajes, incluso en coche).
+  - Sin movimiento (parado/deriva): el GPS deriva 5-30 m dibujando garabatos.
+    Solo se guarda un LATIDO cada LATIDO_S (120 s) para no perder el hilo
+    temporal del track (y no romper la línea con cientos de puntos de deriva).
+  - La vel GPS (> VEL_MOVIMIENTO) solo REFUERZA el movimiento cuando el
+    receptor sí la reporta; nunca descarta por vel baja (Redmi = vel 0).
   - Autocompletado: huecos de 2-90 s (pérdida breve de GPS: túneles, calles
     estrechas, app en segundo plano un momento) se interpolan en línea recta
     si los extremos no están a distancia absurda (no es un salto real).
@@ -20,10 +23,10 @@ Criterios (calibrados con datos reales de Bilbao, Xiaomi M2004J19C):
 """
 import math
 
-VEL_MOVIMIENTO = 1.2        # m/s: por encima = movimiento real garantizado
-MIN_MOVIMIENTO_M = 8.0      # anti-deriva: umbral mínimo
-FACTOR_PRECISION = 2.5      # umbral = max(MIN_MOVIMIENTO, FACTOR * acc)
-LATIDO_S = 60.0             # si llevas parado más de 60 s, guarda un punto
+VEL_MOVIMIENTO = 1.2        # m/s: refuerzo (si el receptor la reporta)
+VENTANA_POS_S = 60.0        # ventana de comparación de posición (anti-deriva)
+UMBRAL_POS_M = 15.0         # desplazamiento en la ventana = movimiento real
+LATIDO_S = 120.0            # parado: guardar 1 punto cada 2 min (hilo)
 HUECO_MAX_S = 90.0          # huecos <= 90 s se autocompletan
 INTERP_S = 2.0              # paso de interpolación
 DIST_SALTO_MAX_M = 600.0    # si los extremos están a más de 600 m no interpolar
@@ -46,33 +49,40 @@ def _interpolar(a, b, frac):
 
 
 def filtro_anti_deriva(pts, vel_mov=VEL_MOVIMIENTO,
-                       min_mov=MIN_MOVIMIENTO_M,
-                       factor_prec=FACTOR_PRECISION, latido_s=LATIDO_S):
+                       ventana_s=VENTANA_POS_S, umbral_m=UMBRAL_POS_M,
+                       latido_s=LATIDO_S):
     """pts: [(ts, lat, lon, acc, vel), ...] cronológico.
 
-    Devuelve los puntos que representan movimiento real o latidos.
-    El primer punto siempre se conserva (ancla).
+    Devuelve los puntos que representan movimiento real (o latidos cada
+    latido_s cuando estás parado, para no perder el hilo).
+
+    Discriminador por POSICIÓN en ventana (no por vel GPS — el Redmi la
+    reporta 0 o fantasma): si el punto actual está a >= umbral_m del punto
+    de hace ~ventana_s segundos, hubo movimiento real → guardar. Si no,
+    deriva/parado → solo latidos espaciados.
     """
     if not pts:
         return []
-    out = [pts[0]]
-    ult = pts[0]
-    for p in pts[1:]:
-        _, lat, lon = p[0], p[1], p[2]
-        acc = p[3] if len(p) > 3 and p[3] else 0
-        vel = p[4] if len(p) > 4 and p[4] is not None else 0
-        if vel and vel > vel_mov:
-            # Movimiento real según el propio receptor GPS → guardar siempre
-            out.append(p)
-            ult = p
-            continue
-        acc = acc if acc and acc > 0 else 5.0
-        umbral = max(min_mov, factor_prec * acc)
-        d = _hav(ult[1], ult[2], lat, lon)
-        dt = p[0] - ult[0]
-        if d >= umbral or dt >= latido_s:
-            out.append(p)
-            ult = p
+    n = len(pts)
+    out = [pts[0]]          # ancla: el primer punto siempre se conserva
+    ult_guardado_ts = pts[0][0]
+    j = 0                   # índice del punto ~ventana_s atrás
+    for i in range(1, n):
+        ts_i = pts[i][0]
+        # avanzar j hasta el último punto con ts <= ts_i - ventana
+        while j < i - 1 and pts[j + 1][0] <= ts_i - ventana_s:
+            j += 1
+        ref = pts[j] if pts[j][0] <= ts_i - ventana_s else pts[0]
+        d = _hav(ref[1], ref[2], pts[i][1], pts[i][2])
+        vel = pts[i][4] if len(pts[i]) > 4 and pts[i][4] else 0
+        if d >= umbral_m or (vel and vel > vel_mov):
+            # movimiento real en la ventana (o vel GPS alta como refuerzo)
+            out.append(pts[i])
+            ult_guardado_ts = ts_i
+        elif ts_i - ult_guardado_ts >= latido_s:
+            # parado: latido de presencia para mantener el hilo temporal
+            out.append(pts[i])
+            ult_guardado_ts = ts_i
     return out
 
 
