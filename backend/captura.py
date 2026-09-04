@@ -759,6 +759,7 @@ class MotorCaptura:
 
         for i, (fts, src) in enumerate(fotos):
             shutil.copy2(src, os.path.join(dir_ev, "foto_%03d.jpg" % i))
+        foto_ts = [fts for fts, _ in fotos]   # ts real de cada foto (para marcar el tramo de la pasada)
 
         n = len(fotos)
         video = os.path.join(dir_ev, "video.mp4")
@@ -787,6 +788,7 @@ class MotorCaptura:
             "ts_salida": salida,
             "ts_inicio": ts_ini,
             "ts_fin": ts_fin,
+            "foto_ts": foto_ts,
             "ventana_s": {"antes": antes, "despues": despues},
             "n_fotos": n,
             "video": video_rel,

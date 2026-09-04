@@ -2381,9 +2381,22 @@ async function activarFotos(container,e){
     return;
   }
   const nf=Math.max(1,e.n_fotos||1); visorEstado={ev:e.id,foto:0};
+  // foto_ts (ts real por foto, del motor) o null → estimación por índice
+  const fts=(e.foto_ts&&e.foto_ts.length===nf)?e.foto_ts:null;
+  const tEnt=(typeof e.ts_entrada==='number')?e.ts_entrada:null;
+  const tSal=(typeof e.ts_salida==='number')?e.ts_salida:null;
+  const tsFoto=i=>{
+    if(fts&&typeof fts[i]==='number')return fts[i];
+    if(e.ts_inicio&&e.ts_fin&&nf>1)return e.ts_inicio+(e.ts_fin-e.ts_inicio)*i/(nf-1); // aprox
+    return null;
+  };
+  const enTramo=i=>{const t=tsFoto(i);return (t==null||tEnt==null)?false:(t>=tEnt-(tSal?10:0)&&(!tSal||t<=tSal+10));};
+  const fmtH=t=>{if(t==null)return'';const d=new Date(t*1000);return d.toTimeString().slice(0,8);};
+  visorEstado.tramos=new Set(); for(let i=0;i<nf;i++)if(enTramo(i))visorEstado.tramos.add(i);
   let html=`<div id="visor"><button class="nav izq" onclick="navFoto(-1)">◀</button>
     <img id="fotoMain" src="${urlFoto(e.id,0)}" alt="foto 1">
     <button class="nav der" onclick="navFoto(1)">▶</button><div class="cnt">1 / ${nf}</div></div>
+    <div class="fotoInfo2" id="fotoInfo2"></div>
     <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:6px" id="thumbs"></div>`;
   const tmp=document.createElement('div');tmp.innerHTML=html;
   container.appendChild(tmp);   // visor + miniaturas juntos
@@ -2391,10 +2404,16 @@ async function activarFotos(container,e){
   for(let i=0;i<Math.min(nf,60);i++){
     const im=document.createElement('img');
     im.src=urlFoto(e.id,i);im.style.cssText='width:46px;height:46px;object-fit:cover;border-radius:6px;cursor:pointer;border:1px solid var(--line2)';
-    im.title='Foto '+(i+1);
+    const tramo=enTramo(i);
+    if(tramo){im.style.border='2px solid #4ade80';im.title='📍 Foto '+(i+1)+' · '+fmtH(tsFoto(i))+' — estuviste delante de la cámara';}
+    else im.title='Foto '+(i+1)+(tsFoto(i)!=null?' · '+fmtH(tsFoto(i)):'');
     im.onclick=()=>setFoto(i,nf);
     th.appendChild(im);
   }
+  // si el evento tiene tramo marcable, indicarlo en la cabecera del visor
+  const hayTramo=Array.from({length:nf},(_,i)=>enTramo(i)).some(Boolean);
+  if(hayTramo&&nf<=60)th.insertAdjacentHTML('afterend','<div style="font-size:11px;color:#4ade80;margin-top:4px">🟢 borde verde = fotos del momento en que estabas delante (en teoría sales en ellas)</div>');
+  setFoto(0,nf);
 }
 window.navFoto=function(d){
   const ev=visorEstado.ev; if(!ev)return;
@@ -2411,7 +2430,23 @@ function setFoto(i,nf){
   const c=el.querySelector('#visor .cnt');
   if(c)c.textContent=(i+1)+' / '+nf;
   const ths=el.querySelector('#thumbs');
-  if(ths)ths.querySelectorAll('img').forEach((im,j)=>im.style.borderColor=(j===i)?'var(--acc)':'var(--line2)');
+  if(ths)ths.querySelectorAll('img').forEach((im,j)=>{
+    const esTramo=visorEstado.tramos&&visorEstado.tramos.has(j);
+    if(j===i)im.style.border='2px solid var(--acc)';
+    else if(esTramo)im.style.border='2px solid #4ade80';
+    else im.style.border='1px solid var(--line2)';
+  });
+  // info de la foto actual (hora real + aviso si es del tramo de la pasada)
+  const e=S.eventos.find(x=>x.id===ev)||(S._histEvs||[]).find(x=>x.id===ev);
+  const fi2=el.querySelector('#fotoInfo2'); if(!fi2||!e)return;
+  const nf2=Math.max(1,e.n_fotos||1);
+  const fts=(e.foto_ts&&e.foto_ts.length===nf2)?e.foto_ts:null;
+  const tEnt=(typeof e.ts_entrada==='number')?e.ts_entrada:null;
+  const tSal=(typeof e.ts_salida==='number')?e.ts_salida:null;
+  const tsF=(fts&&typeof fts[i]==='number')?fts[i]:((e.ts_inicio&&e.ts_fin&&nf2>1)?e.ts_inicio+(e.ts_fin-e.ts_inicio)*i/(nf2-1):null);
+  const tramo=(tsF!=null&&tEnt!=null)?(tsF>=tEnt-(tSal?10:0)&&(!tSal||tsF<=tSal+10)):false;
+  const fmtH=t=>{if(t==null)return'';const d=new Date(t*1000);return d.toTimeString().slice(0,8);};
+  fi2.innerHTML=tsF!=null?('🕐 '+fmtH(tsF)+(tramo?' · <b style="color:#4ade80">📍 aquí estabas delante de la cámara</b>':'')):'';
 }
 /* cambio de pestaña vídeo/fotos dentro de cada evento expandido (solo botones con data-v) */
 document.addEventListener('click',ev=>{

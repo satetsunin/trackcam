@@ -731,7 +731,24 @@ def api_eventos(request: Request):
     con.close()
     cols = ["user_id", "id", "cam_id", "cam_nombre", "lat", "lon",
             "ts_inicio", "ts_fin", "video", "n_fotos", "tam"]
-    return [dict(zip(cols, r)) for r in filas]
+    out = []
+    for r in filas:
+        d = dict(zip(cols, r))
+        # Enriquecer con ts_entrada/ts_salida/foto_ts desde metadata.json
+        # (cuando existe — eventos creados por el motor moderno). Así el
+        # frontend puede marcar las fotos del tramo exacto de la pasada.
+        try:
+            mp = os.path.join(DATA, "eventos", str(d["user_id"]),
+                              d["id"], "metadata.json")
+            if os.path.exists(mp):
+                m = json.load(open(mp, encoding="utf-8"))
+                d["ts_entrada"] = m.get("ts_entrada")
+                d["ts_salida"] = m.get("ts_salida")
+                d["foto_ts"] = m.get("foto_ts")
+        except Exception:
+            pass
+        out.append(d)
+    return out
 
 
 @app.get("/api/pasadas")
