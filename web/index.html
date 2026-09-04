@@ -129,6 +129,15 @@ a.dl{font-size:11px;padding:4px 9px;border-radius:7px;text-decoration:none;font-
 .ev .cab .fecha b{color:#7dd3fc;font-weight:600}
 .ev .chi{display:inline-flex;gap:4px;align-items:center;font-size:10.5px;color:var(--mut);
   background:var(--bg4);border-radius:6px;padding:1px 6px;margin-left:6px}
+/* F5.7: cabecera de PASADA (desplegable por evento en el historial de la cámara) */
+.ev .cab .hora{font-weight:800;color:#7dd3fc;font-size:11px;white-space:nowrap}
+.ev .cab .dur{color:var(--mut);font-size:10.5px;white-space:nowrap}
+.ev .cab .chev{color:var(--mut2);font-size:10px;flex:none;margin-left:2px}
+.ev.open .cab .chev{color:#7dd3fc}
+/* separador de fecha entre pasadas (historial agrupado por día, no plegable) */
+.dsep{display:flex;align-items:center;gap:8px;font-size:10.5px;color:var(--mut2);
+  letter-spacing:.2px;margin:9px 2px 4px;white-space:nowrap}
+.dsep::after{content:"";flex:1;height:1px;background:var(--line)}
 .ev .det{display:none;border-top:1px solid var(--line);padding:8px;background:#0c1422}
 .ev.open .det{display:block}
 .ev .det video{width:100%;max-height:230px;background:#000;border-radius:8px;display:block}
@@ -167,6 +176,11 @@ a.dl{font-size:11px;padding:4px 9px;border-radius:7px;text-decoration:none;font-
 .dotS{width:17px;height:17px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#9ca3af,#4b5563 60%,#1f2937);
   border:2px dashed #cbd5e1;opacity:.5;box-shadow:0 0 6px rgba(156,163,175,.35);position:relative}
 .dotS .v{position:absolute;right:-4px;bottom:-4px;width:9px;height:9px;border-radius:50%;background:#22c55e;
+  border:2px solid #04121d;box-shadow:0 0 6px rgba(34,197,94,.95)}
+/* cámara MUERTA 📵 (/api/muertas): gris oscuro sólido con borde */
+.dotM{width:17px;height:17px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#94a3b8,#64748b 60%,#1e293b);
+  border:2px solid #0f172a;box-shadow:0 0 9px rgba(100,116,139,.75),0 0 3px #fff inset;position:relative;opacity:.95}
+.dotM .v{position:absolute;right:-4px;bottom:-4px;width:9px;height:9px;border-radius:50%;background:#22c55e;
   border:2px solid #04121d;box-shadow:0 0 6px rgba(34,197,94,.95)}
 /* ────────── HISTORIAL POR DÍAS + GALERÍA DEL CACHÉ ────────── */
 .dia{border:1px solid var(--line);border-radius:11px;overflow:hidden;background:var(--bg3)}
@@ -213,6 +227,28 @@ a.dl{font-size:11px;padding:4px 9px;border-radius:7px;text-decoration:none;font-
 .mbody::-webkit-scrollbar{width:9px}
 .mbody::-webkit-scrollbar-thumb{background:#243450;border-radius:5px}
 .mnote{font-size:11px;color:var(--mut2);line-height:1.5}
+/* F5.7: modal de FOTO GRANDE del visor (botón ⛶) — overlay propio, no toca #modalCard ni el flujo vivo */
+#fotoModal{position:fixed;inset:0;z-index:8800;display:none;flex-direction:column;
+  background:rgba(3,6,14,.94);backdrop-filter:blur(5px)}
+#fotoModal.on{display:flex}
+#fotoModal .fmHead{display:flex;align-items:center;gap:8px;padding:9px 13px;background:rgba(10,17,30,.9);
+  border-bottom:1px solid var(--line)}
+#fotoModal .fmHead .t{flex:1;font-weight:800;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#fotoModal .fmHead button{background:transparent;border:1px solid var(--line2);color:var(--mut);
+  border-radius:8px;padding:3px 11px;cursor:pointer;font-size:12px;white-space:nowrap}
+#fotoModal .fmHead button:hover{color:var(--txt);border-color:var(--acc)}
+#fotoModal .fmWrap{position:relative;flex:1;display:flex;align-items:center;justify-content:center;
+  min-height:0;background:#000;margin:10px;border-radius:12px;overflow:hidden}
+#fotoModal .fmWrap img{max-width:calc(100vw - 24px);max-height:calc(100vh - 150px);object-fit:contain;display:block}
+#fotoModal .fmWrap img.tr{outline:4px solid #4ade80;outline-offset:-4px}
+#fotoModal .fmNav{position:absolute;top:50%;transform:translateY(-50%);width:44px;height:64px;border:0;
+  background:rgba(10,17,30,.45);color:#fff;font-size:22px;cursor:pointer;z-index:5;border-radius:10px}
+#fotoModal .fmNav:hover{background:rgba(10,17,30,.75)}
+#fotoModal .fmNav#fmAnt{left:12px}
+#fotoModal .fmNav#fmSig{right:12px}
+#fotoModal .fmCap{text-align:center;font-size:12.5px;padding:6px 12px 12px;color:var(--txt);min-height:20px}
+#fotoModal .fmCap b{color:#7dd3fc}
+#fotoModal .fmCap .tr{color:#4ade80;font-weight:700}
 .mfield{display:flex;flex-direction:column;gap:4px}
 .mfield label{font-size:11px;color:var(--mut);letter-spacing:.3px}
 .mfield input,.mfield select{background:var(--bg3);border:1px solid var(--line2);color:var(--txt);
@@ -559,6 +595,21 @@ button.mchip.pel:hover{background:#3b1620}
 <!-- ══════════ MODALES ══════════ -->
 <div id="modalOverlay" class="moverlay"><div id="modalCard" class="mcard"></div></div>
 
+<!-- F5.7: modal de foto grande del visor (⛶): overlay independiente del #modalCard -->
+<div id="fotoModal">
+  <div class="fmHead">
+    <span class="t" id="fmTit">📷 Foto grande</span>
+    <button id="fmFs" title="Pantalla completa (F)">⛶</button>
+    <button id="fmX" title="Cerrar (Esc)">✕</button>
+  </div>
+  <div class="fmWrap">
+    <button class="fmNav" id="fmAnt" title="Anterior (←)">◀</button>
+    <img id="fmImg" alt="foto del evento">
+    <button class="fmNav" id="fmSig" title="Siguiente (→)">▶</button>
+  </div>
+  <div class="fmCap" id="fmCap"></div>
+</div>
+
 <!-- ══════════ JS ══════════ -->
 <script>
 'use strict';
@@ -573,6 +624,7 @@ const S = {token:null, user:null, rol:null, uid:null, vista:null /*null=yo, ''=g
            perf:'ptodo', rangoD:null, rangoH:null, horaA:'00:00', horaB:'23:59', horaActiva:false,
            histCam:null, histCamNom:null, fotoPat:null, busy:false, tab:'evs',
            modoHist:'pasadas', cache:[], cacheCam:null, cacheRec:null, cacheIdx:0, cacheUser:null, cacheUlt:0, cacheOK:false,
+           muertas:[], muertasOK:false,   // 📵 cámaras sin señal (/api/muertas)
            camLat:null, camLon:null, _histEvs:null, _histFetched:null, _cercList:[], ultEv:null, _estado:null};
 let velCerrado=false;       // F5.4-F: sección de velocidad cerrada del todo (botón 📈 flotante para reabrir)
 let crono=null;             // F5.4-C: estado de la reproducción de cronología {evs,i,play,modo,mk,vid,raf,t}
@@ -643,6 +695,7 @@ document.addEventListener('click',e=>{if(!e.target.closest('#capaWrap'))menuCapa
 const capaGris=L.layerGroup().addTo(map);      // catálogo (grises/celdas)
 const capaVerde=L.layerGroup().addTo(map);     // pasadas → verdes
 const capaNaranja=L.layerGroup().addTo(map);   // caché persistente → naranjas 🟠
+const capaMue=L.layerGroup().addTo(map);       // muertas 📵 → gris oscuro (.dotM)
 const capaRuta=L.layerGroup().addTo(map);      // polilínea del track
 let rutaLinea=null;
 const Z_EXACT=15, MAX_PUNTOS=2500;
@@ -686,6 +739,7 @@ function pintarGrises(){
     if(vis.length<=MAX_PUNTOS){
       const halo=vis.length<=1500;        // halo solo con densidades manejables (2 capas por cámara)
       for(const c of vis){
+        if(muertaMatch(c.id,c.lat,c.lon))continue;  // 📵 muerta → la pinta .dotM gris (sin azul de catálogo encima)
         const ll=[c.lat,c.lon];
         /* punto azul grande y brillante (#4f9dff, radio 6) + halo para que se noten */
         if(halo)capaGris.addLayer(L.circleMarker(ll,{radius:11,stroke:false,fillColor:'#60a5fa',fillOpacity:.15,interactive:false}));
@@ -924,6 +978,7 @@ function pintarVerdes(){
   // extras: eventos cuyo cam_id no devolvió /api/verdes (no está en el catálogo del backend)
   porCam.forEach((v,cid)=>{ if(!nIds.has(cid)){const e=S.eventos.find(x=>x.cam_id===cid); if(e)todas.push({cam_id:cid,nombre:e.cam_nombre,lat:e.lat,lon:e.lon,fuente:'evento'});} });
   todas.forEach(c=>{
+    if(muertaMatch(c.cam_id,c.lat,c.lon))return;  // 📵 muerta → la pinta .dotM gris (con punto 🟢 si tiene pasada)
     const mk=L.marker([c.lat,c.lon],{icon:verdeIcon(),zIndexOffset:3000});
     const pc=porCam.get(c.cam_id);
     mk.bindTooltip(`${D(c.nombre)}${pc?` — ${pc.n} pasada${pc.n>1?'s':''} en el filtro`:''}`);
@@ -983,6 +1038,7 @@ function pintarNaranjas(){
   (S.cache||[]).forEach(c=>{
     const r=resolverCacheCam(c);
     if(!(typeof r.lat==='number'&&isFinite(r.lat)&&typeof r.lon==='number'&&isFinite(r.lon)))return; // sin coordenadas
+    if(muertaMatch(c.cam_id,r.lat,r.lon))return;   // 📵 muerta → la pinta .dotM gris (prioridad: nada de naranja)
     const combo=llV.has('id:'+c.cam_id)||(r.lat!=null&&llV.has('p:'+llaveCam(r.lat,r.lon)));
     const sin=!!c.sin_senal;
     const mk=L.marker([r.lat,r.lon],{icon:naranjaIcon(combo,sin),zIndexOffset:sin?3900:(combo?4200:4000)});
@@ -1000,6 +1056,72 @@ function pintarNaranjas(){
     }
     capaNaranja.addLayer(mk);
   });
+}
+/* ═══════════════ CÁMARAS MUERTAS 📵 → GRIS OSCURO (.dotM) (F5.7) ═══════════════ */
+/* /api/muertas devuelve las cámaras que actualmente no tienen señal
+   (placeholder o fallo al capturar). Se pintan con un punto gris oscuro con
+   PRIORIDAD sobre el resto: una muerta nunca se pinta además naranja (caché),
+   azul (catálogo) ni verde (pasada) — la pasada se indica con un mini punto 🟢
+   dentro del propio .dotM. El clic abre su historial de pasadas. */
+let _mue={ids:null,pos:null};               // caché de coincidencia (se invalida al recargar /api/muertas)
+const _san=id=>String(id==null?'':id).replace(/[^A-Za-z0-9_-]/g,'_');
+function mueReindex(){
+  const ids=new Set(),pos=new Set();
+  (S.muertas||[]).forEach(m=>{
+    if(m.cam_id==null)return;
+    const raw=String(m.cam_id); ids.add(raw); ids.add(_san(raw)); ids.add(_san(raw).slice(0,80));
+    const k=llaveCam(m.lat,m.lon); if(k)pos.add(k);
+  });
+  _mue={ids,pos};
+}
+/* ¿la cámara (id del catálogo/caché/verdes + posición) está en /api/muertas? */
+function muertaMatch(id,lat,lon){
+  if(!_mue.ids){mueReindex();}
+  if(!_mue.ids.size)return false;
+  const i=(id!=null)?String(id):null;
+  if(i&&(_mue.ids.has(i)||_mue.ids.has(_san(i))||_mue.ids.has(_san(i).slice(0,80))))return true;
+  const k=llaveCam(lat,lon); return !!k&&_mue.pos.has(k);
+}
+function muertaCombo(camId,lat,lon,llV){    // ¿esa muerta tiene pasadas (verde/eventos)?
+  if(!llV){
+    llV=new Set();
+    S.verdes.forEach(v=>{llV.add('id:'+v.cam_id);const k=llaveCam(v.lat,v.lon);if(k)llV.add('p:'+k);});
+    S.eventos.forEach(e=>{llV.add('id:'+e.cam_id);const k=llaveCam(e.lat,e.lon);if(k)llV.add('p:'+k);});
+  }
+  const i=String(camId==null?'':camId);
+  if(llV.has('id:'+i)||llV.has('id:'+_san(i))||llV.has('id:'+_san(i).slice(0,80)))return true;
+  const k=llaveCam(lat,lon); return !!k&&llV.has('p:'+k);
+}
+function muertaIcon(combo){
+  return L.divIcon({className:'',html:'<div class="dotM">'+(combo?'<span class="v" title="también con pasadas 🟢"></span>':'')+'</div>',
+    iconSize:[19,19],iconAnchor:[9,9]});
+}
+function pintarMuertas(){
+  capaMue.clearLayers();
+  mueReindex();
+  const llV=new Set();
+  S.verdes.forEach(v=>{llV.add('id:'+v.cam_id);const k=llaveCam(v.lat,v.lon);if(k)llV.add('p:'+k);});
+  S.eventos.forEach(e=>{llV.add('id:'+e.cam_id);const k=llaveCam(e.lat,e.lon);if(k)llV.add('p:'+k);});
+  (S.muertas||[]).forEach(m=>{
+    const lat=m.lat, lon=m.lon;
+    if(!(typeof lat==='number'&&isFinite(lat)&&typeof lon==='number'&&isFinite(lon)))return; // sin coordenadas
+    const combo=muertaCombo(m.cam_id,lat,lon,llV);
+    const mk=L.marker([lat,lon],{icon:muertaIcon(combo),zIndexOffset:3900});
+    const nom=m.nombre||m.cam_id;
+    mk.bindTooltip(`📵 <b>${D(nom)}</b> — cámara sin señal (placeholder/fallo al capturar)${combo?' · 🟢 pasaste por aquí':''}`,{direction:'top',offset:[0,-10]});
+    mk.on('click',()=>abrirCamaraMapa({cam_id:m.cam_id,nombre:nom,lat,lon},'pasadas'));
+    capaMue.addLayer(mk);
+  });
+}
+async function cargarMuertas(){
+  if(!S.token)return;
+  try{
+    const j=await api('/api/muertas'+vistaQS());
+    S.muertas=(Array.isArray(j)?j:(j&&j.muertas)||[])||[];
+    S.muertasOK=true;
+    _mue.ids=null;                           // invalida la caché de coincidencia
+    pintarVerdes(); pintarNaranjas(); pintarGrises(); pintarMuertas(); leyendaCapas();
+  }catch(e){/* el 401 ya cierra sesión; el resto silencioso */}
 }
 let cacheTimer=null;
 /* Naranjas 🟠 respetando el RANGO temporal del filtro: desde/hasta (igual que
@@ -1031,8 +1153,9 @@ function leyendaCapas(){
   const ci=$('catInfo'); if(!ci)return;
   const cat=S.catOK?`🗺 ${S.cat.length.toLocaleString('es-ES')} cámaras · 🔵 azul = sin datos en el filtro actual (clic → 📷 foto en vivo) · `:'';
   const conSin=(S.cache||[]).some(c=>c.sin_senal);
-  if(S.cacheOK)ci.textContent=cat+'🟢 verde = pasada en el filtro · 🟠 naranja = caché EN EL RANGO (fotos en el periodo del filtro) · 🟠 con punto 🟢 = caché y pasada.'+(conSin?' · ⬤ gris discontinuo = cámara sin señal 📵 (placeholder de la fuente)':'');
-  else if(S.catOK)ci.textContent=cat+'🟢 verde = pasadas (historial) · clic en verde = historial';
+  const conMue=(S.muertasOK&&S.muertas&&S.muertas.length)?' · ⬤ gris oscuro = cámara muerta 📵 (sin señal / fallo al capturar)':'';
+  if(S.cacheOK)ci.textContent=cat+'🟢 verde = pasada en el filtro · 🟠 naranja = caché EN EL RANGO (fotos en el periodo del filtro) · 🟠 con punto 🟢 = caché y pasada.'+(conSin?' · ⬤ gris discontinuo = cámara sin señal 📵 (placeholder de la fuente)':'')+conMue;
+  else if(S.catOK)ci.textContent=cat+'🟢 verde = pasadas (historial) · clic en verde = historial'+conMue;
 }
 /* Click en un naranja: abre el panel de cámara con minipestañas y la GALERÍA del caché por defecto */
 async function abrirCache(c){
@@ -1218,6 +1341,7 @@ $('btnVisorFlot').onclick=()=>{          // reabrir el visor del último evento
   let ev=null;
   if(abriendo){
     el.classList.add('open');
+    const ch2=el.querySelector('.chev'); if(ch2)ch2.textContent='▴';   // F5.7
     ev=S.eventos.find(x=>x.id===id)||(S._histEvs||[]).find(x=>x.id===id);
     if(ev&&!el.querySelector('.det video'))el.querySelector('.det').innerHTML=visorHTML(ev);
     focoEventoEnMapa(ev);   // F5.6: al reabrir el visor también centra la cámara
@@ -1488,8 +1612,9 @@ async function cerrarSesion(silencioso){
   localStorage.removeItem(LS_AUTH); S.token=null;S.user=null;S.rol=null;S.uid=null;S.vista=null;
   S.cat=null;S.catOK=false;S.verdes=[];S.eventos=[];S.pts=[];
   S.cache=[];S.cacheCam=null;S.cacheRec=null;S.cacheOK=false;S.modoHist='pasadas';
+  S.muertas=[];S.muertasOK=false;_mue.ids=null;
   S.cacheUser=null;S.cacheUlt=0;ultTsTrack=0;trackVivoBusy=false;
-  capaVerde.clearLayers();capaGris.clearLayers();capaNaranja.clearLayers();
+  capaVerde.clearLayers();capaGris.clearLayers();capaNaranja.clearLayers();capaMue.clearLayers();
   if(cacheTimer){clearInterval(cacheTimer);cacheTimer=null;}
   pararVel(); pararTrackVivo(); setVel('—','❔',false);
   perfilV=null; ocultarVelHover();
@@ -1523,8 +1648,9 @@ async function entrar(st){
   arrancarVel();
   arrancarTrackVivo();                                // línea del track que crece en vivo (24h/Todo)
   cargarCache();                                      // naranjas 🟠 iniciales
+  cargarMuertas();                                    // 📵 grises iniciales (F5.7)
   if(cacheTimer)clearInterval(cacheTimer);
-  cacheTimer=setInterval(()=>{ if(S.token)cargarCache(); },15000);   // poll 15 s
+  cacheTimer=setInterval(()=>{ if(S.token){cargarCache();cargarMuertas();} },15000);   // poll 15 s (caché + muertas)
   ajustarVel();
 }
 function vistaQS(){return S.rol==='admin'&&S.vista?qs({usuario:S.vista}):'';}
@@ -1539,7 +1665,7 @@ function cargarCatalogo(){
   api('/api/catalogo').then(j=>{
     S.cat=j.camaras||[]; S.catOK=true;
     leyendaCapas();
-    pintarGrises(); pintarVerdes(); pintarNaranjas();   // el catálogo da nombre/coordenadas exactas a los naranjas
+    pintarGrises(); pintarVerdes(); pintarNaranjas(); pintarMuertas();   // el catálogo da nombre/coordenadas exactas a los naranjas/muertas
   }).catch(e=>{ $('catInfo').textContent='⚠ Catálogo no disponible: se muestran solo las cámaras verdes (pasadas).'; }).finally(()=>{catCargando=false;});
 }
 
@@ -1784,7 +1910,19 @@ window.toggleEv=function(id){
   S.ultEv=id;                                 // F5.4-F: recordar último evento para el botón 🖼 Visor
   const nb=$('camNavBar');                     // si la navegación ◀ ▶ está activa, sincronizar el índice
   if(nb&&nb.offsetParent!==null&&navEvs){const ix=navEvs.findIndex(x=>String(x.id)===String(id));if(ix>=0){navI=ix;actNavBar();}}
+  if(abriendo){
+    // F5.7: en el historial de la cámara (#camBody) el desplegable es un ACORDEÓN:
+    // al abrir una pasada se pliegan las demás del mismo panel
+    const caja=el.closest('#camBody');
+    if(caja)caja.querySelectorAll('.ev.open').forEach(o=>{
+      if(o===el)return;
+      const v=o.querySelector('.det video'); if(v){try{v.pause();}catch(err){}}
+      o.classList.remove('open');
+      const ch=o.querySelector('.chev'); if(ch)ch.textContent='▾';
+    });
+  }
   el.classList.toggle('open');
+  const ch=el.querySelector('.chev'); if(ch)ch.textContent=abriendo?'▴':'▾';
   if(abriendo){
     const ev=S.eventos.find(x=>x.id===id)||(S._histEvs||[]).find(x=>x.id===id);
     if(ev){
@@ -1869,7 +2007,10 @@ function abrirCamaraMapa(rec,miniPrefer){
   S.camLat=(typeof rec.lat==='number')?rec.lat:null;
   S.camLon=(typeof rec.lon==='number')?rec.lon:null;
   const hayCach=!!(cache&&cache.n_fotos);
-  S.modoHist=(miniPrefer==='cache'||miniPrefer==='pasadas')?miniPrefer:(hayCach?'cache':'pasadas');
+  // F5.7: clic en VERDE 🟢 (o en gris 📵 muerta) → SIEMPRE historial de pasadas,
+  // aunque la cámara tenga caché. Solo el naranja 🟠 (abrirCache) entra en 'cache'.
+  if(miniPrefer==='pasadas') S.modoHist='pasadas';
+  else S.modoHist=(miniPrefer==='cache'&&hayCach)?'cache':(hayCach?'cache':'pasadas');
   if(S.modoHist==='cache'&&!hayCach)S.modoHist='pasadas';
   $('panel').classList.remove('oculto');     // clic en el mapa ⇒ enseñar el panel
   switchTab('hist');
@@ -1887,6 +2028,7 @@ window.miniCam=function(m){                  // cambiar de minipestaña dentro d
 window.salirCamara=function(){               // ✕ de la cabecera: volver a la guía
   S.histCam=null;S.histCamNom=null;S.cacheCam=null;S.cacheRec=null;S.modoHist='pasadas';
   S._histEvs=null;S._histFetched=null;S.camLat=null;S.camLon=null;S._cercList=[];
+  limpiarFotoPin();                          // F5.7: quitar el pin del visor de fotos
   renderHist();
 };
 function renderHist(){                        // pinta la vista Historial (cámara activa o guía)
@@ -1924,7 +2066,8 @@ function pintarCuerpoCam(){
   else if(S.modoHist==='cercanas')pintarCercanas(body);
   else pintarCuerpoPasadas(body);
 }
-/* ── Minipestaña 📅 Pasadas: historial completo de la cámara agrupado por días ── */
+/* ── Minipestaña 📅 Pasadas: historial completo de la cámara; UNA pasada por
+   desplegable individual (acordeón: al abrir una se cierran las demás). ── */
 function pintarCuerpoPasadas(body){
   const cam=S.histCam;
   const evs=(S._histFetched===cam)?(S._histEvs||[]):null;
@@ -1945,13 +2088,19 @@ function pintarCuerpoPasadas(body){
   }
   if(!evs.length){body.innerHTML='<div class="vacio">🟢 Sin pasadas registradas todavía.<br>El historial es completo (sin filtro temporal).</div>';return;}
   if(navCam!==cam){navCam=cam;navI=0;}        // cámara nueva ⇒ navegación desde el primer evento
-  navEvs=[...evs].sort((a,b)=>(a.ts_inicio||0)-(b.ts_inicio||0));   // orden cronológico
+  navEvs=[...evs].sort((a,b)=>(b.ts_inicio||0)-(a.ts_inicio||0));   // F5.7: DESCENDENTE (más reciente arriba)
   if(navI<0||navI>=navEvs.length)navI=0;
   const veces=new Set(S.eventos.filter(e=>e.cam_id===cam).map(e=>e.id)).size;
   const cab=`<div class="seccion" style="margin-top:0"><span>🟢 ${evs.length} pasada${evs.length!==1?'s':''} · historial completo</span>${veces?`<span>${veces} en el filtro actual</span>`:''}</div>`;
-  const dias=agruparPorDia(evs);
-  body.innerHTML=cab+navBarHTML()+dias.map(d=>diaHTML(d)).join('')
-    +'<div style="font-size:10.5px;color:var(--mut2);text-align:center;padding:3px">cada día se pliega con un clic · recorre los eventos con ◀ ▶</div>';
+  let html=cab+navBarHTML();
+  let diaAnt=null;
+  navEvs.forEach(e=>{                          // separador 📅 pequeño por fecha; CADA pasada es su desplegable
+    const dk=diaClave(e.ts_inicio);
+    if(dk&&dk!==diaAnt){html+=`<div class="dsep">📅 ${D(diaLbl(e.ts_inicio))}</div>`;diaAnt=dk;}
+    html+=pasadaEvCard(e);
+  });
+  html+='<div style="font-size:10.5px;color:var(--mut2);text-align:center;padding:3px">cada pasada se despliega con un clic (acordeón) · recorre los eventos con ◀ ▶</div>';
+  body.innerHTML=html;
   actNavBar();
 }
 
@@ -1984,11 +2133,7 @@ function expandirEv(id){
     const ev=S.eventos.find(x=>x.id===id)||(S._histEvs||[]).find(x=>x.id===id);
     if(ev&&!el.querySelector('.det video'))el.querySelector('.det').innerHTML=visorHTML(ev);
   }
-  const dia=el.closest('.dia');               // desplegar el día si estaba plegado
-  if(dia&&dia.classList.contains('plegado')){
-    dia.classList.remove('plegado');
-    const ch=dia.querySelector('.chev'); if(ch)ch.textContent='▾';
-  }
+  const ch=el.querySelector('.chev'); if(ch)ch.textContent='▴';   // F5.7: pasada desplegada
   el.scrollIntoView({block:'nearest'});
   return el;
 }
@@ -2003,6 +2148,7 @@ window.navEvento=function(dir){
     if(el.dataset.id===String(e.id))return;
     const v=el.querySelector('.det video'); if(v){try{v.pause();}catch(err){}}
     el.classList.remove('open');
+    const ch=el.querySelector('.chev'); if(ch)ch.textContent='▾';   // F5.7
   });
   expandirEv(e.id);
   focoEventoEnMapa(e,{abrirTooltip:true});    // PIN 📍 «estabas aquí» + hora en el mapa
@@ -2028,33 +2174,19 @@ function diaLbl(ts){
   const cap=base.charAt(0).toUpperCase()+base.slice(1);
   return rel?cap+' · '+rel:cap;
 }
-function agruparPorDia(evs){
-  const m=new Map();
-  evs.forEach(e=>{
-    const ts=e.ts_inicio; if(ts==null)return;
-    const d=new Date(ts*1000);
-    const cl=diaClave(ts);
-    let g=m.get(cl);
-    if(!g){g={clave:cl,tsDia:new Date(d.getFullYear(),d.getMonth(),d.getDate()).getTime()/1000,lbl:diaLbl(ts),evs:[]};m.set(cl,g);}
-    g.evs.push(e);
-  });
-  const out=[...m.values()].sort((a,b)=>b.tsDia-a.tsDia);   // días descendentes
-  out.forEach(g=>g.evs.sort((a,b)=>(a.ts_inicio||0)-(b.ts_inicio||0)));
-  return out;
-}
-window.diaClick=function(el){
-  const dia=el.closest('.dia'); if(!dia)return;
-  dia.classList.toggle('plegado');
-  const ch=el.querySelector('.chev'); if(ch)ch.textContent=dia.classList.contains('plegado')?'▴':'▾';
-};
-function diaHTML(g){
-  return `<div class="dia" data-d="${g.clave}">
-    <div class="dCab" onclick="diaClick(this)" title="Plegar/desplegar este día">
-      <span class="fecha">📅 ${D(g.lbl)}</span>
-      <span class="cnt">🎥 ${g.evs.length} grabaci${g.evs.length!==1?'ones':'ón'}</span>
+/* ── F5.7: tarjeta de UNA pasada (desplegable individual con chevron ▾/▴) ── */
+function pasadaEvCard(e){
+  const dur=e.ts_fin-e.ts_inicio;
+  const h=new Date(e.ts_inicio*1000).toLocaleTimeString('es-ES',{hour:'2-digit',minute:'2-digit'});
+  return `<div class="ev" data-id="${D(e.id)}">
+    <div class="cab" onclick="toggleEv('${e.id}')" title="Desplegar/plegar esta pasada">
+      <span class="hora">🕐 ${h}</span>
+      <span class="nom">📷 ${D(e.cam_nombre||e.cam_id)}</span>
+      <span class="dur">🎥 ${fmtDur(dur)}</span>
+      <span class="chi">${e.n_fotos} 📷</span>
       <span class="chev">▾</span>
     </div>
-    <div class="dCuerpo">${g.evs.map(e=>tarjetaEvento(e,false)).join('')}</div>
+    <div class="det"></div>
   </div>`;
 }
 
@@ -2109,7 +2241,21 @@ function setCacheFoto(i){
 }
 
 /* ── Minipestaña 📷 Cercanas: OTRAS CÁMARAS CERCANAS (por distancia, haversine) ── */
-/* F5.6: la lista vive en su propia minipestaña (antes se pintaba debajo de todo). */
+/* F5.6: la lista vive en su propia minipestaña (antes se pintaba debajo de todo).
+   F5.7: el punto de color sigue el MISMO criterio que el mapa: verde = pasada,
+   naranja = caché, gris oscuro = muerta 📵 (con puntito verde interior si además
+   tiene pasada). */
+function estadoCercana(o){                // {dot:html, txt:tooltip}
+  const pas=!!o.pasada, mue=!!o.muerta;
+  const circ=(bg,borde)=>`<span style="display:inline-block;width:11px;height:11px;border-radius:50%;background:${bg};border:1.5px solid ${borde};flex:none"></span>`;
+  if(mue){
+    const dot=`<span style="position:relative;display:inline-flex;flex:none">${circ('#64748b','#0f172a')}${pas?'<span style="position:absolute;right:-3px;bottom:-3px;width:6px;height:6px;border-radius:50%;background:#22c55e;border:1.5px solid #0f172a"></span>':''}</span>`;
+    return {dot,txt:'📵 sin señal'+(pas?' · 🟢 con pasada':'')};
+  }
+  if(pas)return {dot:circ('#4ade80','#052e16'),txt:'🟢 pasada'};
+  if(o.cacheRec&&o.cacheRec.n_fotos)return {dot:circ('#fb923c','#431407'),txt:'🟠 caché'};
+  return {dot:circ('#475569','#1e293b'),txt:'— sin datos'};
+}
 function pintarCercanas(body){
   const box=body||$('camBody'); if(!box)return;
   const lista=camarasCercanas();
@@ -2119,12 +2265,14 @@ function pintarCercanas(body){
     return;
   }
   const max=24;
-  const filas=lista.slice(0,max).map((o,i)=>`
-    <button class="cerc" onclick="camCercana(${i})" title="Ver ${D(o.nombre||o.cam_id)}">
-      <span class="ic">${(o.cacheRec&&o.cacheRec.n_fotos)?'🟠':'🟢'}</span>
+  const filas=lista.slice(0,max).map((o,i)=>{
+    const es=estadoCercana(o);
+    return `
+    <button class="cerc" onclick="camCercana(${i})" title="Ver ${D(o.nombre||o.cam_id)} · ${es.txt}">
+      <span class="ic">${es.dot}</span>
       <span class="nm">${D(o.nombre||o.cam_id)}</span>
       <span class="d">${fmtKm(o.km)}</span>
-    </button>`).join('');
+    </button>`;}).join('');
   box.innerHTML=`<div class="seccion" style="margin-top:0"><span>📷 Otras cámaras cercanas</span><span>por distancia</span></div>
     ${filas||'<div class="vacio" style="padding:10px">sin otras cámaras con datos</div>'}
     ${lista.length>max?`<div style="font-size:10px;color:var(--mut2);text-align:center;padding:2px">… y ${lista.length-max} más (se muestran las ${max} más próximas)</div>`:''}`;
@@ -2143,11 +2291,22 @@ function camarasCercanas(){
     if(ex){ if(cacheRec&&cacheRec.n_fotos&&!ex.cacheRec)ex.cacheRec=cacheRec; return; }
     porPos.set(key,{cam_id,nombre,lat:la,lon:lo,fuente,cacheRec:cacheRec||null});
   };
+  // conjuntos de ids/posiciones: pasadas (verde) y muertas (gris 📵)
+  const pasIds=new Set(),pasPos=new Set();
+  (S.verdes||[]).forEach(v=>{pasIds.add(String(v.cam_id));const k=llaveCam(v.lat,v.lon);if(k)pasPos.add(k);});
+  (S.eventos||[]).forEach(e=>{pasIds.add(String(e.cam_id));const k=llaveCam(e.lat,e.lon);if(k)pasPos.add(k);});
+  const mueIds=new Set(),muePos=new Set();
+  (S.muertas||[]).forEach(m=>{const s=String(m.cam_id);mueIds.add(s);mueIds.add(_san(s));mueIds.add(_san(s).slice(0,80));const k=llaveCam(m.lat,m.lon);if(k)muePos.add(k);});
   (S.verdes||[]).forEach(v=>add(v.cam_id,v.nombre,v.lat,v.lon,v.fuente,null));
   const nIds=new Set((S.verdes||[]).map(v=>v.cam_id));
   (S.eventos||[]).forEach(e=>{ if(!nIds.has(e.cam_id))add(e.cam_id,e.cam_nombre||e.cam_id,e.lat,e.lon,e.fuente,null); });
   (S.cache||[]).forEach(c=>{const r=resolverCacheCam(c);add(c.cam_id,r.nombre||c.cam_id,r.lat,r.lon,r.fuente,c);});
-  return [...porPos.values()].map(o=>{o.km=havKm(lat,lon,o.lat,o.lon);return o;}).sort((a,b)=>a.km-b.km);
+  (S.muertas||[]).forEach(m=>{add(m.cam_id,m.nombre||m.cam_id,m.lat,m.lon,m.fuente,null);});   // F5.7: muertas también
+  return [...porPos.values()].map(o=>{
+    const cid=String(o.cam_id);
+    o.pasada=pasIds.has(cid)||pasIds.has(_san(cid))||pasIds.has(_san(cid).slice(0,80))||pasPos.has(llaveCam(o.lat,o.lon));
+    o.muerta=mueIds.has(cid)||mueIds.has(_san(cid))||mueIds.has(_san(cid).slice(0,80))||muePos.has(llaveCam(o.lat,o.lon));
+    o.km=havKm(lat,lon,o.lat,o.lon);return o;}).sort((a,b)=>a.km-b.km);
 }
 function fmtKm(km){if(km<1)return Math.round(km*1000)+' m';return km.toLocaleString('es-ES',{maximumFractionDigits:1})+' km';}
 window.camCercana=function(i){
@@ -2320,6 +2479,29 @@ function cronoMarcaTs(ts,fly){
   else crono.mk.setLatLng(ll);
   if(fly)map.flyTo(ll,Math.max(map.getZoom(),16),{duration:.55});
 }
+/* F5.7: pin del VISOR DE FOTOS — igual que cronoMarcaTs pero con marcador
+   propio (fotoPinMk), porque desde el visor de fotos NO hay cronología activa
+   (crono===null) y cronoMarcaTs reventaría leyendo crono.mk. */
+let fotoPinMk=null;
+function fotoMarcaTs(ts,fly){
+  const feats=S.pts||[];
+  let best=null,bd=Infinity;
+  if(ts!=null){
+    for(let i=0;i<feats.length;i++){
+      const p=feats[i]&&feats[i].properties;
+      if(!p||p.ts==null)continue;
+      const d=Math.abs(p.ts-ts);
+      if(d<bd){bd=d;best=feats[i];}
+    }
+  }
+  const g=best&&best.geometry;
+  if(!g){ if(fotoPinMk){map.removeLayer(fotoPinMk);fotoPinMk=null;} return; }
+  const ll=[g.coordinates[1],g.coordinates[0]];
+  if(!fotoPinMk)fotoPinMk=L.circleMarker(ll,{radius:9,color:'#fff',weight:2.5,fillColor:'#f87171',fillOpacity:.9,zIndexOffset:6000}).addTo(map);
+  else fotoPinMk.setLatLng(ll);
+  if(fly)map.flyTo(ll,Math.max(map.getZoom(),16),{duration:.55});
+}
+function limpiarFotoPin(){ if(fotoPinMk){map.removeLayer(fotoPinMk);fotoPinMk=null;} }
 function limpiarCronoEv(){
   if(!crono)return;
   if(crono.raf){cancelAnimationFrame(crono.raf);crono.raf=null;}
@@ -2362,6 +2544,8 @@ function urlFoto(eid,i){
   return null;
 }
 let visorEstado={ev:null,foto:0};
+let fotoPinFly=false;                       // F5.7: al abrir las fotos, volar con el pin a la 1ª
+let fotoModal={ev:null,idx:0,nf:1};         // F5.7: estado del modal de foto grande
 function visorHTML(e){
   const video=`<video controls preload="metadata" src="${au('/api/evento/'+e.id+'/video')}"></video>`;
   return `<div class="tabView"><button data-v="video" class="on">🎞 Vídeo</button><button data-v="fotos">📷 Fotos</button></div>
@@ -2369,6 +2553,7 @@ function visorHTML(e){
     <div class="viewFotos" style="display:none"></div>
     <div class="acc">
       <a class="dl" href="${au('/api/evento/'+e.id+'/video')}" download="trackcam-${D(e.id)}.mp4">⬇ MP4</a>
+      <button onclick="abrirModalFoto('${e.id}',0)" title="Ver la foto en grande (⛶ pantalla completa)">⛶</button>
       <button onclick="borrarEv('${e.id}')" class="del" ${(S.rol==='admin'||String(e.user_id)===String(S.uid))?'':'style=display:none'}>🗑 Borrar</button>
     </div>
     <div class="fotoInfo"></div>`;
@@ -2413,6 +2598,7 @@ async function activarFotos(container,e){
   // si el evento tiene tramo marcable, indicarlo en la cabecera del visor
   const hayTramo=Array.from({length:nf},(_,i)=>enTramo(i)).some(Boolean);
   if(hayTramo)th.insertAdjacentHTML('afterend','<div style="font-size:11px;color:#4ade80;margin-top:4px">🟢 borde verde = fotos del momento en que estabas delante (en teoría sales en ellas) · las grises son los 60 s anteriores/posteriores</div>');
+  fotoPinFly=true;                          // F5.7: el evento acaba de abrirse → volar con el pin a la 1ª foto
   setFoto(0,nf);
 }
 window.navFoto=function(d){
@@ -2436,18 +2622,118 @@ function setFoto(i,nf){
     else if(esTramo)im.style.border='2px solid #4ade80';
     else im.style.border='1px solid var(--line2)';
   });
-  // info de la foto actual (hora real + aviso si es del tramo de la pasada)
+  // ts real de esta foto (o estimación por índice) — misma lógica que el tramo verde
   const e=S.eventos.find(x=>x.id===ev)||(S._histEvs||[]).find(x=>x.id===ev);
+  const nf2=Math.max(1,(e&&e.n_fotos)||1);
+  const fts=(e&&e.foto_ts&&e.foto_ts.length===nf2)?e.foto_ts:null;
+  const tsF=(fts&&typeof fts[i]==='number')?fts[i]:((e&&e.ts_inicio&&e.ts_fin&&nf2>1)?e.ts_inicio+(e.ts_fin-e.ts_inicio)*i/(nf2-1):null);
+  visorEstado.tsFoto=tsF;                    // F5.7: ts de la foto actual (lo usa el modal)
+  // F5.7: mover el PIN ROJO del track al momento de la foto (sin volar en cada thumb;
+  // solo con flyTo justo al abrir el visor de fotos del evento)
+  if(typeof tsF==='number'&&isFinite(tsF)){
+    const fly=!!fotoPinFly; fotoPinFly=false;
+    fotoMarcaTs(tsF,fly);
+  }else fotoPinFly=false;
+  // info de la foto actual (hora real + aviso si es del tramo de la pasada)
   const fi2=el.querySelector('#fotoInfo2'); if(!fi2||!e)return;
-  const nf2=Math.max(1,e.n_fotos||1);
-  const fts=(e.foto_ts&&e.foto_ts.length===nf2)?e.foto_ts:null;
   const tEnt=(typeof e.ts_entrada==='number')?e.ts_entrada:null;
   const tSal=(typeof e.ts_salida==='number')?e.ts_salida:null;
-  const tsF=(fts&&typeof fts[i]==='number')?fts[i]:((e.ts_inicio&&e.ts_fin&&nf2>1)?e.ts_inicio+(e.ts_fin-e.ts_inicio)*i/(nf2-1):null);
   const tramo=(tsF!=null&&tEnt!=null)?(tsF>=tEnt-(tSal?10:0)&&(!tSal||tsF<=tSal+10)):false;
   const fmtH=t=>{if(t==null)return'';const d=new Date(t*1000);return d.toTimeString().slice(0,8);};
   fi2.innerHTML=tsF!=null?('🕐 '+fmtH(tsF)+(tramo?' · <b style="color:#4ade80">📍 aquí estabas delante de la cámara</b>':'')):'';
 }
+/* ═══════════════ FOTO GRANDE EN MODAL ⛶ (F5.7) ═══════════════ */
+/* Overlay independiente de #modalCard (no interfiere con vivo.grandeAbierto ni
+   con los modales de ajustes/usuarios). Muestra la foto del evento a pantalla
+   casi completa; ◀ ▶ (botones o flechas del teclado) cambian de foto; ⛶ lanza
+   el fullscreen del navegador sobre el propio overlay. */
+function fmEvento(){
+  const id=fotoModal.ev; if(id==null)return null;
+  return (S.eventos||[]).find(x=>String(x.id)===String(id))||(S._histEvs||[]).find(x=>String(x.id)===String(id))||null;
+}
+function fmTsFoto(i,e){                       // ts real o estimación por índice (misma lógica que el visor)
+  if(!e)return null;
+  const nf=Math.max(1,e.n_fotos||1);
+  const fts=(e.foto_ts&&e.foto_ts.length===nf)?e.foto_ts:null;
+  if(fts&&typeof fts[i]==='number')return fts[i];
+  if(e.ts_inicio&&e.ts_fin&&nf>1)return e.ts_inicio+(e.ts_fin-e.ts_inicio)*i/(nf-1);
+  return null;
+}
+function fmPinta(){                            // refresca img + título + contador + hora + marca verde
+  const ov=$('fotoModal'); if(!ov||!ov.classList.contains('on'))return;
+  const e=fmEvento(); if(!e)return;
+  const i=fotoModal.idx, nf=fotoModal.nf;
+  const img=$('fmImg'); if(img)img.src=urlFoto(e.id,i);
+  const t=$('fmTit'); if(t)t.textContent='📷 Foto · '+(e.cam_nombre||e.cam_id||e.id);
+  const tsF=fmTsFoto(i,e);
+  const tEnt=(typeof e.ts_entrada==='number')?e.ts_entrada:null;
+  const tSal=(typeof e.ts_salida==='number')?e.ts_salida:null;
+  const tramo=(tsF!=null&&tEnt!=null)?(tsF>=tEnt-(tSal?10:0)&&(!tSal||tsF<=tSal+10)):false;
+  if(img)img.classList.toggle('tr',!!tramo);
+  const cap=$('fmCap'); if(cap){
+    const fmtH=v=>{if(v==null)return'';const d=new Date(v*1000);return d.toTimeString().slice(0,8);};
+    cap.innerHTML=`<b>${i+1} / ${nf}</b>${tsF!=null?' · 🕐 '+fmtH(tsF):''}${tramo?' · <span class="tr">📍 aquí estabas delante de la cámara</span>':''}`;
+  }
+  const ant=$('fmAnt'),sig=$('fmSig');
+  if(ant)ant.style.visibility=nf>1?'':'hidden';
+  if(sig)sig.style.visibility=nf>1?'':'hidden';
+}
+window.abrirModalFoto=async function(eid,idx){
+  const ov=$('fotoModal'); if(!ov)return;
+  const ev=(S.eventos||[]).find(x=>String(x.id)===String(eid))||(S._histEvs||[]).find(x=>String(x.id)===String(eid));
+  if(!ev)return;
+  if(!S.fotoPat)await detectarPatronFotos();
+  if(S.fotoPat==='none'){toast('📷 La API de fotos no está disponible para este evento (solo vídeo 🎞)',true);return;}
+  const nf=Math.max(1,ev.n_fotos||1);
+  fotoModal={ev:eid,idx:Math.max(0,Math.min(parseInt(idx,10)||0,nf-1)),nf};
+  ov.classList.add('on');
+  document.body.style.overflow='hidden';
+  fmPinta();
+};
+window.cerrarModalFoto=function(){
+  const ov=$('fotoModal'); if(!ov)return;
+  ov.classList.remove('on');
+  document.body.style.overflow='';
+  if(document.fullscreenElement)try{document.exitFullscreen();}catch(e){}
+};
+window.navFotoModal=function(dir){
+  if(!fotoModal.ev||fotoModal.nf<=1)return;
+  fotoModal.idx=(fotoModal.idx+dir+fotoModal.nf)%fotoModal.nf;
+  fmPinta();
+  if(visorEstado.ev!=null&&String(visorEstado.ev)===String(fotoModal.ev)){
+    const e=fmEvento();
+    setFoto(fotoModal.idx,fotoModal.nf);      // sincroniza miniaturas/hora del visor tras la flecha del modal
+  }
+};
+window.fotoModalFullscreen=function(){
+  const ov=$('fotoModal'); if(!ov)return;
+  if(!document.fullscreenElement&&ov.requestFullscreen)ov.requestFullscreen().catch(()=>{});
+};
+/* wiring del overlay + teclado (← → Esc F) solo cuando el modal está visible */
+$('fmX').onclick=cerrarModalFoto;
+$('fmFs').onclick=fotoModalFullscreen;
+$('fmAnt').onclick=()=>navFotoModal(-1);
+$('fmSig').onclick=()=>navFotoModal(1);
+$('fotoModal').addEventListener('click',ev=>{ if(ev.target===$('fotoModal'))cerrarModalFoto(); });
+document.addEventListener('fullscreenchange',()=>{
+  const fs=$('fmFs'); if(fs)fs.textContent=document.fullscreenElement?'🗗':'⛶';
+});
+/* capture: mientras el modal está abierto, las flechas/teclas van al modal y NO a
+   la navegación ◀ ▶ de pasadas ni al mapa (stopPropagation corta el resto) */
+document.addEventListener('keydown',function(e){
+  const ov=$('fotoModal'); if(!ov||!ov.classList.contains('on'))return;
+  if(e.key==='ArrowLeft'||e.key==='ArrowRight'){
+    e.preventDefault();e.stopPropagation();
+    navFotoModal(e.key==='ArrowRight'?1:-1);
+  }else if(e.key==='Escape'){
+    if(document.fullscreenElement)return;     // primero sale del fullscreen (comportamiento nativo)
+    e.preventDefault();e.stopPropagation();cerrarModalFoto();
+  }else if(e.key==='f'||e.key==='F'){
+    e.preventDefault();e.stopPropagation();
+    if(document.fullscreenElement)try{document.exitFullscreen();}catch(err){}
+    else fotoModalFullscreen();
+  }
+},true);
 /* cambio de pestaña vídeo/fotos dentro de cada evento expandido (solo botones con data-v) */
 document.addEventListener('click',ev=>{
   const b=ev.target.closest('.tabView button'); if(!b||!b.dataset.v)return;   // ignora miniTabs (data-mini)
