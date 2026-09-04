@@ -854,11 +854,15 @@ def api_cache(request: Request):
     # índice de catálogo por cam_id (original y sanitizado — los directorios
     # de caché convierten los puntos en guiones bajos)
     by_id = {}
+    san2orig = {}   # sanitizado → cam_id ORIGINAL (con puntos): para que el
+    # clic en un 🟠 naranja busque las pasadas con el id real de la BD
     for c in camaras:
         cid = str(c.get("id") or "%s_%.5f_%.5f" % (c.get("fuente", "cam"),
                                                     c["lat"], c["lon"]))
         by_id[cid] = c
-        by_id.setdefault(sanitizar_dir(cid), c)
+        san = sanitizar_dir(cid)
+        by_id.setdefault(san, c)
+        san2orig.setdefault(san, cid)
     base = os.path.join(DATA, "cache", sanitizar_dir(uid))
     out = []
     # Filtro temporal opcional (punto F5.x): solo cámaras con fotos en
@@ -911,8 +915,9 @@ def api_cache(request: Request):
                 except ValueError:
                     pass
             c = by_id.get(cdir, {})
+            cid_real = san2orig.get(cdir, cdir)   # id original (con puntos)
             out.append({
-                "cam_id": cdir,
+                "cam_id": cid_real,
                 "nombre": c.get("nombre", cdir),
                 "lat": c.get("lat"),
                 "lon": c.get("lon"),
