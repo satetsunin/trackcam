@@ -134,8 +134,11 @@ def colapsar_estancias(pts, radio_m=40.0, tiempo_s=480.0):
 
     Una ESTANCIA = serie de puntos que se mantiene dentro de un radio de
     radio_m (40 m) durante al menos tiempo_s (8 min) — estás parado en un
-    sitio (bar, casa, visita) y el GPS deriva alrededor. Se colapsa a UN
-    punto: la línea llega al sitio, se queda, y al salir arranca desde ahí.
+    sitio (bar, casa, visita) y el GPS deriva alrededor. Se colapsa a
+    ENTRADA + SALIDA (el primero y el último de la serie, con su ts real):
+    la línea llega al sitio, el tramo corto entre ambos representa la
+    estancia, y la salida enlaza con el movimiento que reanudas. Emitir
+    solo 1 punto dejaría un hueco visual entre la llegada y la salida.
     Robusto a la deriva errática: no mira velocidades entre consecutivos,
     solo si todo el grupo cabe en la burbuja.
     """
@@ -145,19 +148,25 @@ def colapsar_estancias(pts, radio_m=40.0, tiempo_s=480.0):
     i = 0
     n = len(pts)
     while i < n:
-        ref = pts[i]
+        # centroide acumulado de la serie (la deriva de 2 h puede recorrer
+        # ~40 m; fijar el ref en el primer punto partiría la estancia en 2)
+        clat = pts[i][1]; clon = pts[i][2]; cnt = 1
         j = i
-        # extender mientras los puntos sigan dentro del radio de la burbuja
+        # extender mientras el punto quepa en la burbuja del centroide
         while j + 1 < n:
-            d = _hav(ref[1], ref[2], pts[j + 1][1], pts[j + 1][2])
+            d = _hav(clat, clon, pts[j + 1][1], pts[j + 1][2])
             if d <= radio_m:
                 j += 1
+                clat = (clat * cnt + pts[j][1]) / (cnt + 1)
+                clon = (clon * cnt + pts[j][2]) / (cnt + 1)
+                cnt += 1
             else:
                 break
         dur = pts[j][0] - pts[i][0]
         if dur >= tiempo_s and j > i:
-            # estancia larga en la burbuja → un solo punto (el primero)
-            out.append(ref)
+            # estancia larga en la burbuja → entrada y salida (con ts real)
+            out.append(pts[i])
+            out.append(pts[j])
             i = j + 1
         else:
             out.append(pts[i])

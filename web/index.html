@@ -983,16 +983,29 @@ function pintarRuta(){
   const paso=Math.max(1,Math.ceil(feats.length/8000));
   const tramos=[];
   let cur=null;
+  let prev=null;   // último punto procesado (para empalmar tramos de color)
   for(let i=0;i<feats.length;i+=paso){
     const f=feats[i];
     if(!f||!f.geometry)continue;
     const c=f.geometry.coordinates;
     if(typeof c[0]!=='number'||typeof c[1]!=='number'||c[0]<-180||c[0]>180)continue;
     const b=bucketVel(f.properties&&f.properties.v);
-    if(!cur||cur.b!==b){cur={b,ll:[],fs:[],f1:f};tramos.push(cur);}
+    if(!cur||cur.b!==b){
+      cur={b,ll:[],fs:[],f1:f};
+      // EMPALME: el tramo nuevo arranca en el último punto del anterior
+      // (si son del mismo paseo, <5 min) para que la línea NO se corte al
+      // cambiar de color — antes cada tramo quedaba suelto y los puntos
+      // únicos (estancia, frenazo) se veían como circulitos aislados.
+      if(prev&&(f.properties.ts-prev.ts)<300){
+        cur.ll.push([prev.c[1],prev.c[0]]);
+        cur.fs.push(prev.f);
+      }
+      tramos.push(cur);
+    }
     cur.ll.push([c[1],c[0]]);
     cur.fs.push(f);
     cur.f1=f;
+    prev={ts:f.properties.ts,c, f};
   }
   for(const t of tramos){
     const color=VCOL[t.b]||VCOL.g;
