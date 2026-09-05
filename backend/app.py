@@ -159,17 +159,13 @@ if MODO_VISION:
     async def _vision_no_logout(request: Request):
         return _solo_lectura()
 
-    @app.api_route("/api/usuarios", methods=["POST"])
-    async def _vision_no_crear_usuario(request: Request):
-        return _solo_lectura()
-
-    @app.api_route("/api/usuarios/{uid}/password", methods=["POST"])
-    async def _vision_no_password(request: Request, uid: int):
-        return _solo_lectura()
-
-    @app.api_route("/api/usuarios/{uid}", methods=["DELETE"])
-    async def _vision_no_borrar_usuario(request: Request, uid: int):
-        return _solo_lectura()
+    # La gestión de USUARIOS (crear, reset de contraseña, borrar) SÍ se
+    # permite en modo visión para rol admin: los handlers reales ya exigen
+    # admin, y el mapa está tras Cloudflare Access. Antes estos endpoints
+    # respondían "solo lectura" en :8100 y también estaban bloqueados en
+    # :8099 (ingesta) → el admin NO podía gestionar usuarios desde ningún
+    # sitio. Solo el DELETE de un usuario sigue bloqueado si el objetivo
+    # es uno mismo/último admin (lo valida el handler real).
 
     @app.api_route("/api/evento/{eid}", methods=["DELETE"])
     async def _vision_no_borrar_evento(request: Request, eid: str):
