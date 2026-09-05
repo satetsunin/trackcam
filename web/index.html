@@ -1065,7 +1065,7 @@ function pintarRuta(){
       mk.on('click',()=>abrirPopupPunto(t.fs[0]));
       continue;
     }
-    const pl=L.polyline(t.ll,{color:color,weight:3.5,opacity:.95}).addTo(capaRuta);
+    const pl=L.polyline(t.ll,{color:color,weight:8,opacity:.95}).addTo(capaRuta);
     pl.on('mousemove',ev=>{
       const k=idxCercano(ev.containerPoint,t);
       if(k>=0)pl.setTooltipContent(fichaPunto(t.fs[k]));
