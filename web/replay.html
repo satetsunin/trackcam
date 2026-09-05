@@ -70,6 +70,14 @@ let tActual = 0;        // ts actual de reproducción
 let raf = null;
 let ultimoMarco = 0;
 let videoEl = null;
+// F5.11c: el <video> no puede mandar el header Authorization → el token va en
+// la query string (mismo patrón que el mapa, au()). Sin esto daba 401 y el
+// navegador reportaba error MEDIA_ERR_SRC_NOT_SUPPORTED (código 4).
+function auVideo(path) {
+  let tok='';
+  try { const a=JSON.parse(localStorage.getItem('tc_auth_v1')||'null'); if(a&&a.token) tok=a.token; } catch(e) {}
+  return path+(path.includes('?')?'&':'?')+'token='+encodeURIComponent(tok);
+}
 
 function fmtHMS(s) {
   s = Math.max(0, Math.floor(s));
@@ -78,36 +86,69 @@ function fmtHMS(s) {
 }
 
 async function carga() {
-  const [t, ev] = await Promise.all([
-    fetch('/api/track').then(r=>r.json()),
-    fetch('/api/eventos').then(r=>r.json()),
-  ]);
-  pts = t.features.map(f => [f.properties.ts, f.geometry.coordinates[1], f.geometry.coordinates[0]])
-        .sort((a,b) => a[0]-b[0]);
-  eventos = ev.sort((a,b) => a.ts_inicio-b.ts_inicio);
+  // F5.11c: el token de sesión vive en localStorage['tc_auth_v1'] (mismo origen
+  // que index.html). Sin él la API responde 401 y la página se quedaba en
+  // «cargando…» para siempre (fetch crudo + sin try/catch).
+  const estado = document.getElementById('estadoConexion');
+  const setErr = msg => {
+    estado.textContent = '⚠ error';
+    const cont = document.getElementById('videoCont');
+    cont.innerHTML = `<div class="vacio">${msg}</div>`;
+  };
+  let auth = null;
+  try { auth = JSON.parse(localStorage.getItem('tc_auth_v1')||'null'); } catch(e) {}
+  if (!auth || !auth.token) {
+    setErr('No hay sesión iniciada — <a href="/" style="color:#0ea5e9">entra desde el mapa</a>.');
+    return;
+  }
+  const cab = {'Authorization': 'Bearer '+auth.token};
+  // Si el admin está «viendo como» otro usuario se pasa ?usuario= (vistaQS del mapa)
+  const qsVista = location.search.includes('usuario=') ? location.search : '';
+  try {
+    const [t, ev] = await Promise.all([
+      fetch('/api/track'+qsVista, {headers: cab}).then(r=>r.json()),
+      fetch('/api/eventos'+qsVista, {headers: cab}).then(r=>r.json()),
+    ]);
+    if (t && t.error) throw new Error(t.error);
+    if (!t || !t.features) throw new Error('respuesta de track inválida');
+    pts = t.features.map(f => [f.properties.ts, f.geometry.coordinates[1], f.geometry.coordinates[0]])
+          .sort((a,b) => a[0]-b[0]);
+    eventos = (ev||[]).sort((a,b) => a.ts_inicio-b.ts_inicio);
 
-  // Línea + punto
-  if (poly) map.removeLayer(poly);
-  if (punto) map.removeLayer(punto);
-  poly = L.polyline(pts.map(p => [p[1], p[2]]), {color:'#0ea5e9', weight:4}).addTo(map);
-  punto = L.circleMarker([pts[0][1], pts[0][2]], {radius:8, color:'#fff',
-    fillColor:'#f59e0b', fillOpacity:1, weight:2}).addTo(map);
+    if (!pts.length) {
+      setErr('Este usuario no tiene recorridos grabados todavía.');
+      estado.textContent = '0 pts';
+      return;
+    }
 
-  // Marcadores de eventos (con icono cámara)
-  if (eventosLayer) map.removeLayer(eventosLayer);
-  eventosLayer = L.layerGroup().addTo(map);
-  eventos.forEach(e => {
-    L.circleMarker([e.lat, e.lon], {radius:7, color:'#fff', fillColor:'#ef4444',
-      fillOpacity:1, weight:2}).addTo(eventosLayer)
-      .bindPopup(`<b>${e.cam_nombre}</b><br>${e.n_fotos} fotos`);
-  });
+    // Línea + punto
+    if (poly) map.removeLayer(poly);
+    if (punto) map.removeLayer(punto);
+    poly = L.polyline(pts.map(p => [p[1], p[2]]), {color:'#0ea5e9', weight:4}).addTo(map);
+    punto = L.circleMarker([pts[0][1], pts[0][2]], {radius:8, color:'#fff',
+      fillColor:'#f59e0b', fillOpacity:1, weight:2}).addTo(map);
 
-  if (pts.length) map.fitBounds(poly.getBounds(), {padding:[40,40], maxZoom:17});
-  tActual = pts[0][0];
-  buildEvBar();
-  document.getElementById('estadoConexion').textContent =
-    `${pts.length} pts · ${eventos.length} eventos`;
-  pintarTimer();
+    // Marcadores de eventos (con icono cámara)
+    if (eventosLayer) map.removeLayer(eventosLayer);
+    eventosLayer = L.layerGroup().addTo(map);
+    eventos.forEach(e => {
+      L.circleMarker([e.lat, e.lon], {radius:7, color:'#fff', fillColor:'#ef4444',
+        fillOpacity:1, weight:2}).addTo(eventosLayer)
+        .bindPopup(`<b>${e.cam_nombre}</b><br>${e.n_fotos} fotos`);
+    });
+
+    if (pts.length) map.fitBounds(poly.getBounds(), {padding:[40,40], maxZoom:17});
+    tActual = pts[0][0];
+    buildEvBar();
+    estado.textContent = `${pts.length} pts · ${eventos.length} eventos`;
+    pintarTimer();
+  } catch(e) {
+    console.error('carga replay', e);
+    const msg = String(e.message||e).includes('no autorizado')
+      ? 'Sesión caducada — <a href="/" style="color:#0ea5e9">vuelve a entrar desde el mapa</a>.'
+      : 'No se pudo cargar: '+(e.message||e);
+    setErr(msg);
+  }
 }
 
 function buildEvBar() {
@@ -118,7 +159,7 @@ function buildEvBar() {
     c.className = 'chip';
     c.textContent = `📷 ${i+1}`;
     c.title = e.cam_nombre;
-    c.onclick = () => { tActual = e.ts_inicio - 2; };  // saltar justo antes
+    c.onclick = () => { tActual = e.ts_inicio + 1; buscarPosicion(); };  // saltar dentro del evento
     bar.appendChild(c);
   });
 }
@@ -183,7 +224,7 @@ function mostrarVideo(ev) {
   cont.innerHTML = '';
   videoEl = document.createElement('video');
   videoEl.controls = true; videoEl.autoplay = true;
-  videoEl.src = `/api/evento/${ev.id}/video`;
+  videoEl.src = auVideo(`/api/evento/${ev.id}/video`);
   cont.appendChild(videoEl);
   document.getElementById('info').innerHTML =
     `<b>${ev.cam_nombre}</b> · ${ev.n_fotos} fotos · ${fmtHMS(ev.ts_inicio-(pts[0]?.[0]||0))}`;

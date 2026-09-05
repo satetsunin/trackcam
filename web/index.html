@@ -2017,7 +2017,8 @@ async function entrar(st){
     try{
       await refreshVerComo(S.uid!=null?String(S.uid):'');   // por defecto: verse a sí mismo
       S.vista=$('selVerComo').value||'';
-      $('selVerComo').onchange=()=>{S.vista=$('selVerComo').value||'';autoFit=true;refreshTodo();};
+      syncHrefReplay();
+      $('selVerComo').onchange=()=>{S.vista=$('selVerComo').value||'';autoFit=true;refreshTodo();syncHrefReplay();};
       $('verComoWrap').classList.add('on');
     }catch(e){toast('No se pudo cargar la lista de usuarios: '+e.message,true);}
   }else $('verComoWrap').classList.remove('on');
@@ -2036,6 +2037,14 @@ async function entrar(st){
   ajustarVel();
 }
 function vistaQS(){return S.rol==='admin'&&S.vista?qs({usuario:S.vista}):'';}
+/* F5.11c: el enlace «Video track (replay)» hereda el ?usuario= del «ver como»
+   activo, para que la página /replay cargue los datos del usuario que se ve. */
+function syncHrefReplay(){
+  const a=document.querySelector('a[href="/replay"]');
+  if(!a)return;
+  const v=S.rol==='admin'&&S.vista?vistaQS():'';
+  a.href='/replay'+v;
+}
 function nombreVista(){ if(S.rol!=='admin')return S.user; if(!S.vista)return '🌍 todos'; const o=[...$('selVerComo').options].find(x=>x.value===S.vista); return o?o.textContent.split(' ')[0]:S.vista; }
 function actualizarChip(){ $('chipDetalle').textContent=(S.rol==='admin'&&S.vista!==String(S.uid))?('viendo: '+nombreVista()):'sesión local'; }
 
