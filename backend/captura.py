@@ -543,8 +543,26 @@ class MotorCaptura:
                             est["dist_prev"] is None or est["dist_prev"] > r_ev):
                         est["entrada_ts"] = ts
                         est["salida_ts"] = None
+                        # F5.9b: nueva pasada → el mínimo empieza AQUÍ, no
+                        # hereda el de la pasada anterior (bug: si el track
+                        # volvía a entrar sin salir del radio de 2000 m, el
+                        # evento nuevo copiaba el dist_min viejo → pasadas
+                        # falsas o distancias irreales).
+                        est["dist_min"] = dist
                         print(f"[captura] ENTRADA 100m user={user_id} "
                               f"cámara {cid} ts={ts:.1f}")
+                    elif est["salida_ts"] is not None:
+                        # F5.9c: volvió a ENTRAR tras una salida incompleta
+                        # (salió del radio pero regresó antes de completar la
+                        # ventana posterior). Anular la salida: el evento sigue
+                        # abierto y la pasada real aún puede ocurrir. Sin esto,
+                        # al volver a salir finalizaba con la salida VIEJA y
+                        # cortaba el evento ANTES de la pasada (ts_fin mal,
+                        # fotos sin el tramo real).
+                        est["salida_ts"] = None
+                        est["en_post"] = False
+                        print(f"[captura] REENTRADA (se anula salida) "
+                              f"user={user_id} cámara {cid} ts={ts:.1f}")
                     est["estado"] = EST_EVENTO
                     est["en_post"] = False
                     self._encolar_captura(user_id, cid, cam, ts, est)
@@ -986,6 +1004,7 @@ class MotorCaptura:
         est["salida_ts"] = None
         est["en_post"] = False
         est["ctx_hecho"] = True
+        est["dist_min"] = None          # F5.9b: la pasada acabó; no heredar su mínimo
         self.eventos_creados += 1
         print(f"[captura] EVENTO {eid} user={user_id} cámara {cid}: "
               f"{n} fotos, video={os.path.getsize(video) if ok_video else 0} B")
