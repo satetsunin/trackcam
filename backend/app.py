@@ -516,19 +516,31 @@ def _ids_camaras_por_pasadas(user_id, ts_ini=None, ts_fin=None):
     pasaste (dist_min_m, medida por el motor) es <= radio_pasada_m (ajustes,
     defecto 60 m). Los eventos antiguos sin dist_min_m (NULL) se cuentan
     (compatibilidad) hasta que se recalculen.
+
+    F5.9d: cada evento se VERIFICA contra el track real antes de decidir
+    (misma red de seguridad que /api/eventos, memoizada) — los verdes nunca
+    pueden salir de un dist_min_m corrupto del motor.
     """
     umbral = _umbral_pasada()
     con = get_db()
-    q = "SELECT DISTINCT cam_id FROM eventos WHERE user_id=?" \
-        " AND (dist_min_m IS NULL OR dist_min_m <= ?)"
-    params = [str(user_id), umbral]
+    q = ("SELECT user_id,id,cam_id,lat,lon,ts_inicio,ts_fin,dist_min_m "
+         "FROM eventos WHERE user_id=?")
+    params = [str(user_id)]
     if ts_ini:
         q += " AND ts_fin >= ?"; params.append(ts_ini)
     if ts_fin:
         q += " AND ts_inicio <= ?"; params.append(ts_fin)
     filas = con.execute(q, params).fetchall()
     con.close()
-    return {r[0] for r in filas}
+    cols = ["user_id", "id", "cam_id", "lat", "lon",
+            "ts_inicio", "ts_fin", "dist_min_m"]
+    out = set()
+    for r in filas:
+        d = dict(zip(cols, r))
+        dm = _verificar_dist_evento(d)
+        if dm is None or dm <= umbral:
+            out.add(d["cam_id"])
+    return out
 
 
 def _umbral_pasada() -> float:
@@ -538,6 +550,95 @@ def _umbral_pasada() -> float:
             return float(json.load(f).get("radio_pasada_m", 60.0))
     except Exception:
         return 60.0
+
+
+# F5.9d: eventos ya verificados contra el track real en esta sesión
+# (clave (user_id,id) → dist_min_m REAL verificado). Un evento verificado es
+# inmutable (su track no cambia), así que se devuelve el valor verificado, NO
+# el de la BD — si alguien corrompe la BD después, la API sigue sirviendo la
+# verdad hasta reiniciar (y al reiniciar se re-verifica contra el track).
+_dist_verif_cache = {}
+
+
+def _verificar_dist_evento(d):
+    """Verifica (y corrige en BD si hace falta) el dist_min_m de UN evento
+    contra el track real. Devuelve la distancia REAL (o None sin track).
+    Memoizado con el valor verificado: cada evento se comprueba una vez por
+    sesión y se devuelve siempre ese valor, no el de la BD."""
+    clave = (str(d.get("user_id")), str(d.get("id")))
+    if clave in _dist_verif_cache:
+        return _dist_verif_cache[clave]
+    tsa, tsb = d.get("ts_inicio"), d.get("ts_fin")
+    lat, lon = d.get("lat"), d.get("lon")
+    if not all(isinstance(x, (int, float)) for x in (tsa, tsb, lat, lon)):
+        _dist_verif_cache[clave] = d.get("dist_min_m")
+        return _dist_verif_cache[clave]
+    real, npts = _dist_min_real(d["user_id"], tsa, tsb, lat, lon)
+    dm = d.get("dist_min_m")
+    if real is not None:
+        if dm is None or abs(real - dm) > 0.6:
+            _corregir_dist_evento(d, real)
+        dm = real
+        d["dist_min_m"] = real
+    _dist_verif_cache[clave] = dm
+    return dm
+
+
+
+def _dist_min_real(uid, tsa, tsb, lat, lon):
+    """RED DE SEGURIDAD F5.9d: distancia mínima REAL entre el track crudo del
+    usuario y la cámara en la ventana del evento.
+
+    El motor guarda dist_min_m calculado EN VIVO; si cualquier bug de estado
+    futuro lo corrompiera (heredado entre pasadas, evento cortado antes de la
+    pasada…), lo que el usuario ve debe ser SIEMPRE la verdad: el mínimo de
+    haversine entre el track crudo y (lat,lon) dentro de [ts_inicio, ts_fin]
+    (con margen ±3 s). Devuelve (dist_real, n_pts) o (None, 0) si no hay track
+    en la ventana (evento viejo/reset → se conserva el valor del motor).
+    """
+    try:
+        con = get_db()
+        filas = con.execute(
+            "SELECT lat, lon FROM tracks WHERE user_id=? AND ts BETWEEN ? AND ?",
+            (str(uid), tsa - 3.0, tsb + 3.0)).fetchall()
+        con.close()
+    except Exception:
+        return None, 0
+    if not filas:
+        return None, 0
+    best = None
+    for la, lo in filas:
+        d = haversine(lat, lon, la, lo)
+        if best is None or d < best:
+            best = d
+    return best, len(filas)
+
+
+def _corregir_dist_evento(d, real):
+    """Persiste la distancia verificada (BD + metadata.json) cuando el valor
+    del motor no coincide con el track real. Silencioso y barato (solo se
+    llama con discrepancia >0,6 m)."""
+    try:
+        con = get_db()
+        con.execute("UPDATE eventos SET dist_min_m=? WHERE id=? AND user_id=?",
+                    (real, d["id"], str(d["user_id"])))
+        con.commit()
+        con.close()
+    except Exception:
+        pass
+    try:
+        mp = os.path.join(DATA, "eventos", str(d["user_id"]),
+                          d["id"], "metadata.json")
+        if os.path.exists(mp):
+            m = json.load(open(mp, encoding="utf-8"))
+            if m.get("dist_min_m") != real:
+                m["dist_min_m"] = real
+                json.dump(m, open(mp, "w", encoding="utf-8"),
+                          ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
 
 
 def _cams_geo_verdes(user_id, ts_ini=None, ts_fin=None):
@@ -824,8 +925,12 @@ def api_eventos(request: Request):
     _umbral = _umbral_pasada()
     for r in filas:
         d = dict(zip(cols, r))
+        # F5.9d RED DE SEGURIDAD: el dist_min_m que ve el usuario sale del
+        # TRACK REAL, no solo del valor que guardó el motor en vivo. Si el
+        # motor se equivocara (bug de estado), aquí se corrige al servir
+        # (y se persiste en BD + metadata.json vía _corregir_dist_evento).
+        dm = _verificar_dist_evento(d)
         # F5.9: ¿cuenta como pasada real? (distancia mínima <= umbral)
-        dm = d.get("dist_min_m")
         d["es_pasada"] = (dm is None) or (dm <= _umbral)
         # Enriquecer con ts_entrada/ts_salida/foto_ts desde metadata.json
         # (cuando existe — eventos creados por el motor moderno). Así el
