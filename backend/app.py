@@ -705,20 +705,20 @@ def api_track(request: Request):
     # solo se aplica anti-deriva: el autocompletado necesita contexto y
     # los puntos nuevos llegan en el siguiente ciclo.
     from backend import geo_filtro as _gf
-    # Zonas de no-monitorización (F5.8): descartar puntos dentro de una zona
-    # del usuario (casa/bar) ANTES de los filtros — la BD guarda todo pero
-    # aquí no se sirven.
+    # Zonas de no-monitorización (F5.8): la BD guarda todo, pero al servir
+    # el anti-deriva no deja latidos PARADOS dentro de una zona del usuario
+    # (casa/bar) — así la deriva no se pinta. El movimiento real que cruza
+    # una zona (sales andando de casa) SÍ se conserva: la línea no se corta
+    # en la puerta de casa.
     try:
         _zonas = _zonas_usuario(u["id"])
     except Exception:
         _zonas = []
-    if _zonas:
-        filas = [r for r in filas if not _en_zona(_zonas, r[1], r[2])]
     crudos = [(r[0], r[1], r[2],
                r[3] if len(r) > 3 else 0,
                r[4] if len(r) > 4 else 0) for r in filas]
     if request.query_params.get("desde"):
-        sel = _gf.filtro_anti_deriva(crudos)
+        sel = _gf.filtro_anti_deriva(crudos, zonas=_zonas or None)
         # features directas con sus metadatos
         vels = _vel_entre([(p[0], p[1], p[2]) for p in sel])
         feats = []
@@ -737,10 +737,10 @@ def api_track(request: Request):
         return {"type": "FeatureCollection", "features": feats,
                 "vel_media": None, "filtro": True,
                 "ultimo_ts_db": ult_db}
-    # modo completo: anti-deriva + autocompletar. Construimos un índice
-    # ts→fila original para conservar acc/vel/dev en los no interpolados.
+    # modo completo: anti-deriva (con zonas) + colapso + autocompletar.
+    # Construimos un índice ts→fila original para conservar acc/vel/dev.
     por_ts = {r[0]: r for r in filas}
-    limpios = _gf.limpiar_track(crudos)
+    limpios = _gf.limpiar_track(crudos, zonas=_zonas or None)
     pts = [(p[0], p[1], p[2]) for p in limpios]
     vels = _vel_entre(pts)
     feats = []

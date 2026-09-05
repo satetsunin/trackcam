@@ -50,7 +50,7 @@ def _interpolar(a, b, frac):
 
 def filtro_anti_deriva(pts, vel_mov=VEL_MOVIMIENTO,
                        ventana_s=VENTANA_POS_S, umbral_m=UMBRAL_POS_M,
-                       latido_s=LATIDO_S):
+                       latido_s=LATIDO_S, zonas=None):
     """pts: [(ts, lat, lon, acc, vel), ...] cronológico.
 
     Devuelve los puntos que representan movimiento real (o latidos cada
@@ -60,11 +60,19 @@ def filtro_anti_deriva(pts, vel_mov=VEL_MOVIMIENTO,
     reporta 0 o fantasma): si el punto actual está a >= umbral_m del punto
     de hace ~ventana_s segundos, hubo movimiento real → guardar. Si no,
     deriva/parado → solo latidos espaciados.
+
+    zonas: lista de zonas {lat, lon, radio_m}. Un punto PARADO que cae en
+    una zona NO se guarda (ni latido): la zona de no-monitorización elimina
+    la deriva en casa/bar. El MOVIMIENTO real dentro de una zona SÍ se
+    guarda (si sales andando de casa, la línea arranca en tu puerta).
     """
     if not pts:
         return []
     n = len(pts)
-    out = [pts[0]]          # ancla: el primer punto siempre se conserva
+    # ancla: el primer punto se conserva (para no perder el arranque del
+    # track) salvo que caiga en una zona de no-monitorización: si empiezas
+    # a grabar en casa, la línea debe arrancar donde sales de la zona.
+    out = [] if (zonas and _en_zona_lista(zonas, pts[0][1], pts[0][2])) else [pts[0]]
     ult_guardado_ts = pts[0][0]
     j = 0                   # índice del punto ~ventana_s atrás
     for i in range(1, n):
@@ -80,9 +88,80 @@ def filtro_anti_deriva(pts, vel_mov=VEL_MOVIMIENTO,
             out.append(pts[i])
             ult_guardado_ts = ts_i
         elif ts_i - ult_guardado_ts >= latido_s:
-            # parado: latido de presencia para mantener el hilo temporal
+            # parado: latido de presencia para mantener el hilo temporal,
+            # salvo si estamos dentro de una zona de no-monitorización
+            if not zonas or not _en_zona_lista(zonas, pts[i][1], pts[i][2]):
+                out.append(pts[i])
+                ult_guardado_ts = ts_i
+    return out
+
+
+def _en_zona_lista(zonas, lat, lon):
+    """True si (lat, lon) cae en alguna zona de la lista."""
+    for z in zonas:
+        if _hav(z["lat"], z["lon"], lat, lon) <= z["radio_m"] + 2.0:
+            return True
+    return False
+
+
+def filtro_saltos(pts, salto_m=100.0, vuelta_m=60.0):
+    """Elimina SALTOS DE RED: puntos aislados que se van lejos y vuelven.
+
+    Patrón MIUI/Doze del Redmi al perder GPS: la posición salta a una
+    torre de telefonía (100-500 m) durante 1-2 fixes y vuelve. Un punto i
+    es salto si está lejos de su anterior Y de su siguiente, pero el
+    anterior y el siguiente están cerca entre sí (fue y volvió).
+    El movimiento real NO se toca: en coche los puntos avanzan (el
+    anterior y el siguiente también están lejos entre sí).
+    """
+    if len(pts) < 3:
+        return list(pts)
+    out = []
+    for i, p in enumerate(pts):
+        if 0 < i < len(pts) - 1:
+            a, b = pts[i - 1], pts[i + 1]
+            d_ant = _hav(a[1], a[2], p[1], p[2])
+            d_sig = _hav(p[1], p[2], b[1], b[2])
+            d_ab = _hav(a[1], a[2], b[1], b[2])
+            if d_ant > salto_m and d_sig > salto_m and d_ab < vuelta_m:
+                continue  # salto de ida y vuelta → descartar
+        out.append(p)
+    return out
+
+
+def colapsar_estancias(pts, radio_m=40.0, tiempo_s=480.0):
+    """pts: [(ts, lat, lon, ...)...] ya filtrados.
+
+    Una ESTANCIA = serie de puntos que se mantiene dentro de un radio de
+    radio_m (40 m) durante al menos tiempo_s (8 min) — estás parado en un
+    sitio (bar, casa, visita) y el GPS deriva alrededor. Se colapsa a UN
+    punto: la línea llega al sitio, se queda, y al salir arranca desde ahí.
+    Robusto a la deriva errática: no mira velocidades entre consecutivos,
+    solo si todo el grupo cabe en la burbuja.
+    """
+    if len(pts) < 3:
+        return list(pts)
+    out = []
+    i = 0
+    n = len(pts)
+    while i < n:
+        ref = pts[i]
+        j = i
+        # extender mientras los puntos sigan dentro del radio de la burbuja
+        while j + 1 < n:
+            d = _hav(ref[1], ref[2], pts[j + 1][1], pts[j + 1][2])
+            if d <= radio_m:
+                j += 1
+            else:
+                break
+        dur = pts[j][0] - pts[i][0]
+        if dur >= tiempo_s and j > i:
+            # estancia larga en la burbuja → un solo punto (el primero)
+            out.append(ref)
+            i = j + 1
+        else:
             out.append(pts[i])
-            ult_guardado_ts = ts_i
+            i += 1
     return out
 
 
@@ -114,11 +193,18 @@ def autocompletar_huecos(pts, hueco_max=HUECO_MAX_S, paso=INTERP_S,
     return out
 
 
-def limpiar_track(filas):
+def limpiar_track(filas, zonas=None):
     """Pipeline completo. filas: [(ts, lat, lon, acc, vel), ...] cronológico.
-    Devuelve [(ts, lat, lon), ...] filtrado + autocompletado."""
+    Devuelve [(ts, lat, lon), ...] filtrado + colapsado + autocompletado.
+
+    zonas: lista de zonas {lat, lon, radio_m} (no-monitorización). El
+    anti-deriva no deja latidos dentro de zona; las estancias largas fuera
+    de zona se colapsan a entrada+salida.
+    """
     pts = [(r[0], r[1], r[2],
             r[3] if len(r) > 3 else 0,
             r[4] if len(r) > 4 else 0) for r in filas]
-    limpios = filtro_anti_deriva(pts)
-    return autocompletar_huecos([(p[0], p[1], p[2]) for p in limpios])
+    pts = filtro_saltos(pts)                 # 1º: saltos de red (ida y vuelta)
+    limpios = filtro_anti_deriva(pts, zonas=zonas)   # 2º: anti-deriva + zonas
+    limpios = colapsar_estancias([(p[0], p[1], p[2]) for p in limpios])
+    return autocompletar_huecos(limpios)
