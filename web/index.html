@@ -974,6 +974,9 @@ function fichaPunto(f){
   const modo=(p.v!=null&&!isNaN(p.v))?(VMODO_LEG[p.modo]||'?'):'sin dato';
   return `<b style="color:var(--acc)">${fmtVkmh(p.v)} km/h</b> · ${D(modo)} · ${horaPunto(p.ts)}`;
 }
+function distMetros(ca,cb){  // ca/cb = [lon,lat] → metros
+  return havKm(ca[1],ca[0],cb[1],cb[0])*1000;
+}
 function pintarRuta(){
   capaRuta.clearLayers();
   if(rutaLinea){map.removeLayer(rutaLinea);rutaLinea=null;}
@@ -981,6 +984,33 @@ function pintarRuta(){
   if(feats.length<2)return;
   // submuestreo si hay demasiados puntos (1 punto/s → 1700+ por paseo)
   const paso=Math.max(1,Math.ceil(feats.length/8000));
+  /* Paradas >5 min: puntos consecutivos con dt>300 s y cerca espacialmente
+     (<150 m) = estuviste parado en un sitio (el backend colapsa la estancia
+     a entrada+salida). Se pinta un CÍRCULO GRIS en el punto y la línea se
+     mantiene continua (empalme por cercanía abajo). */
+  for(let i=0;i<feats.length;i+=paso){
+    const a=feats[i],b=feats[i+paso];
+    if(!a||!b||!a.geometry||!b.geometry)continue;
+    const dt=b.properties.ts-a.properties.ts;
+    if(dt<=300)continue;
+    const ca=a.geometry.coordinates,cb=b.geometry.coordinates;
+    const dm=distMetros(ca,cb);
+    if(dm<150){
+      // si la parada cae dentro de una zona de no-monitorización del
+      // usuario (casa/bar marcada) NO se pinta: la zona ya la silencia
+      const enZ=(S.zonas||[]).some(z=>{
+        const dz=distMetros([z.lon,z.lat],ca);
+        return dz<=(z.radio_m||30)+2;
+      });
+      if(enZ)continue;
+      const mk=L.circleMarker([ca[1],ca[0]],{radius:8,color:'#475569',
+        weight:2,fillColor:'#64748b',fillOpacity:.85}).addTo(capaRuta);
+      const mins=Math.round(dt/60);
+      const txt=mins>=60?`${Math.floor(mins/60)} h ${mins%60} min`:mins+' min';
+      mk.bindTooltip(`⏸ parada ${txt} · ${horaPunto(a.properties.ts)}`,{sticky:true});
+      mk.on('click',()=>abrirPopupPunto(a));
+    }
+  }
   const tramos=[];
   let cur=null;
   let prev=null;   // último punto procesado (para empalmar tramos de color)
@@ -992,13 +1022,17 @@ function pintarRuta(){
     const b=bucketVel(f.properties&&f.properties.v);
     if(!cur||cur.b!==b){
       cur={b,ll:[],fs:[],f1:f};
-      // EMPALME: el tramo nuevo arranca en el último punto del anterior
-      // (si son del mismo paseo, <5 min) para que la línea NO se corte al
-      // cambiar de color — antes cada tramo quedaba suelto y los puntos
-      // únicos (estancia, frenazo) se veían como circulitos aislados.
-      if(prev&&(f.properties.ts-prev.ts)<300){
-        cur.ll.push([prev.c[1],prev.c[0]]);
-        cur.fs.push(prev.f);
+      // EMPALME: el tramo nuevo arranca en el último punto del anterior.
+      // Condición: mismo paseo (dt<300 s) o MUY cerca espacialmente (<150 m,
+      // parada colapsada — genera la línea artificial que une la entrada y
+      // la salida de la parada). Así la ruta NUNCA se ve cortada.
+      if(prev){
+        const dtp=f.properties.ts-prev.ts;
+        const dp=distMetros(prev.c,c);
+        if(dtp<300||dp<150){
+          cur.ll.push([prev.c[1],prev.c[0]]);
+          cur.fs.push(prev.f);
+        }
       }
       tramos.push(cur);
     }
