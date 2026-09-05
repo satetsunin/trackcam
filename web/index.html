@@ -520,7 +520,19 @@ button.mchip.pel:hover{background:#3b1620}
   font-size:30px;background:linear-gradient(135deg,#0f1a2e,#14213a)}
 .rutCel .rutCap{position:absolute;left:0;right:0;bottom:0;padding:16px 7px 5px;
   background:linear-gradient(transparent,rgba(2,6,16,.88));display:flex;align-items:center;gap:6px}
-.rutCap .rn{font-weight:800;color:#fff;flex:1;min-width:0;white-space:nowrap;overflow:hidden;
+/* F5.11: banda superior con la cuenta regresiva de distancia (serie muestreada) */
+.rutCel .rutSerie{position:absolute;left:0;right:0;top:0;padding:4px 5px;display:flex;
+  align-items:center;gap:3px;overflow-x:auto;white-space:nowrap;scrollbar-width:none;
+  background:linear-gradient(rgba(2,6,16,.82),transparent);font-size:9.5px}
+.rutCel .rutSerie::-webkit-scrollbar{display:none}
+.rutCel .rutSerie i{color:rgba(147,197,253,.4);font-style:normal;font-size:8px;flex:none}
+.rutCel .rutP{flex:none;font-weight:700;color:#e2e8f0;font-variant-numeric:tabular-nums;
+  background:rgba(10,20,36,.75);border:1px solid rgba(148,163,184,.25);border-radius:5px;
+  padding:1px 4px;line-height:1.4;text-shadow:0 1px 2px rgba(0,0,0,.7)}
+.rutCel .rutP.min{color:#86efac;border-color:rgba(74,222,128,.6);background:rgba(6,30,18,.8)}
+.rutCel .rutP.now{color:#fff;border-color:var(--acc);background:rgba(14,60,100,.85);
+  box-shadow:0 0 0 1px rgba(56,189,248,.6)}
+.rutCel .rutCap .rn{font-weight:800;color:#fff;flex:1;min-width:0;white-space:nowrap;overflow:hidden;
   text-overflow:ellipsis;text-shadow:0 1px 4px rgba(0,0,0,.9);font-size:11px}
 .rutCap .rd{font-size:10px;font-weight:800;white-space:nowrap;flex:none}
 .rutCap .rd.pas{color:#4ade80;text-shadow:0 1px 3px rgba(0,0,0,.9)}
@@ -2964,8 +2976,11 @@ function rutMueve(){
   else rp.mk.setLatLng(ll);
 }
 /* Eventos del filtro actual (S.eventos) ACTIVOS en el instante ts, ordenados por
-   distancia temporal al centro de su ventana (más cercano primero), máx 9. */
+   DISTANCIA REAL al punto del track en ts (más cercano primero), máx 9.
+   F5.11: antes se ordenaba por cercanía temporal al centro de la ventana — el
+   usuario quiere ver primero la cámara a la que está más cerca en ese momento. */
 function rutEvsActivos(ts){
+  const pos=rutPuntoEn(ts);          // [lat,lon] del track en ts (o null)
   const out=[];
   for(const e of (S.eventos||[])){
     if(!e||typeof e.ts_inicio!=='number')continue;
@@ -2974,10 +2989,45 @@ function rutEvsActivos(ts){
     else{a=e.ts_inicio;b=(typeof e.ts_fin==='number')?e.ts_fin:e.ts_inicio;}
     if(b<a)b=a;
     if(ts<a||ts>b)continue;
-    out.push({e,d:Math.abs(((a+b)/2)-ts)});
+    let dm=Infinity;
+    if(pos&&typeof e.lat==='number'&&typeof e.lon==='number'){
+      dm=distMetros([e.lon,e.lat],pos);     // distancia real track↔cámara AHORA
+    }
+    out.push({e,d:dm});
   }
   out.sort((x,y)=>x.d-y.d);
   return out.slice(0,9);
+}
+/* Posición [lon,lat] del track en el instante ts (interpolando entre features).
+   Se devuelve en [lon,lat] para poder pasarla directo a distMetros().
+   Búsqueda binaria: los pts están ordenados por ts y se consulta mucho al
+   precalcular las series de distancia (F5.11). */
+function rutPuntoEn(ts){
+  const pts=(rutRep&&rutRep.pts)||S.pts||[];
+  const n=pts.length;
+  if(!n)return null;
+  // índice del primer feature con ts >= objetivo
+  let lo=0,hi=n-1,posi=-1;
+  while(lo<=hi){
+    const mid=(lo+hi)>>1;
+    const p=pts[mid]&&pts[mid].properties;
+    const t=(p&&typeof p.ts==='number')?p.ts:Infinity;
+    if(t>=ts){posi=mid;hi=mid-1;}else{lo=mid+1;}
+  }
+  const llDe=i=>{const ll=rutLL(pts[i]);return ll?ll:null;};
+  if(posi<0){const ll=llDe(n-1);return ll?[ll[1],ll[0]]:null;}
+  if(posi===0){const ll=llDe(0);return ll?[ll[1],ll[0]]:null;}
+  const a=pts[posi-1], b=pts[posi];
+  const ta=(a&&a.properties&&typeof a.properties.ts==='number')?a.properties.ts:-1e18;
+  const tb=(b&&b.properties&&typeof b.properties.ts==='number')?b.properties.ts:1e18;
+  const la=llDe(posi-1), lb=llDe(posi);
+  if(!la&&!lb)return null;
+  if(!lb)return [la[1],la[0]];
+  if(!la)return [lb[1],lb[0]];
+  const dt=tb-ta;
+  const pr=dt>0?Math.min(1,Math.max(0,(ts-ta)/dt)):0;
+  const lat=la[0]+(lb[0]-la[0])*pr, lon=la[1]+(lb[1]-la[1])*pr;
+  return [lon,lat];
 }
 /* Foto del evento cuyo foto_ts es el más próximo a ts; si no hay foto_ts, índice
    proporcional (ts-ts_inicio)/(ts_fin-ts_inicio) · n_fotos. */
@@ -2997,6 +3047,53 @@ function rutFotoIdx(e,ts){
   const pr=Math.max(0,Math.min(1,(ts-t0)/(t1-t0)));
   return Math.min(nf-1,Math.round(pr*(nf-1)));
 }
+/* ── F5.11: serie de DISTANCIA de la pasada (cuenta regresiva) ───────────
+   Para cada cámara activa se precalcula una vez la evolución de la distancia
+   track↔cámara en los tiempos de sus fotos (los fotogramas del vídeo): el
+   usuario quiere ver «a las 10:00 estaba a 100 m, a las 10:01 a 1 m, a las
+   10:02 a 84 m» para entender cómo fue el acercamiento/alejamiento. */
+const _rutSeries={};            // cache: id de evento → [{ts,d}] completo
+function rutSerie(e){
+  const id=String(e.id);
+  if(_rutSeries[id])return _rutSeries[id];
+  const nf=Math.max(1,e.n_fotos||1);
+  const fts=(Array.isArray(e.foto_ts)&&e.foto_ts.length>=nf)?e.foto_ts:null;
+  const t0=e.ts_inicio||0;
+  const t1=(typeof e.ts_fin==='number'&&e.ts_fin>t0)?e.ts_fin:t0+1;
+  const camLL=[e.lon,e.lat];
+  const arr=[];
+  let nOk=0;
+  for(let i=0;i<nf;i++){
+    const ts=(fts&&typeof fts[i]==='number')?fts[i]:
+      (nf>1?t0+(t1-t0)*i/(nf-1):t0);
+    const pos=rutPuntoEn(ts);
+    if(!pos||typeof camLL[0]!=='number')continue;
+    const d=distMetros(camLL,pos);
+    if(!isFinite(d))continue;
+    arr.push({ts,d}); nOk++;
+  }
+  if(arr.length>1)arr.sort((a,b)=>a.ts-b.ts);
+  _rutSeries[id]=nOk>=2?arr:null;
+  return _rutSeries[id];
+}
+/* Submuestra la serie a <=maxPts conservando SIEMPRE el mínimo (⭐) y los
+   extremos; devuelve [{ts,d,min}] listos para pintar. */
+function rutSerieResumen(e,maxPts){
+  const full=rutSerie(e);
+  if(!full||full.length<2)return null;
+  maxPts=Math.max(3,maxPts||8);
+  if(full.length<=maxPts)return full.map(p=>({ts:p.ts,d:p.d}));
+  let iMin=0;
+  for(let i=1;i<full.length;i++)if(full[i].d<full[iMin].d)iMin=i;
+  const idxs=new Set([0,full.length-1,iMin]);
+  const resto=Math.max(0,maxPts-3);
+  for(let k=0;k<resto;k++){
+    const pos=Math.round((full.length-1)*(k+1)/(resto+1));
+    idxs.add(pos);
+  }
+  const sel=[...idxs].sort((a,b)=>a-b);
+  return sel.map(i=>({ts:full[i].ts,d:full[i].d,min:i===iMin}));
+}
 function rutCelHTML(o){
   const e=o.e, idx=o.idx;
   const nf=Math.max(1,e.n_fotos||1);
@@ -3007,7 +3104,20 @@ function rutCelHTML(o){
   const tA=ms?(pas?'📍 a '+ms:'🚫 a '+ms):(pas?'📍 pasada':'🚫 lejana');
   const med=url?`<img src="${url}" alt="${esc(nomFull)}" loading="lazy" decoding="async">`:`<div class="rutNo">📷</div>`;
   const ttl=esc(nomFull+' · '+fmtF(e.ts_inicio)+(ms?' · '+tA:''));
-  return `<div class="rutCel" data-id="${esc(String(e.id))}" title="${ttl}">${med}
+  // F5.11: cuenta regresiva de la distancia (serie muestreada; 1 cámara → más pts)
+  const nAct=o.nAct||1;
+  const maxPts=nAct<=1?9:(nAct<=2?7:(nAct<=4?5:4));
+  const serie=rutSerieResumen(e,maxPts);
+  let fila='';
+  if(serie&&serie.length>=2){
+    fila='<div class="rutSerie">'+serie.map(p=>{
+      const h=rutHMS(p.ts).slice(0,5);                 // HH:MM compacto
+      const dm=Math.round(p.d);
+      const et=dm<10?dm+' m':fmtDistMin(p.d);
+      return `<span class="rutP${p.min?' min':''}" data-ts="${Math.round(p.ts)}" title="${rutHMS(p.ts)} · ${fmtDistMin(p.d)}">${p.min?'⭐ ':''}${h} ${et}</span>`;
+    }).join('<i>→</i>')+'</div>';
+  }
+  return `<div class="rutCel" data-id="${esc(String(e.id))}" title="${ttl}">${med}${fila}
     <div class="rutCap"><span class="rn">${D(nomFull)}</span><span class="rd ${pas?'pas':'lej'}">${tA}</span></div></div>`;
 }
 /* Cuadrícula adaptativa SIN parpadeos: si cambia el CONJUNTO de cámaras activas se
@@ -3028,9 +3138,10 @@ function rutGrid(ts){
   g.classList.toggle('uni',act.length===1);
   g.style.gridTemplateColumns=act.length===1?'1fr':(act.length<=4?'repeat(2,1fr)':'repeat(3,1fr)');
   const key=act.map(x=>String(x.e.id)).join(',');
+  const nAct=act.length;
   if(key!==rp._ord){
     rp._ord=key;
-    g.innerHTML=act.map(rutCelHTML).join('');
+    g.innerHTML=act.map(x=>rutCelHTML(Object.assign({nAct},x))).join('');
     rp._imgs={}; rp._idx={};
     act.forEach(x=>{
       const id=String(x.e.id);
@@ -3038,7 +3149,9 @@ function rutGrid(ts){
       rp._imgs[id]=cel?cel.querySelector('img'):null;
       rp._idx[id]=x.idx;
     });
+    rutSerieNow(ts,nAct);          // F5.11: marcar el punto actual en las series
   }else{
+    rutSerieNow(ts,nAct);
     for(const x of act){
       const id=String(x.e.id);
       if(rp._idx[id]===x.idx)continue;
@@ -3046,6 +3159,25 @@ function rutGrid(ts){
       const im=rp._imgs[id];
       if(im){const nf=Math.max(1,x.e.n_fotos||1);const u=(S.fotoPat!=='none')?urlFoto(x.e.id,Math.min(x.idx,nf-1)):null; if(u)im.src=u;}
     }
+  }
+}
+/* F5.11: resalta en cada serie de distancia el punto cuyo ts está más próximo
+   al instante actual de reproducción (borde azul) — ves en vivo cómo avanza la
+   cuenta regresiva mientras el pin recorre la ruta. */
+function rutSerieNow(ts){
+  const g=(rutRep&&rutRep.grid); if(!g)return;
+  const celdas=g.querySelectorAll('.rutCel');
+  for(const cel of celdas){
+    const pts=cel.querySelectorAll('.rutP');
+    let best=null,bd=Infinity;
+    for(const p of pts){
+      const t=parseFloat(p.getAttribute('data-ts'));
+      if(!isFinite(t))continue;
+      const d=Math.abs(t-ts);
+      if(d<bd){bd=d;best=p;}
+    }
+    for(const p of pts)p.classList.remove('now');
+    if(best)best.classList.add('now');
   }
 }
 function rutSeek(i,gridF){
