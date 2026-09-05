@@ -19,7 +19,7 @@ import hmac
 import threading
 from datetime import datetime, timezone
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, FileResponse, PlainTextResponse
+from fastapi.responses import JSONResponse, FileResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -1387,7 +1387,10 @@ def index():
 
 @app.get("/replay")
 def replay():
-    return FileResponse(os.path.join(WEB, "replay.html"))
+    """F5.11d: /replay ya no es la página vieja de un único vídeo — el «Video
+    track» moderno es el reproductor ▶ Ruta del mapa. Redirige al mapa con el
+    reproductor auto-abierto (?rut=1); el panel lateral se abre en la app."""
+    return RedirectResponse("/?rut=1", status_code=302)
 
 
 @app.get("/control")

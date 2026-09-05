@@ -582,7 +582,7 @@ button.mchip.pel:hover{background:#3b1620}
 <div id="app">
   <div id="topbar">
     <div class="brand">🎥 TrackCam<span class="punto">.</span></div>
-    <a class="link" href="/replay">🎬 Video track (replay)</a>
+    <a class="link" href="javascript:void(0)" id="linkVideoTrack" title="Reproducir la ruta: fotos de las cámaras según la velocidad + distancia">🎬 Video track</a>
     <div id="verComoWrap"><span>👁 ver como</span><select id="selVerComo"></select></div>
     <div style="flex:1"></div>
     <div id="chipUser" role="button" tabindex="0" title="Abrir mi perfil (👤 Perfil)"> 
@@ -752,6 +752,13 @@ function fmtDur(s){s=Math.max(0,Math.round(s));const m=Math.floor(s/60);const r=
    backend) refrescado desde /api/ajustes; se guarda en localStorage. */
 let umbralPasadaM=60;
 (function(){try{const v=parseInt(localStorage.getItem('tc_pasada_v1'),10);if(v>=5&&v<=500)umbralPasadaM=v;}catch(e){}})();
+/* F5.11d: radio de VISIBILIDAD del reproductor ▶ Ruta — el usuario: «si ya me he
+   alejado más de 100 metros de cualquier cámara quiero que simplemente no haya
+   vídeo». El corte visual es FIJO a 100 m (independiente del radio de captura del
+   motor, que puede ser mayor): la celda de una cámara solo se muestra mientras el
+   pin esté a ≤100 m reales de ella. */
+const RUT_RADIO_VIS_M=100;
+function radioReproductor(){return RUT_RADIO_VIS_M;}
 function esPasadaReal(e){return !!e&&e.es_pasada!==false;}
 function umbralActivo(){return (typeof umbralPasadaM==='number'&&umbralPasadaM>=5&&umbralPasadaM<=500)?umbralPasadaM:60;}
 async function cargarUmbralPasada(){          // F5.9: lee radio_pasada_m de /api/ajustes y lo cachea
@@ -2017,8 +2024,7 @@ async function entrar(st){
     try{
       await refreshVerComo(S.uid!=null?String(S.uid):'');   // por defecto: verse a sí mismo
       S.vista=$('selVerComo').value||'';
-      syncHrefReplay();
-      $('selVerComo').onchange=()=>{S.vista=$('selVerComo').value||'';autoFit=true;refreshTodo();syncHrefReplay();};
+      $('selVerComo').onchange=()=>{S.vista=$('selVerComo').value||'';autoFit=true;refreshTodo();};
       $('verComoWrap').classList.add('on');
     }catch(e){toast('No se pudo cargar la lista de usuarios: '+e.message,true);}
   }else $('verComoWrap').classList.remove('on');
@@ -2035,16 +2041,23 @@ async function entrar(st){
   if(cacheTimer)clearInterval(cacheTimer);
   cacheTimer=setInterval(()=>{ if(S.token){cargarCache();cargarMuertas();cargarZonas();} },15000);   // poll 15 s (caché + muertas + zonas)
   ajustarVel();
+  autoRutaSiFlag();      // F5.11d: /?rut=1 (viene de /replay) → abre el reproductor al cargar
+}
+/* F5.11d: si la URL trae ?rut=1 (el redirect de /replay) espera a que la carga
+   inicial deje S.pts/S.eventos listos y arranca el reproductor ▶ Ruta. */
+function autoRutaSiFlag(){
+  if(!/rut=1/.test(location.search))return;
+  const ini=Date.now();
+  const iv=setInterval(()=>{
+    const ok=S.pts&&S.pts.length>=2&&S.eventos&&S.eventos.length>0;
+    if(ok||Date.now()-ini>15000){
+      clearInterval(iv);
+      try{history.replaceState(null,'',location.pathname);}catch(e){}
+      if(ok&&!rutRep)rutIniciar();
+    }
+  },400);
 }
 function vistaQS(){return S.rol==='admin'&&S.vista?qs({usuario:S.vista}):'';}
-/* F5.11c: el enlace «Video track (replay)» hereda el ?usuario= del «ver como»
-   activo, para que la página /replay cargue los datos del usuario que se ve. */
-function syncHrefReplay(){
-  const a=document.querySelector('a[href="/replay"]');
-  if(!a)return;
-  const v=S.rol==='admin'&&S.vista?vistaQS():'';
-  a.href='/replay'+v;
-}
 function nombreVista(){ if(S.rol!=='admin')return S.user; if(!S.vista)return '🌍 todos'; const o=[...$('selVerComo').options].find(x=>x.value===S.vista); return o?o.textContent.split(' ')[0]:S.vista; }
 function actualizarChip(){ $('chipDetalle').textContent=(S.rol==='admin'&&S.vista!==String(S.uid))?('viendo: '+nombreVista()):'sesión local'; }
 
@@ -2994,18 +3007,24 @@ function rutMueve(){
    F5.11: antes se ordenaba por cercanía temporal al centro de la ventana — el
    usuario quiere ver primero la cámara a la que está más cerca en ese momento. */
 function rutEvsActivos(ts){
-  const pos=rutPuntoEn(ts);          // [lat,lon] del track en ts (o null)
+  const pos=rutPuntoEn(ts);          // [lon,lat] del track en ts (o null)
+  const rmax=radioReproductor();     // F5.11d: corte de VISIBILIDAD por distancia real
   const out=[];
   for(const e of (S.eventos||[])){
     if(!e||typeof e.ts_inicio!=='number')continue;
+    // El evento «vive» desde ts_inicio (entrada−60 s) hasta ts_fin (salida+60 s):
+    // dentro de esa ventana existen fotos para cualquier instante. Pero la celda
+    // solo se MUESTRA mientras la distancia real del track a la cámara sea ≤ el
+    // radio de evento (100 m por defecto) — si ya te alejaste, no hay nada que ver.
     let a,b;
-    if(typeof e.ts_entrada==='number'&&typeof e.ts_salida==='number'){a=e.ts_entrada-8;b=e.ts_salida+8;}
+    if(typeof e.ts_entrada==='number'&&typeof e.ts_salida==='number'){a=e.ts_entrada-60;b=e.ts_salida+60;}
     else{a=e.ts_inicio;b=(typeof e.ts_fin==='number')?e.ts_fin:e.ts_inicio;}
     if(b<a)b=a;
     if(ts<a||ts>b)continue;
     let dm=Infinity;
     if(pos&&typeof e.lat==='number'&&typeof e.lon==='number'){
       dm=distMetros([e.lon,e.lat],pos);     // distancia real track↔cámara AHORA
+      if(isFinite(dm)&&dm>rmax)continue;    // F5.11d: lejos de esta cámara → fuera
     }
     out.push({e,d:dm});
   }
@@ -3302,6 +3321,11 @@ window.rutCel=function(id){                          // clic en una celda de la 
   });
   const rf=$('btnRutaFlot');
   if(rf)rf.onclick=()=>{ if(!rutRep)rutIniciar(); };
+  /* F5.11d: «🎬 Video track» de la topbar abre el MISMO reproductor ▶ Ruta del
+     mapa (antes llevaba a la página vieja /replay con un único vídeo). Si no hay
+     ruta cargada o ya está en marcha, el propio reproductor avisa/ignora. */
+  const lv=$('linkVideoTrack');
+  if(lv)lv.onclick=ev=>{ev.preventDefault();if(!rutRep)rutIniciar();};
   window.addEventListener('resize',()=>{
     if(!rutRep)return;
     const pan=$('rutPanel');
