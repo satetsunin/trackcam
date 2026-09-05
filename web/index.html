@@ -1019,7 +1019,16 @@ function pintarRuta(){
     if(!f||!f.geometry)continue;
     const c=f.geometry.coordinates;
     if(typeof c[0]!=='number'||typeof c[1]!=='number'||c[0]<-180||c[0]>180)continue;
-    const b=bucketVel(f.properties&&f.properties.v);
+    let b=bucketVel(f.properties&&f.properties.v);
+    // PARADA LARGA (>5 min, <150 m): el punto de salida de la estancia
+    // tiene v≈0 (gris) por el salto temporal, pero la línea NO debe
+    // notarse cortada: atraviesa la parada con el color del movimiento
+    // que llevabas (el pin ⏸ gris ya comunica la parada aparte).
+    if(prev&&b==='g'){
+      const dtp=f.properties.ts-prev.ts;
+      const dp=distMetros(prev.c,c);
+      if(dtp>300&&dp<150&&cur){b=cur.b;}
+    }
     if(!cur||cur.b!==b){
       cur={b,ll:[],fs:[],f1:f};
       // EMPALME: el tramo nuevo arranca en el último punto del anterior.

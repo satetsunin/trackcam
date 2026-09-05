@@ -744,30 +744,46 @@ class MotorCaptura:
                             sanitizar_id(cid))
 
     def _cache_dedup(self, user_id, cid, ts, datos, forzar=False):
-        """Guarda en el caché persistente si el dHash difiere del último.
+        """Guarda en el caché persistente SOLO si el fotograma cambió.
 
-        El umbral (cfg['umbral_dedup'], 4 bits por defecto) decide si una
-        imagen es 'la misma' (ruido/compresión) o un cambio real de escena.
+        dHash perceptual 9x8: si la imagen nueva difiere <=umbral_dedup bits
+        (4 por defecto) de la última guardada de esa cámara, es el MISMO
+        fotograma (ruido/compresión) → se descarta. Cada cámara tiene su
+        cadencia real de refresco (geobilbao ~5 s, el resto ~3 min); el
+        sistema captura cada 5 s, así que SIN este dedup el caché acumula
+        decenas de copias del mismo fotograma (50% del caché era basura).
 
-        forzar=True (pasada en curso, dentro de 100 m): guarda SIEMPRE, sin
-        dedup. Así el caché de 30 días contiene la cinta COMPLETA de la
-        pasada (foto_<ts>.jpg por cada captura) y puede reconstruir el
-        evento por coincidencia temporal aunque el buffer temporal falle.
+        'forzar' se ignora: antes guardaba la cinta COMPLETA sin dedup
+        durante la pasada para reconstruir eventos desde caché, pero eso
+        llenaba el caché de repetidas. El buffer temporal (dir_buffer)
+        sigue guardando TODAS las fotos — es la fuente del evento en vivo.
+        El caché (respaldo de 30 días) guarda solo fotogramas distintos,
+        que es la información real que la cámara mostró.
+
+        Para que cada VISITA a una cámara guarde al menos su primera foto
+        (aunque el frame sea el mismo que en la visita anterior, p.ej. una
+        cámara estática vista a las 10:00 y a las 12:00), el hash previo
+        se reinicia si la última captura de esa cámara fue hace >120 s.
         """
         try:
-            if not forzar:
-                h = dhash_bytes(datos)
-                if h < 0:
-                    return
-                clave = (str(user_id), cid)
-                with self.lock:
-                    ultimo = getattr(self, "_ultimo_hash", {}).get(clave)
-                    if ultimo is not None and hamming(h, ultimo) <= int(
-                            self.cfg.get("umbral_dedup", 4)):
-                        return  # misma imagen → descartar
-                    if not hasattr(self, "_ultimo_hash"):
-                        self._ultimo_hash = {}
-                    self._ultimo_hash[clave] = h
+            h = dhash_bytes(datos)
+            if h < 0:
+                return
+            clave = (str(user_id), cid)
+            with self.lock:
+                prev = getattr(self, "_ultimo_hash", {}).get(clave)
+                prev_ts = getattr(self, "_ultimo_hash_ts", {}).get(clave, 0)
+                # visita nueva (hueco >120 s) → guardar esta foto siempre
+                if prev is None or (ts - prev_ts) > 120:
+                    pass  # guardar
+                elif hamming(h, prev) <= int(self.cfg.get("umbral_dedup", 4)):
+                    return  # mismo fotograma que el último guardado
+                if not hasattr(self, "_ultimo_hash"):
+                    self._ultimo_hash = {}
+                if not hasattr(self, "_ultimo_hash_ts"):
+                    self._ultimo_hash_ts = {}
+                self._ultimo_hash[clave] = h
+                self._ultimo_hash_ts[clave] = ts
             dir_c = self._dir_cache(user_id, cid)
             os.makedirs(dir_c, exist_ok=True)
             ruta = os.path.join(dir_c, "foto_%s.jpg" % ts)
