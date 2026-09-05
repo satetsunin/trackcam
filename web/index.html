@@ -524,6 +524,11 @@ button.mchip.pel:hover{background:#3b1620}
 .rutCel .rutSerie{position:absolute;left:0;right:0;top:0;padding:4px 5px;display:flex;
   align-items:center;gap:3px;overflow-x:auto;white-space:nowrap;scrollbar-width:none;
   background:linear-gradient(rgba(2,6,16,.82),transparent);font-size:9.5px}
+/* F5.11b: con >=5 cámaras las celdas son pequeñas (~99px) — la serie NO pisa la
+   foto: oculta por defecto, aparece al hacer hover con fondo sólido legible */
+.rutCel .rutSerie.denso{display:none;background:rgba(2,6,16,.94);border-radius:6px;
+  left:3px;right:3px;top:3px;padding:3px 5px;z-index:3;font-size:9px}
+.rutCel:hover .rutSerie.denso{display:flex}
 .rutCel .rutSerie::-webkit-scrollbar{display:none}
 .rutCel .rutSerie i{color:rgba(147,197,253,.4);font-style:normal;font-size:8px;flex:none}
 .rutCel .rutP{flex:none;font-weight:700;color:#e2e8f0;font-variant-numeric:tabular-nums;
@@ -3110,7 +3115,11 @@ function rutCelHTML(o){
   const serie=rutSerieResumen(e,maxPts);
   let fila='';
   if(serie&&serie.length>=2){
-    fila='<div class="rutSerie">'+serie.map(p=>{
+    // En celdas pequeñas (>=5 cámaras, ~99px) la serie NO pisa la foto: se
+    // guarda oculta y aparece al hacer hover (clase .denso). Con 1-4 cámaras
+    // la celda es grande y la serie va siempre visible en la banda superior.
+    const denso=(nAct>=5)?' denso':'';
+    fila='<div class="rutSerie'+denso+'">'+serie.map(p=>{
       const h=rutHMS(p.ts).slice(0,5);                 // HH:MM compacto
       const dm=Math.round(p.d);
       const et=dm<10?dm+' m':fmtDistMin(p.d);
