@@ -482,6 +482,51 @@ button.mchip.pel:hover{background:#3b1620}
   overflow:hidden;text-overflow:ellipsis}
 #camNavBar #nvLbl small{color:var(--mut);font-weight:600;font-size:10.5px}
 #camNavBar .nvNota{font-size:9.8px;color:var(--mut2);width:100%;line-height:1.35}
+/* ────────── (F5.10) REPRODUCTOR DE RUTA ▶ (pin en movimiento + fotos en vivo) ────────── */
+#btnRutaFlot{top:168px;color:#86efac;border-color:rgba(34,197,94,.4);
+  background:linear-gradient(135deg,rgba(34,197,94,.15),rgba(21,128,61,.2))}
+#btnRutaFlot:hover{border-color:#4ade80;background:rgba(34,197,94,.3)}
+#btnRutaFlot.act{border-color:#4ade80;box-shadow:0 0 0 4px rgba(74,222,128,.15),0 6px 18px rgba(0,0,0,.45)}
+/* Panel de reproducción: esquina del mapa (NO tapa el mapa entero) */
+#rutPanel{position:absolute;left:12px;bottom:12px;z-index:1300;display:none;flex-direction:column;
+  width:min(430px,calc(100vw - 24px));max-width:calc(100% - 24px);
+  background:rgba(7,13,23,.93);border:1px solid var(--line2);border-radius:14px;
+  box-shadow:0 14px 44px rgba(0,0,0,.55);backdrop-filter:blur(6px);overflow:hidden;
+  font-size:12px;pointer-events:auto}
+#rutPanel.on{display:flex}
+#rutPanel.full{position:fixed;inset:0;z-index:8700;width:auto;max-width:none;border-radius:0;border:0}
+.rutH{display:flex;align-items:center;gap:5px;padding:6px 8px;border-bottom:1px solid var(--line);
+  background:linear-gradient(90deg,rgba(21,128,61,.14),rgba(7,13,23,0) 60%,rgba(7,13,23,0))}
+.rutH .rutB{min-width:27px;height:26px;border:1px solid var(--line2);background:var(--bg4);color:var(--txt);
+  border-radius:7px;font-size:11.5px;cursor:pointer;padding:0 6px;font-weight:700;white-space:nowrap;flex:none}
+.rutH .rutB:hover{border-color:var(--acc);background:rgba(14,165,233,.22)}
+.rutH .rutB.pp{background:linear-gradient(135deg,#059669,#065f46);border-color:#34d399;color:#fff}
+.rutH .rutB.x{color:#fca5a5;border-color:#7f1d1d}
+.rutH .rutB.x:hover{background:#2a1116;border-color:#f87171}
+.rutH .rutB#rutVel{color:#86efac;border-color:rgba(74,222,128,.35)}
+.rutH .rutB#rutFs{color:#93c5fd}
+.rutT{flex:1;text-align:center;font-weight:800;font-size:11.5px;font-variant-numeric:tabular-nums;
+  color:#93c5fd;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:.3px;min-width:0}
+.rutCuerpo{padding:8px}
+#rutGrid{display:none;gap:7px;max-height:min(42vh,340px);overflow-y:auto;padding:1px}
+#rutGrid::-webkit-scrollbar{width:8px}
+#rutGrid::-webkit-scrollbar-thumb{background:#243450;border-radius:5px}
+.rutCel{position:relative;border-radius:10px;overflow:hidden;background:#0a1424;
+  border:1px solid var(--line2);cursor:pointer;aspect-ratio:4/3;transition:border-color .12s}
+#rutGrid.uni .rutCel{aspect-ratio:16/9}
+.rutCel:hover{border-color:var(--acc);box-shadow:0 0 0 2px rgba(56,189,248,.2)}
+.rutCel img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
+.rutCel .rutNo{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  font-size:30px;background:linear-gradient(135deg,#0f1a2e,#14213a)}
+.rutCel .rutCap{position:absolute;left:0;right:0;bottom:0;padding:16px 7px 5px;
+  background:linear-gradient(transparent,rgba(2,6,16,.88));display:flex;align-items:center;gap:6px}
+.rutCap .rn{font-weight:800;color:#fff;flex:1;min-width:0;white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis;text-shadow:0 1px 4px rgba(0,0,0,.9);font-size:11px}
+.rutCap .rd{font-size:10px;font-weight:800;white-space:nowrap;flex:none}
+.rutCap .rd.pas{color:#4ade80;text-shadow:0 1px 3px rgba(0,0,0,.9)}
+.rutCap .rd.lej{color:#c7d2e0;text-shadow:0 1px 3px rgba(0,0,0,.9)}
+#rutSin{font-size:11px;color:var(--mut2);text-align:center;padding:10px 6px;font-style:italic}
+#rutPanel.full #rutGrid{max-height:calc(100vh - 96px)}
 @media (max-width:900px){
   #topbar{gap:7px;padding:7px 10px}
   #filtros{padding:7px 10px;gap:6px}
@@ -490,6 +535,10 @@ button.mchip.pel:hover{background:#3b1620}
   #panel.oculto{transform:translateY(calc(100% + 16px))}
   .brand{font-size:14px}
   #cronoBar .nota{display:none}
+  #rutPanel{left:8px;right:8px;bottom:calc(min(58vh,560px) + 12px);width:auto;max-width:none}
+  #rutPanel.full{left:0;right:0;bottom:0;top:0}
+  .rutT{font-size:10.5px}
+  #rutGrid{max-height:32vh}
 }
 </style>
 </head>
@@ -574,7 +623,24 @@ button.mchip.pel:hover{background:#3b1620}
     <button class="flot" id="btnVisorFlot" title="Reabrir el visor del último evento abierto">🖼 Visor</button>
     <button class="flot" id="btnYoLoc" title="Ir a mi ubicación actual (pin 📍 del track)">📍 Mi ubicación</button>
     <button class="flot" id="btnZonaFlot" title="Crear una zona de no-monitorización (🚫 círculo rosa: silencia cámaras/eventos dentro)">🚫 Zona</button>
+    <button class="flot" id="btnRutaFlot" title="Reproducir la ruta: pin en movimiento + fotos de las cámaras en cada momento">▶ Ruta</button>
     <button id="fabPanel" title="Reabrir el panel lateral">📋 Panel</button>
+    <!-- F5.10: panel del REPRODUCTOR DE RUTA (esquina del mapa; NO tapa el mapa) -->
+    <div id="rutPanel">
+      <div class="rutH">
+        <button class="rutB" onclick="rutCtrl('inicio')" title="Ir al inicio de la ruta">⏮</button>
+        <button class="rutB pp" id="rutPP" onclick="rutCtrl('playpause')" title="Reproducir / Pausar">▶</button>
+        <button class="rutB" onclick="rutCtrl('fin')" title="Ir al final de la ruta">⏭</button>
+        <button class="rutB" id="rutVel" onclick="rutCtrl('vel')" title="Velocidad de reproducción (1×–64×)">⏩ 8×</button>
+        <span class="rutT" id="rutT" title="Tiempo de la ruta actual / total">--:--:-- / --:--:--</span>
+        <button class="rutB" id="rutFs" onclick="rutCtrl('full')" title="Pantalla completa (⛶) / volver">⛶</button>
+        <button class="rutB x" onclick="rutCtrl('close')" title="Cerrar el reproductor de ruta">✕</button>
+      </div>
+      <div class="rutCuerpo">
+        <div id="rutGrid"></div>
+        <div id="rutSin" style="display:none">— sin cámaras en este momento —</div>
+      </div>
+    </div>
   </div>
 
   <div id="panel">
@@ -650,6 +716,7 @@ const S = {token:null, user:null, rol:null, uid:null, vista:null /*null=yo, ''=g
            camLat:null, camLon:null, _histEvs:null, _histFetched:null, _cercList:[], ultEv:null, _estado:null};
 let velCerrado=false;       // F5.4-F: sección de velocidad cerrada del todo (botón 📈 flotante para reabrir)
 let crono=null;             // F5.4-C: estado de la reproducción de cronología {evs,i,play,modo,mk,vid,raf,t}
+let rutRep=null;            // F5.10: estado del REPRODUCTOR DE RUTA {pts,i,play,vel,mk,raf,t0,ts0,tsFin,grid}
 let navEvs=null,navI=-1,navCam=null;  // navegación ◀ ▶ entre pasadas de la cámara activa
 
 /* ───────── utilidades ───────── */
@@ -1596,6 +1663,14 @@ function actualizarBotonesFlot(){
   /* F5.8: 🚫 Zona flotante — visible con sesión; reposiciona como sus hermanos */
   const zf=$('btnZonaFlot');
   if(zf){zf.style.right=r; zf.classList.toggle('on',!!S.token); if(!S.token)zf.classList.remove('act');}
+  /* F5.10: ▶ Ruta flotante — solo con la pestaña Eventos y sin reproducción activa */
+  const rf=$('btnRutaFlot');
+  if(rf){rf.style.right=r; rf.classList.toggle('on',!!S.token&&S.tab==='evs'&&!rutRep); if(rutRep)rf.classList.add('act'); else rf.classList.remove('act');}
+  /* F5.10: en pantallas estrechas el panel de ruta flota sobre la hoja inferior del panel */
+  if(rutRep&&window.innerWidth<=900){
+    const rp2=$('rutPanel');
+    if(rp2&&!rp2.classList.contains('full'))rp2.style.bottom=($('panel').classList.contains('oculto'))?'12px':'calc(min(58vh,560px) + 12px)';
+  }
   /* F5.6: 📋 Panel (fab) visible SIEMPRE que el panel esté oculto, en cualquier
      ancho de pantalla (antes display:none fijo en escritorio → imposible reabrir). */
   const fab=$('fabPanel'); if(fab)fab.classList.toggle('on',oc);
@@ -1900,6 +1975,7 @@ async function cerrarSesion(silencioso){
   S.muertas=[];S.muertasOK=false;_mue.ids=null;
   S.zonas=[];zonaSigAnt='';zonaLastHTML=null;
   zonaSalirModo();                                 // 🚫 sal del modo crear zona (cursor/cursor .act)
+  if(rutRep)rutParar(true);                        // F5.10: la reproducción de ruta muere con la sesión
   S.cacheUser=null;S.cacheUlt=0;ultTsTrack=0;trackVivoBusy=false;
   capaVerde.clearLayers();capaGris.clearLayers();capaNaranja.clearLayers();capaMue.clearLayers();capaZonas.clearLayers();
   if(cacheTimer){clearInterval(cacheTimer);cacheTimer=null;}
@@ -2146,6 +2222,7 @@ function resumen(){
 document.querySelectorAll('#tabs button').forEach(b=>b.onclick=()=>{switchTab(b.dataset.tab);});
 function switchTab(t){
   if(t!=='evs'&&crono)cronoParar(true);       // salir de Eventos corta la reproducción de cronología
+  if(t!=='evs'&&rutRep)rutParar(true);        // F5.10: y también la reproducción de ruta
   S.tab=t;
   document.querySelectorAll('#tabs button').forEach(b=>b.classList.toggle('on',b.dataset.tab===t));
   $('vistaEvs').style.display=(t==='evs')?'':'none';
@@ -2175,6 +2252,7 @@ function tarjetaEvento(e,expandido){
 function renderEventos(){
   const c=$('vistaEvs'); if(!c)return;
   if(crono)cronoParar(true);                 // una recarga/filtro corta la reproducción (los <video> se sustituyen)
+  if(rutRep)rutParar(true);                  // F5.10: y también la de ruta
   if(!S.eventos.length){
     c.innerHTML='<div class="vacio">Sin eventos en el rango seleccionado.<br>Prueba con «Todo» o amplía fechas.</div>';
     if(S.ultEv&&!(S._histEvs||[]).some(x=>x.id===S.ultEv)){S.ultEv=null;actualizarBotonesFlot();}
@@ -2273,6 +2351,7 @@ function focoEventoEnMapa(ev,opts){
   }
 }
 map.on('click',limpiarFocoEvento);           // un clic en el mapa quita el marcador temporal
+map.on('click',()=>{ if(rutRep)rutParar(true); });   // F5.10: un clic en el mapa corta la reproducción de ruta
 /* ═══════════════ PANEL DE CÁMARA (F5.4-B): minipestañas Pasadas|Caché + cercanas ═══════════════ */
 /* Entrada unificada al pulsar una cámara (verde 🟢, naranja 🟠 o cercana).
    rec: {cam_id, nombre, lat, lon, fuente, cache?} · cache = registro de /api/cache si existe.
@@ -2656,6 +2735,7 @@ function cronoRenderBar(){                 // sustituye solo la barra (sin tocar
 window.cronoIniciar=async function(){
   if(!S.eventos.length)return;
   if(crono)return;
+  if(rutRep)rutParar(true);                        // F5.10: cronología y ruta no conviven
   const umb=umbralActivo();
   const evs=[...S.eventos].filter(esPasadaReal).sort((a,b)=>(a.ts_inicio||0)-(b.ts_inicio||0));
   if(!evs.length){toast(`Ninguna pasada real (≤${umb} m) en el rango — sube el umbral en Ajustes`,true);return;}
@@ -2847,6 +2927,240 @@ function urlFoto(eid,i){
   if(S.fotoPat==='dig')return au(`/api/evento/${eid}/foto/${pad3(i)}`);
   return null;
 }
+/* ═══════════════ (F5.10) REPRODUCTOR DE RUTA ▶ ── pin en movimiento + fotos de las
+   cámaras activas en cada instante. Cuadrícula adaptativa (1/2×2/3 col). Se para al
+   cambiar de pestaña, recargar/filtrar, cerrar sesión o hacer clic en el mapa
+   (rutParar), igual que la cronología. NO toca crono* ni el resto de la app. ═══════════════ */
+const RUT_VELS=[1,2,4,8,16,32,64];
+let rutVelDef=8; try{const v=parseInt(localStorage.getItem('tc_rut_vel'),10); if(RUT_VELS.includes(v))rutVelDef=v;}catch(e){}
+function rutLL(f){const g=f&&f.geometry&&f.geometry.coordinates;return g&&typeof g[1]==='number'?[g[1],g[0]]:null;}
+function rutHMS(ts){return horaPunto(ts);}        // HH:MM:SS (helper existente)
+/* Parada total: cancela el bucle, borra el marcador, oculta el panel y suelta el estado. */
+function rutParar(noRedraw){
+  const rp=rutRep;
+  if(rp&&rp.raf){cancelAnimationFrame(rp.raf);rp.raf=null;}
+  if(rp&&rp.mk){try{map.removeLayer(rp.mk);}catch(e){}rp.mk=null;}
+  rutRep=null;
+  const pan=$('rutPanel'); if(pan){pan.style.display='none';pan.classList.remove('full');pan.style.bottom='';}
+  const g=$('rutGrid'); if(g){g.style.display='none';g.innerHTML='';g.classList.remove('uni');}
+  const s=$('rutSin'); if(s)s.style.display='none';
+  actualizarBotonesFlot();
+}
+function rutCtrUI(){
+  const rp=rutRep; if(!rp)return;
+  const pp=$('rutPP'); if(pp)pp.textContent=rp.play?'⏸':'▶';
+  const vb=$('rutVel'); if(vb)vb.textContent='⏩ '+rp.vel+'×';
+  const fs=$('rutFs'); const pan=$('rutPanel'); if(fs&&pan)fs.textContent=pan.classList.contains('full')?'🗗':'⛶';
+}
+function rutTime(){
+  const rp=rutRep; if(!rp)return;
+  const t=$('rutT'); if(t)t.textContent=rutHMS(Math.min(rp._ts,rp.tsFin))+' / '+rutHMS(rp.tsFin);
+}
+function rutMueve(){
+  const rp=rutRep; if(!rp)return;
+  const f=rp.pts[Math.max(0,Math.min(rp.pts.length-1,rp.i))]; if(!f)return;
+  const ll=rutLL(f); if(!ll)return;
+  if(!rp.mk)rp.mk=L.circleMarker(ll,{radius:9,color:'#fff',weight:2.5,fillColor:'#f87171',fillOpacity:.9,zIndexOffset:6000}).addTo(map);
+  else rp.mk.setLatLng(ll);
+}
+/* Eventos del filtro actual (S.eventos) ACTIVOS en el instante ts, ordenados por
+   distancia temporal al centro de su ventana (más cercano primero), máx 9. */
+function rutEvsActivos(ts){
+  const out=[];
+  for(const e of (S.eventos||[])){
+    if(!e||typeof e.ts_inicio!=='number')continue;
+    let a,b;
+    if(typeof e.ts_entrada==='number'&&typeof e.ts_salida==='number'){a=e.ts_entrada-8;b=e.ts_salida+8;}
+    else{a=e.ts_inicio;b=(typeof e.ts_fin==='number')?e.ts_fin:e.ts_inicio;}
+    if(b<a)b=a;
+    if(ts<a||ts>b)continue;
+    out.push({e,d:Math.abs(((a+b)/2)-ts)});
+  }
+  out.sort((x,y)=>x.d-y.d);
+  return out.slice(0,9);
+}
+/* Foto del evento cuyo foto_ts es el más próximo a ts; si no hay foto_ts, índice
+   proporcional (ts-ts_inicio)/(ts_fin-ts_inicio) · n_fotos. */
+function rutFotoIdx(e,ts){
+  const nf=Math.max(1,e.n_fotos||1);
+  const fts=(Array.isArray(e.foto_ts)&&e.foto_ts.length>=nf)?e.foto_ts:null;
+  if(fts){
+    let best=0,bd=Infinity;
+    for(let i=0;i<nf;i++){
+      const ft=fts[i]; if(typeof ft!=='number')continue;
+      const d=Math.abs(ft-ts); if(d<bd){bd=d;best=i;}
+    }
+    return best;
+  }
+  const t0=e.ts_inicio||0;
+  const t1=(typeof e.ts_fin==='number'&&e.ts_fin>t0)?e.ts_fin:t0+1;
+  const pr=Math.max(0,Math.min(1,(ts-t0)/(t1-t0)));
+  return Math.min(nf-1,Math.round(pr*(nf-1)));
+}
+function rutCelHTML(o){
+  const e=o.e, idx=o.idx;
+  const nf=Math.max(1,e.n_fotos||1);
+  const url=(S.fotoPat!=='none'&&nf>0)?urlFoto(e.id,Math.min(idx,nf-1)):null;
+  const nomFull=e.cam_nombre||e.cam_id||String(e.id);
+  const pas=e.es_pasada!==false;
+  const ms=fmtDistMin(e.dist_min_m);
+  const tA=ms?(pas?'📍 a '+ms:'🚫 a '+ms):(pas?'📍 pasada':'🚫 lejana');
+  const med=url?`<img src="${url}" alt="${esc(nomFull)}" loading="lazy" decoding="async">`:`<div class="rutNo">📷</div>`;
+  const ttl=esc(nomFull+' · '+fmtF(e.ts_inicio)+(ms?' · '+tA:''));
+  return `<div class="rutCel" data-id="${esc(String(e.id))}" title="${ttl}">${med}
+    <div class="rutCap"><span class="rn">${D(nomFull)}</span><span class="rd ${pas?'pas':'lej'}">${tA}</span></div></div>`;
+}
+/* Cuadrícula adaptativa SIN parpadeos: si cambia el CONJUNTO de cámaras activas se
+   reconstruye el DOM; si es el mismo conjunto solo se renueva el src de las fotos
+   cuyo índice cambió (caché del navegador, sin recargas). */
+function rutGrid(ts){
+  const rp=rutRep; if(!rp)return;
+  const g=rp.grid; if(!g)return;
+  const s=$('rutSin');
+  const act=rutEvsActivos(ts).map(x=>{x.idx=rutFotoIdx(x.e,ts);return x;});
+  if(!act.length){
+    if(g.style.display!=='none'){g.style.display='none';g.innerHTML='';rp._ord='';}
+    if(s)s.style.display='';
+    return;
+  }
+  if(s)s.style.display='none';
+  g.style.display='grid';
+  g.classList.toggle('uni',act.length===1);
+  g.style.gridTemplateColumns=act.length===1?'1fr':(act.length<=4?'repeat(2,1fr)':'repeat(3,1fr)');
+  const key=act.map(x=>String(x.e.id)).join(',');
+  if(key!==rp._ord){
+    rp._ord=key;
+    g.innerHTML=act.map(rutCelHTML).join('');
+    rp._imgs={}; rp._idx={};
+    act.forEach(x=>{
+      const id=String(x.e.id);
+      const cel=g.querySelector('.rutCel[data-id="'+CSS.escape(id)+'"]');
+      rp._imgs[id]=cel?cel.querySelector('img'):null;
+      rp._idx[id]=x.idx;
+    });
+  }else{
+    for(const x of act){
+      const id=String(x.e.id);
+      if(rp._idx[id]===x.idx)continue;
+      rp._idx[id]=x.idx;
+      const im=rp._imgs[id];
+      if(im){const nf=Math.max(1,x.e.n_fotos||1);const u=(S.fotoPat!=='none')?urlFoto(x.e.id,Math.min(x.idx,nf-1)):null; if(u)im.src=u;}
+    }
+  }
+}
+function rutSeek(i,gridF){
+  const rp=rutRep; if(!rp)return;
+  const pts=rp.pts;
+  i=Math.max(0,Math.min(pts.length-1,i));
+  rp.i=i; rp._ts=pts[i].properties.ts;
+  if(rp.play)rp.t0=performance.now()-(rp._ts-rp.ts0)*1000/rp.vel;
+  rutMueve(); rutTime();
+  if(gridF)rutGrid(rp._ts);
+}
+/* Bucle rAF: tsActual = ts0 + (now-t0)/1000·vel (vel = s de track por s real).
+   Avance incremental del índice; cuadrícula ~cada 250 ms reales. */
+function rutBucle(now){
+  const rp=rutRep; if(!rp)return;
+  if(!rp.play){rp.raf=null;return;}
+  const pts=rp.pts, n=pts.length;
+  let ts=rp.ts0+(now-rp.t0)/1000*rp.vel;
+  rp._ts=ts;
+  if(ts>=rp.tsFin){
+    rp.i=n-1; rp._ts=rp.tsFin;
+    rp.play=false; rp.raf=null;
+    rutMueve(); rutTime(); rutGrid(rp.tsFin); rutCtrUI();
+    toast('✅ Ruta reproducida');
+    return;
+  }
+  let i=rp.i;
+  while(i+1<n&&pts[i+1].properties.ts<=ts)i++;
+  rp.i=i;
+  rutMueve(); rutTime();
+  if(now-rp._lu>=250){rp._lu=now;rutGrid(ts);}
+  rp.raf=requestAnimationFrame(rutBucle);
+}
+window.rutIniciar=async function(){
+  if(rutRep)return;
+  const raw=S.pts||[];
+  const pts=raw.filter(f=>f&&f.properties&&typeof f.properties.ts==='number'&&rutLL(f));
+  if(pts.length<2){toast('Carga primero una ruta (rango de fechas)',true);return;}
+  pts.sort((a,b)=>a.properties.ts-b.properties.ts);
+  const ts0=pts[0].properties.ts, tsFin=pts[pts.length-1].properties.ts;
+  if(!(tsFin>ts0)){toast('La ruta no tiene recorrido temporal',true);return;}
+  if(crono){cronoParar(true);cronoRenderBar();}       // la ruta y la cronología no conviven
+  const pan=$('rutPanel'), g=$('rutGrid'), s=$('rutSin');
+  if(!pan||!g)return;
+  const stub={pts:null,i:0,play:false,vel:0,mk:null,raf:null,t0:0,ts0:0,tsFin:0,grid:null,_ts:0,_lu:0,_ord:'',_idx:{},_imgs:{}};
+  rutRep=stub;                                        // marca «arrancando» contra dobles clics
+  await detectarPatronFotos();                        // urlFoto necesita el patrón detectado (cacheado en S.fotoPat)
+  if(rutRep!==stub)return;                            // lo pararon mientras esperábamos
+  pan.style.display='flex'; pan.classList.remove('full'); pan.style.bottom='';
+  g.innerHTML=''; g.style.display='none'; g.classList.remove('uni');
+  if(s)s.style.display='none';
+  const rp={pts,i:0,play:true,vel:rutVelDef,mk:null,raf:null,t0:performance.now(),ts0,tsFin,grid:g,_ts:ts0,_lu:-1e9,_ord:'',_idx:{},_imgs:{}};
+  rutRep=rp;
+  try{map.fitBounds(L.latLngBounds(pts.map(f=>rutLL(f))),{padding:[40,40],maxZoom:18});}catch(e){}
+  rutMueve(); rutTime(); rutGrid(rp.ts0); rutCtrUI(); actualizarBotonesFlot();
+  rp.raf=requestAnimationFrame(rutBucle);
+};
+window.rutCtrl=function(acc){
+  if(acc==='close'){rutParar(false);return;}
+  const rp=rutRep; if(!rp)return;
+  if(acc==='full'){
+    const p=$('rutPanel'); if(p){const full=!p.classList.contains('full');p.classList.toggle('full',full);if(!full)p.style.bottom='';rutCtrUI();}
+    return;
+  }
+  if(acc==='vel'){
+    const ix=RUT_VELS.indexOf(rp.vel);
+    rp.vel=RUT_VELS[(ix+1)%RUT_VELS.length];
+    try{localStorage.setItem('tc_rut_vel',String(rp.vel));}catch(e){}
+    if(rp.play)rp.t0=performance.now()-(rp._ts-rp.ts0)*1000/rp.vel;
+    rutCtrUI();
+    return;
+  }
+  if(acc==='playpause'){
+    if(rp.play){
+      rp.play=false;
+      if(rp.raf){cancelAnimationFrame(rp.raf);rp.raf=null;}
+    }else{
+      if(rp._ts>=rp.tsFin-1)rutSeek(0,false);          // al final → ▶ reinicia
+      rp.play=true;
+      rp.t0=performance.now()-(rp._ts-rp.ts0)*1000/rp.vel;
+      rp._lu=-1e9;
+      rp.raf=requestAnimationFrame(rutBucle);
+    }
+    rutCtrUI();
+    return;
+  }
+  if(acc==='inicio')rutSeek(0,true);
+  else if(acc==='fin')rutSeek(rp.pts.length-1,true);
+};
+window.rutCel=function(id){                          // clic en una celda de la cuadrícula
+  const rp=rutRep; if(!rp)return;
+  const e=(S.eventos||[]).find(x=>String(x.id)===String(id));
+  if(!e)return;
+  const p=$('panel'); if(p&&p.classList.contains('oculto'))p.classList.remove('oculto');
+  if(S.tab!=='evs')switchTab('evs');
+  toggleEv(String(id));
+  ajustarVel();
+};
+(function(){
+  const g=$('rutGrid');
+  if(g)g.addEventListener('click',ev=>{
+    const cel=ev.target&&ev.target.closest?ev.target.closest('.rutCel'):null;
+    if(cel&&rutRep)rutCel(cel.getAttribute('data-id'));
+  });
+  const rf=$('btnRutaFlot');
+  if(rf)rf.onclick=()=>{ if(!rutRep)rutIniciar(); };
+  window.addEventListener('resize',()=>{
+    if(!rutRep)return;
+    const pan=$('rutPanel');
+    if(pan&&!pan.classList.contains('full')){
+      pan.style.bottom=(window.innerWidth<=900&&!$('panel').classList.contains('oculto'))?'calc(min(58vh,560px) + 12px)':'12px';
+    }
+  });
+  const vb=$('rutVel'); if(vb)vb.textContent='⏩ '+rutVelDef+'×';
+})();
 let visorEstado={ev:null,foto:0};
 let fotoPinFly=false;                       // F5.7: al abrir las fotos, volar con el pin a la 1ª
 let fotoModal={ev:null,idx:0,nf:1};         // F5.7: estado del modal de foto grande
