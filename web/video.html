@@ -1,0 +1,938 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TrackCam — Video track</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+:root{
+  --bg:#070d17; --bg2:#0b1322; --bg3:#0f1a2e; --bg4:#14213a;
+  --line:#1d2b47; --line2:#27395e;
+  --txt:#dbe6f7; --mut:#8ea3c7; --mut2:#5f7397;
+  --acc:#38bdf8; --acc2:#0ea5e9; --grn:#22c55e; --red:#ef4444; --amb:#f59e0b;
+  --panel:rgba(11,19,34,.94);
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--txt);overflow:hidden}
+button{font-family:inherit;cursor:pointer}
+a{color:#7dd3fc}
+.leaflet-container{font:inherit;background:#0a1019}
+
+/* ────────── SIN SESIÓN ────────── */
+#sinSesion{position:fixed;inset:0;z-index:9000;display:none;place-items:center;
+  background:radial-gradient(1200px 700px at 30% -10%,#123055 0%,#070d17 55%)}
+#sinSesion.on{display:grid}
+#sinSesion .card{width:min(400px,92vw);background:var(--panel);border:1px solid var(--line2);
+  border-radius:18px;padding:30px 26px;text-align:center;box-shadow:0 18px 60px rgba(0,0,0,.55)}
+#sinSesion .logo{font-size:24px;font-weight:800}
+#sinSesion .logo .punto{color:var(--grn)}
+#sinSesion p{color:var(--mut);font-size:13px;margin:12px 0 18px;line-height:1.5}
+#sinSesion .btn{display:inline-block;padding:10px 18px;border-radius:11px;text-decoration:none;
+  background:linear-gradient(135deg,#0ea5e9,#2563eb);color:#fff;font-weight:700;font-size:14px}
+
+/* ────────── APP ────────── */
+#app{position:fixed;inset:0;display:none;flex-direction:column}
+#app.on{display:flex}
+#topbar{display:flex;align-items:center;gap:12px;padding:9px 14px;flex:none;
+  background:linear-gradient(180deg,#0d1626,#0a101c);border-bottom:1px solid var(--line)}
+#topbar .volver{color:#7dd3fc;text-decoration:none;font-size:13px;font-weight:600;white-space:nowrap}
+#topbar .volver:hover{color:#bae6fd}
+#topbar .titulo{font-weight:800;font-size:16px;letter-spacing:.3px;white-space:nowrap}
+#topbar .grp{margin-left:auto;display:flex;align-items:center;gap:10px;min-width:0}
+#topbar .est{color:var(--mut);font-size:12px;white-space:nowrap;display:flex;gap:12px;align-items:center}
+#topbar .est b{color:var(--txt)}
+#topbar .est .acc{color:#bae6fd}
+#topbar select{background:var(--bg3);color:var(--txt);border:1px solid var(--line2);border-radius:8px;
+  padding:6px 8px;font-size:12.5px;outline:none;color-scheme:dark;max-width:230px;cursor:pointer}
+#topbar select:disabled{opacity:.6;cursor:wait}
+
+/* ────────── CUERPO: mapa izq + cámaras der ────────── */
+#cuerpo{flex:1;display:flex;min-height:0}
+#colMapa{flex:1;min-width:0;display:flex;flex-direction:column;min-height:0}
+#map{flex:1;min-height:0;position:relative;background:#0a1019}
+
+/* ── Barra de reproducción (bajo el mapa) ── */
+#playBar{flex:none;display:flex;align-items:center;gap:7px;padding:7px 12px;
+  background:linear-gradient(180deg,#0c1526,#0a101c);border-top:1px solid var(--line)}
+#playBar button{min-width:34px;height:30px;border:1px solid var(--line2);background:var(--bg4);color:var(--txt);
+  border-radius:8px;font-size:12.5px;cursor:pointer;padding:0 9px;font-weight:700;white-space:nowrap;flex:none}
+#playBar button:hover{border-color:var(--acc);background:rgba(14,165,233,.22)}
+#playBar button.pp{background:linear-gradient(135deg,#059669,#065f46);border-color:#34d399;color:#fff;font-size:14px}
+#playBar button#btnVel{color:#86efac;border-color:rgba(74,222,128,.35)}
+#playBar .reloj{color:#93c5fd;font-weight:800;font-size:12.5px;font-variant-numeric:tabular-nums;
+  white-space:nowrap;letter-spacing:.3px;flex:none}
+#playBar input[type=range]{flex:1;min-width:80px;accent-color:var(--acc);height:22px;cursor:pointer}
+#playBar input[type=range]:disabled{opacity:.4;cursor:default}
+
+/* ── Panel derecho: visor de cámaras ── */
+#colCams{width:470px;flex:none;display:flex;flex-direction:column;min-height:0;
+  background:var(--bg2);border-left:1px solid var(--line)}
+#camHead{flex:none;display:flex;align-items:center;gap:8px;padding:9px 13px;
+  background:linear-gradient(90deg,#0e2138,#0d1626);border-bottom:1px solid var(--line)}
+#camHead .t{font-weight:800;font-size:13.5px;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#camHead .t b{color:#7dd3fc;font-weight:800;font-size:12px;background:var(--bg4);
+  border:1px solid var(--line2);border-radius:999px;padding:1px 8px;margin-left:5px}
+#camHead button{background:transparent;border:1px solid var(--line2);color:#93c5fd;border-radius:7px;
+  padding:3px 10px;cursor:pointer;font-size:13px}
+#camHead button:hover{color:var(--txt);border-color:var(--acc)}
+#rutScroll{flex:1;min-height:0;overflow-y:auto;padding:10px}
+#rutScroll::-webkit-scrollbar{width:8px}
+#rutScroll::-webkit-scrollbar-thumb{background:#243450;border-radius:5px}
+
+/* Columna de cámaras a PANTALLA COMPLETA (⛶) */
+#colCams.full{position:fixed;inset:0;z-index:8600;width:auto;border-left:0;background:var(--bg)}
+#colCams.full #rutScroll{padding:14px}
+#colCams.full #camHead{padding:11px 16px}
+#colCams.full #rutGrid{max-height:calc(100vh - 200px)}
+
+/* ── Cuadrícula de cámaras (copia adaptada de index.html F5.10/F5.11) ── */
+#rutGrid{display:none;gap:8px;align-content:start}
+#rutGrid::-webkit-scrollbar{width:8px}
+#rutGrid::-webkit-scrollbar-thumb{background:#243450;border-radius:5px}
+.rutCel{position:relative;border-radius:10px;overflow:hidden;background:#0a1424;
+  border:1px solid var(--line2);cursor:pointer;aspect-ratio:4/3;transition:border-color .12s}
+#rutGrid.uni .rutCel{aspect-ratio:16/9}
+.rutCel:hover{border-color:var(--acc);box-shadow:0 0 0 2px rgba(56,189,248,.2)}
+.rutCel img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
+.rutCel .rutNo{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  font-size:30px;background:linear-gradient(135deg,#0f1a2e,#14213a)}
+.rutCel .rutCap{position:absolute;left:0;right:0;bottom:0;padding:16px 7px 5px;
+  background:linear-gradient(transparent,rgba(2,6,16,.88));display:flex;align-items:center;gap:6px}
+.rutCel .rutCap .rn{font-weight:800;color:#fff;flex:1;min-width:0;white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis;text-shadow:0 1px 4px rgba(0,0,0,.9);font-size:11px}
+.rutCap .rd{font-size:11px;font-weight:800;white-space:nowrap;flex:none}
+.rutCap .rd.pas{color:#4ade80;text-shadow:0 1px 3px rgba(0,0,0,.9)}
+.rutCap .rd.lej{color:#c7d2e0;text-shadow:0 1px 3px rgba(0,0,0,.9)}
+/* banda superior: serie de distancia (cuenta regresiva muestreada) */
+.rutCel .rutSerie{position:absolute;left:0;right:0;top:0;padding:4px 5px;display:flex;
+  align-items:center;gap:3px;overflow-x:auto;white-space:nowrap;scrollbar-width:none;
+  background:linear-gradient(rgba(2,6,16,.82),transparent);font-size:9.5px}
+.rutCel .rutSerie.denso{display:none;background:rgba(2,6,16,.94);border-radius:6px;
+  left:3px;right:3px;top:3px;padding:3px 5px;z-index:3;font-size:9px}
+.rutCel:hover .rutSerie.denso{display:flex}
+.rutCel .rutSerie::-webkit-scrollbar{display:none}
+.rutCel .rutSerie i{color:rgba(147,197,253,.4);font-style:normal;font-size:8px;flex:none}
+.rutCel .rutP{flex:none;font-weight:700;color:#e2e8f0;font-variant-numeric:tabular-nums;
+  background:rgba(10,20,36,.75);border:1px solid rgba(148,163,184,.25);border-radius:5px;
+  padding:1px 4px;line-height:1.4;text-shadow:0 1px 2px rgba(0,0,0,.7)}
+.rutCel .rutP.min{color:#86efac;border-color:rgba(74,222,128,.6);background:rgba(6,30,18,.8)}
+.rutCel .rutP.now{color:#fff;border-color:var(--acc);background:rgba(14,60,100,.85);
+  box-shadow:0 0 0 1px rgba(56,189,248,.6)}
+#rutSin{font-size:12px;color:var(--mut2);text-align:center;padding:42px 12px;font-style:italic;line-height:1.6}
+#rutSin b{color:var(--mut)}
+
+/* ── Pin 🟠 del reproductor ── */
+.rutPin{position:relative;width:22px;height:22px}
+.rutPin .p{position:absolute;inset:0;border-radius:50%;
+  background:radial-gradient(circle at 35% 30%,#fdba74,#f97316 60%,#7c2d12);
+  border:2px solid #fff;box-shadow:0 0 12px rgba(249,115,22,.95),0 0 3px #fff inset}
+.rutPin .onda{position:absolute;inset:-5px;border-radius:50%;border:2px solid rgba(249,115,22,.55);
+  animation:onda 1.5s ease-out infinite}
+@keyframes onda{0%{transform:scale(.5);opacity:1}100%{transform:scale(1.7);opacity:0}}
+
+/* ── Modal detalle del evento (clic en celda) ── */
+#evOverlay{position:fixed;inset:0;z-index:8800;display:none;place-items:center;padding:16px;
+  background:rgba(3,7,14,.7);backdrop-filter:blur(4px)}
+#evOverlay.on{display:grid}
+.evCard{width:min(760px,96vw);max-height:min(92vh,900px);display:flex;flex-direction:column;
+  background:var(--panel);border:1px solid var(--line2);border-radius:16px;
+  box-shadow:0 22px 70px rgba(0,0,0,.6);overflow:hidden}
+.evHead{display:flex;align-items:center;gap:9px;padding:11px 14px;
+  background:linear-gradient(90deg,#0e2138,#0d1626);border-bottom:1px solid var(--line);flex-wrap:wrap}
+.evHead .nom{font-weight:800;font-size:14.5px;flex:1;min-width:0}
+.evHead .meta{font-size:11px;color:var(--mut);display:flex;gap:6px;flex-wrap:wrap}
+.evHead .meta b{color:#7dd3fc;font-weight:600}
+.evHead .x{background:transparent;border:1px solid var(--line2);color:var(--mut);border-radius:8px;
+  padding:2px 10px;cursor:pointer;font-size:12px;flex:none}
+.evHead .x:hover{color:var(--txt);border-color:var(--acc)}
+.evBody{padding:12px 14px 14px;overflow-y:auto;display:flex;flex-direction:column;gap:9px}
+.evBody video{width:100%;max-height:52vh;background:#000;border-radius:10px;display:block}
+.evBody .accRow{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+a.dl{font-size:12px;padding:6px 12px;border-radius:8px;text-decoration:none;font-weight:700;
+  background:rgba(14,165,233,.14);border:1px solid rgba(56,189,248,.35);color:#7dd3fc}
+a.dl:hover{background:rgba(14,165,233,.28)}
+.evBody .nota{font-size:11px;color:var(--mut2);line-height:1.5}
+.chi{display:inline-flex;gap:4px;align-items:center;font-size:10.5px;color:var(--mut);
+  background:var(--bg4);border-radius:6px;padding:2px 8px;margin-right:5px}
+.chi.dist{color:#93c5fd;border:1px solid rgba(56,189,248,.18)}
+.chi.lej{color:#f87171;background:rgba(239,68,68,.13);border:1px solid rgba(248,113,113,.38)}
+
+/* ── toasts ── */
+#toasts{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:9500;
+  display:flex;flex-direction:column;gap:6px;align-items:center;pointer-events:none}
+.toast{background:#0f1f38;border:1px solid var(--line2);color:var(--txt);font-size:12.5px;
+  padding:8px 14px;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.5);animation:sube .25s ease}
+.toast.err{border-color:#7f1d1d;color:#fecaca}
+@keyframes sube{from{transform:translateY(8px);opacity:0}}
+
+@media (max-width:1020px){
+  #cuerpo{flex-direction:column}
+  #colMapa{height:44vh;flex:none}
+  #colCams{width:auto;flex:1;border-left:0;border-top:1px solid var(--line)}
+  #topbar{flex-wrap:wrap;gap:7px}
+  #topbar .grp{margin-left:0;width:100%;flex-wrap:wrap}
+  #playBar{flex-wrap:wrap}
+  #playBar .reloj{margin-left:auto}
+  #colCams.full #rutGrid{max-height:calc(100vh - 180px)}
+}
+</style>
+</head>
+<body>
+
+<!-- ══════════ SIN SESIÓN ══════════ -->
+<div id="sinSesion">
+  <div class="card">
+    <div class="logo">🎥 TrackCam<span class="punto">.</span></div>
+    <p id="sinMsg">No hay sesión — entra desde el mapa.</p>
+    <a class="btn" href="/">← Volver al mapa</a>
+  </div>
+</div>
+
+<!-- ══════════ APP ══════════ -->
+<div id="app">
+  <div id="topbar">
+    <a class="volver" href="/" title="Volver al mapa del proyecto">← Volver al mapa</a>
+    <div class="titulo">🎥 Video track</div>
+    <div class="grp">
+      <span class="est" id="estado"><span><b>…</b> pts</span><span><b>…</b> cámaras</span></span>
+      <select id="selDia" title="Día a reproducir (el más reciente está seleccionado)"><option value="">cargando días…</option></select>
+    </div>
+  </div>
+
+  <div id="cuerpo">
+    <!-- IZQUIERDA: mapa + barra de reproducción -->
+    <div id="colMapa">
+      <div id="map"></div>
+      <div id="playBar">
+        <button id="btnInicio" title="Ir al inicio del día">⏮</button>
+        <button id="btnPP" class="pp" title="Reproducir / Pausar (día completo)">▶</button>
+        <button id="btnFin" title="Ir al final del día">⏭</button>
+        <button id="btnVel" title="Velocidad de reproducción (1×–64×, se recuerda)">⏩ 8×</button>
+        <input type="range" id="slider" min="0" max="100000" step="1" value="0"
+               disabled title="Desliza para saltar a cualquier hora del día y reproducir desde ahí">
+        <span class="reloj" id="rutT" title="Hora actual del recorrido / final del día">--:--:-- / --:--:--</span>
+      </div>
+    </div>
+
+    <!-- DERECHA: visor de cámaras -->
+    <aside id="colCams">
+      <div id="camHead">
+        <span class="t">📷 Cámaras<b id="camCnt" title="Cámaras con imagen en este instante">0</b></span>
+        <button id="btnFs" title="Pantalla completa del visor (⛶)">⛶</button>
+      </div>
+      <div id="rutScroll">
+        <div id="rutGrid"></div>
+        <div id="rutSin">— sin cámaras en este momento —</div>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<!-- ══════════ MODAL DETALLE DEL EVENTO ══════════ -->
+<div id="evOverlay">
+  <div class="evCard">
+    <div class="evHead">
+      <span class="nom" id="evNom">📷 …</span>
+      <span class="meta" id="evMeta"></span>
+      <button class="x" id="evX" title="Cerrar (Esc)">✕</button>
+    </div>
+    <div class="evBody">
+      <div id="evChips"></div>
+      <video id="evVideo" controls playsinline preload="metadata"></video>
+      <div class="accRow">
+        <a class="dl" id="evMp4" download title="Descargar el MP4 de este evento">⬇ MP4</a>
+        <span class="nota" style="flex:1">Clic en ▶ para ver el vídeo del paso por la cámara. El reproductor queda en pausa mientras ves el detalle.</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toasts"></div>
+
+<!-- ══════════ JS ══════════ -->
+<script>
+'use strict';
+/* ============================================================
+   TrackCam — web/video.html · REPRODUCTOR DE RUTA PROFESIONAL
+   Página propia /video (GET /video sirve este archivo).
+   Solo frontend: se sirve de las APIs del backend ya existentes.
+   La lógica del reproductor (pin 🟠 + fotos en vivo + serie de
+   distancia) es la que ya funciona en web/index.html (F5.10/F5.11),
+   adaptada a estado propio y a la sesión local tc_auth_v1.
+   ============================================================ */
+const LS_AUTH='tc_auth_v1';
+const RUT_RADIO_VIS_M=100;                 // corte FIJO de visibilidad: celda solo ≤100 m reales
+const SLIDE_MAX=100000;
+const $=id=>document.getElementById(id);
+/* Sesión */
+let TOK=null,USER=null,ROL=null,UID=null,USUARIO=null;   // USUARIO: ?usuario= del admin («ver como»)
+/* Datos del día en reproducción */
+let PTS=[];        // features GeoJSON del track del día (props.ts, geometry [lon,lat])
+let EVS=[];        // eventos del día (api /api/eventos)
+let FOTOPAT=null;  // 'dig' | 'pref' | 'none' (patrón de fotos detectado)
+let rutRep=null;   // estado del reproductor de ruta (top-level, NO window.*)
+let capaRuta=null, rutaLinea=null;   // polilínea del día
+let rutVelDef=8; try{const v=parseInt(localStorage.getItem('tc_rut_vel'),10); if([1,2,4,8,16,32,64].includes(v))rutVelDef=v;}catch(e){}
+const RUT_VELS=[1,2,4,8,16,32,64];
+let diaBusy=false, selSeq=0, arrastrando=false, camFull=false;
+
+/* ───────── utilidades ───────── */
+function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function D(s){return esc(String(s??''));}
+function toast(msg,err){const d=document.createElement('div');d.className='toast'+(err?' err':'');d.textContent=msg;$('toasts').appendChild(d);setTimeout(()=>d.remove(),3800);}
+const qs=p=>{const o=[];for(const k in p){if(p[k]===null||p[k]===undefined||p[k]==='')continue;o.push(k+'='+encodeURIComponent(p[k]));}return o.length?'?'+o.join('&'):'';};
+function qUsuario(){return (USUARIO!=null&&USUARIO!=='')?qs({usuario:USUARIO}):'';}
+/* URL con token (para <video>/<img>/<a>, que no llevan header) */
+function au(path){return path+(path.includes('?')?'&':'?')+'token='+encodeURIComponent(TOK||'');}
+/* fetch JSON autenticado; 401 ⇒ sesión caducada → pantalla de sesión */
+async function api(path,opts={}){
+  const h=Object.assign({'Authorization':'Bearer '+(TOK||'')},opts.headers||{});
+  const r=await fetch(path,Object.assign({},opts,{headers:h}));
+  if(r.status===401){cerrarSesionLocal();throw new Error('no autorizado');}
+  const ct=r.headers.get('content-type')||'';
+  const j=ct.includes('json')?await r.json():await r.text();
+  if(!r.ok){const m=(j&&j.error)||j&&j.detail||('HTTP '+r.status);throw new Error(m);}
+  return j;
+}
+function pad3(i){return String(i).padStart(3,'0');}
+function fmtF(ts){return ts==null?'—':new Date(ts*1000).toLocaleString('es-ES',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});}
+function fmtDur(s){s=Math.max(0,Math.round(s));const m=Math.floor(s/60);const r=s%60;return m?`${m} min ${r} s`:`${r} s`;}
+function horaPunto(ts){
+  return ts==null?'--:--:--':new Date(ts*1000).toLocaleTimeString('es-ES',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+}
+function fmtDistMin(m){                    // metros → '0,7 m' / '66 m' / '1,2 km'
+  if(!(typeof m==='number'&&isFinite(m)))return null;
+  if(m<1000)return (m<10?m.toLocaleString('es-ES',{maximumFractionDigits:1}):Math.round(m).toLocaleString('es-ES'))+' m';
+  return (m/1000).toLocaleString('es-ES',{maximumFractionDigits:1})+' km';
+}
+function havKm(a,bl,c,dl){                 // distancia en km entre (a,bl) y (c,dl) en grados
+  const R=6371, p1=a*Math.PI/180, p2=c*Math.PI/180;
+  const dp=(c-a)*Math.PI/180, dd=(dl-bl)*Math.PI/180;
+  const x=Math.sin(dp/2)**2+Math.cos(p1)*Math.cos(p2)*Math.sin(dd/2)**2;
+  return 2*R*Math.asin(Math.sqrt(x));
+}
+function distMetros(ca,cb){                // ca/cb = [lon,lat] → metros
+  return havKm(ca[1],ca[0],cb[1],cb[0])*1000;
+}
+
+/* ═══════════════ MAPA ═══════════════ */
+const map=L.map('map',{preferCanvas:true,zoomControl:true});
+map.setView([43.2701,-2.9560],13);
+/* Capa base: imágenes de satélite Esri (gratuita, sin API key), coherente con
+   el tema oscuro de la app y con la estética del reproductor del mapa. */
+L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+  {attribution:'Imágenes © Esri, Maxar, Earthstar Geographics',maxZoom:19}).addTo(map);
+capaRuta=L.layerGroup().addTo(map);
+
+function rutLL(f){const g=f&&f.geometry&&f.geometry.coordinates;return g&&typeof g[1]==='number'?[g[1],g[0]]:null;}
+function rutHMS(ts){return horaPunto(ts);}          // HH:MM:SS
+
+/* Pin 🟠 en movimiento: divIcon naranja con pulso (estilo de los .dotN de la app) */
+function rutIconoPin(){
+  return L.divIcon({className:'',html:'<div class="rutPin"><div class="p"></div><div class="onda"></div></div>',
+    iconSize:[22,22],iconAnchor:[11,11]});
+}
+
+/* Polilínea del track del día + encuadre (submuestreada para mapas grandes) */
+function dibujarTrack(){
+  capaRuta.clearLayers();
+  if(rutaLinea){map.removeLayer(rutaLinea);rutaLinea=null;}
+  const n=PTS.length;
+  if(n<2)return;
+  const paso=Math.max(1,Math.ceil(n/6000));
+  const latlngs=[];
+  for(let i=0;i<n;i+=paso){const ll=rutLL(PTS[i]);if(ll)latlngs.push(ll);}
+  const ult=rutLL(PTS[n-1]); if(ult&&latlngs[latlngs.length-1]!==ult)latlngs.push(ult);
+  if(latlngs.length<2)return;
+  L.polyline(latlngs,{color:'#0ea5e9',weight:9,opacity:.16,interactive:false}).addTo(capaRuta);
+  rutaLinea=L.polyline(latlngs,{color:'#38bdf8',weight:3.5,opacity:.95,interactive:false}).addTo(capaRuta);
+  try{map.fitBounds(L.latLngBounds(latlngs),{padding:[46,46],maxZoom:17});}catch(e){}
+}
+
+/* ═══════════════ SESIÓN ═══════════════ */
+function leerSesion(){
+  try{
+    const a=JSON.parse(localStorage.getItem(LS_AUTH));
+    if(a&&a.token){TOK=a.token;USER=a.user;ROL=a.rol;UID=a.id;return true;}
+  }catch(e){}
+  return false;
+}
+function mostrarSinSesion(msg){
+  if(msg)$('sinMsg').textContent=msg;
+  $('sinSesion').classList.add('on');
+  $('app').classList.remove('on');
+}
+function cerrarSesionLocal(){rutParar(true);localStorage.removeItem(LS_AUTH);TOK=null;mostrarSinSesion('Sesión caducada — vuelve a entrar desde el mapa.');}
+
+/* ═══════════════ ESTADO / TOPBAR ═══════════════ */
+function pintaEstado(){
+  const st=$('estado');
+  const np=PTS.length;
+  const camU=new Set();
+  (EVS||[]).forEach(e=>{const k=(e.cam_id!=null&&e.cam_id!=='')?String(e.cam_id):String(e.id);camU.add(k);});
+  st.innerHTML=`<span><b class="acc">${np.toLocaleString('es-ES')}</b> pts</span><span><b class="acc">${camU.size}</b> cámaras</span>`;
+}
+function estadoCargando(t){
+  $('estado').innerHTML=`<span style="color:var(--mut2)">${esc(t||'⏳ cargando…')}</span>`;
+}
+
+/* ═══════════════ SELECTOR DE DÍA (F5.12) ═══════════════ */
+function lblDiaD(d){
+  const [y,m,dd]=(d.dia||'').split('-').map(Number);
+  if(!y||!m||!dd)return d.dia;
+  const dt=new Date(y,m-1,dd);
+  const s=dt.toLocaleDateString('es-ES',{weekday:'short',day:'numeric',month:'short',year:'numeric'});
+  return s.charAt(0).toUpperCase()+s.slice(1);
+}
+async function cargarDia(d){
+  if(!d||diaBusy)return;
+  diaBusy=true; selSeq++;
+  const seq=selSeq;
+  const sel=$('selDia');
+  sel.disabled=true;
+  cerrarDetalle();
+  rutParar(false);
+  PTS=[]; EVS=[]; FOTOPAT=null;
+  Object.keys(_rutSeries).forEach(k=>delete _rutSeries[k]);
+  estadoCargando('⏳ cargando '+d.dia+'…');
+  $('rutSin').style.display='';
+  $('rutSin').textContent='⏳ cargando cámaras del día…';
+  $('rutGrid').style.display='none'; $('rutGrid').innerHTML=''; $('rutGrid').classList.remove('uni');
+  setCamCnt(0);
+  $('slider').disabled=true;
+  $('rutT').textContent='--:--:-- / --:--:--';
+  $('btnPP').textContent='▶';
+  try{
+    // F5.12: el TRACK se pide con el rango exacto del día (desde/hasta = min/max
+    // ts), pero los EVENTOS con el DÍA CIVIL completo (dia0/dia1 = 00:00→23:59):
+    // filtrar eventos por el rango del track corta los que se cierran con el
+    // post de +60 s tras el último punto (ts_fin > hasta) → faltaban eventos.
+    const qT=qs({desde:d.desde,hasta:d.hasta})+(qUsuario().replace('?','&'));
+    const qE=qs({desde:d.dia0!=null?d.dia0:d.desde,hasta:d.dia1!=null?d.dia1:d.hasta})+(qUsuario().replace('?','&'));
+    const [tr,evs]=await Promise.all([api('/api/track'+qT),api('/api/eventos'+qE)]);
+    if(seq!==selSeq){diaBusy=false;return;}          // cambiaron de día mientras cargaba
+    const feats=(tr&&tr.features)||[];
+    PTS=feats.filter(f=>f&&f.properties&&typeof f.properties.ts==='number'&&rutLL(f))
+             .sort((a,b)=>a.properties.ts-b.properties.ts);
+    EVS=Array.isArray(evs)?evs:[];
+    await detectarPatronFotos();
+    if(seq!==selSeq){diaBusy=false;return;}
+    dibujarTrack();
+    pintaEstado();
+    if(PTS.length<2){
+      $('rutSin').textContent='— el día '+d.dia+' no tiene recorrido con movimiento (menos de 2 puntos) —';
+      estadoCargando('sin recorrido');
+    }else{
+      rutIniciar();                                   // reproduce el día desde el principio
+    }
+  }catch(e){
+    if(e.message!=='no autorizado'){
+      estadoCargando('⚠ error al cargar '+d.dia);
+      $('rutSin').textContent='— error al cargar el día: '+esc(e.message)+' —';
+      toast('Error al cargar el día: '+e.message,true);
+    }
+  }finally{
+    if(seq===selSeq)sel.disabled=false;
+    diaBusy=false;
+  }
+}
+
+/* ═══════════════ PATRÓN DE FOTOS (detectado una vez, re-sondea si cambió el día) ═══════════════
+   /api/evento/{id}/foto/{n} solo sirve archivos de 1-3 dígitos, pero los eventos
+   guardan foto_000.jpg… → se sondea /000 (→ 'dig') y /foto_000.jpg (→ 'pref'). */
+async function detectarPatronFotos(){
+  if(FOTOPAT==='dig'||FOTOPAT==='pref')return FOTOPAT;
+  const ev=EVS&&EVS[0]; if(!ev)return(FOTOPAT='none');
+  try{
+    const r2=await fetch(au('/api/evento/'+ev.id+'/foto/000'),{method:'GET'});
+    if(r2.ok)return(FOTOPAT='dig');
+    const r1=await fetch(au('/api/evento/'+ev.id+'/foto/foto_000.jpg'),{method:'GET'});
+    if(r1.ok)return(FOTOPAT='pref');
+  }catch(e){}
+  return(FOTOPAT='none');
+}
+function urlFoto(eid,i){
+  if(FOTOPAT==='pref')return au('/api/evento/'+eid+'/foto/foto_'+pad3(i)+'.jpg');
+  if(FOTOPAT==='dig')return au('/api/evento/'+eid+'/foto/'+pad3(i));
+  return null;
+}
+
+/* ═══════════════ REPRODUCTOR DE RUTA (copiado y adaptado de index.html F5.10/F5.11) ═══════════════
+   Estado propio en rutRep {pts,i,play,vel,mk,raf,t0,ts0,tsFin,grid,_ts,_lu,_ord,_idx,_imgs}. */
+
+/* Parada total: cancela el bucle, borra el marcador y suelta el estado. */
+function rutParar(noRedraw){
+  const rp=rutRep;
+  if(rp&&rp.raf){cancelAnimationFrame(rp.raf);rp.raf=null;}
+  if(rp&&rp.mk){try{map.removeLayer(rp.mk);}catch(e){}rp.mk=null;}
+  rutRep=null;
+  const g=$('rutGrid'); if(g){g.style.display='none';g.innerHTML='';g.classList.remove('uni');}
+  setCamCnt(0);
+  $('rutT').textContent='--:--:-- / --:--:--';
+  $('btnPP').textContent='▶';
+  $('slider').value=0; $('slider').disabled=true;
+}
+function setCamCnt(n){
+  const c=$('camCnt'); if(c){c.textContent=n;c.title='Cámaras con imagen en este instante'+(n?' · clic en una para ver el detalle':'');}
+}
+function rutCtrUI(){
+  const rp=rutRep; if(!rp)return;
+  const pp=$('btnPP'); if(pp)pp.textContent=rp.play?'⏸':'▶';
+  const vb=$('btnVel'); if(vb)vb.textContent='⏩ '+rp.vel+'×';
+}
+function rutTime(){
+  const rp=rutRep; if(!rp)return;
+  const t=$('rutT'); if(t)t.textContent=rutHMS(Math.min(rp._ts,rp.tsFin))+' / '+rutHMS(rp.tsFin);
+  /* slider: lo mueve la reproducción, pero nunca mientras el usuario arrastra */
+  if(!arrastrando&&$('slider')&&rp.tsFin>rp.ts0){
+    const sl=$('slider');
+    const now=performance.now();
+    if(!rp._lS||now-rp._lS>=150){
+      rp._lS=now;
+      const v=Math.max(0,Math.min(1,(rp._ts-rp.ts0)/(rp.tsFin-rp.ts0)));
+      const val=Math.round(v*SLIDE_MAX);
+      if(sl.value!==String(val))sl.value=val;
+    }
+  }
+}
+function rutMueve(){
+  const rp=rutRep; if(!rp)return;
+  const f=rp.pts[Math.max(0,Math.min(rp.pts.length-1,rp.i))]; if(!f)return;
+  const ll=rutLL(f); if(!ll)return;
+  if(!rp.mk)rp.mk=L.marker(ll,{icon:rutIconoPin(),zIndexOffset:6000}).addTo(map);
+  else rp.mk.setLatLng(ll);
+}
+/* Eventos del día ACTIVOS en el instante ts (ventana del evento), ordenados por
+   DISTANCIA REAL del track a la cámara (más cercana primero), máx 9. */
+function rutEvsActivos(ts){
+  const pos=rutPuntoEn(ts);               // [lon,lat] del track en ts (o null)
+  const rmax=RUT_RADIO_VIS_M;             // corte FIJO de visibilidad: ≤100 m reales
+  const out=[];
+  for(const e of EVS){
+    if(!e||typeof e.ts_inicio!=='number')continue;
+    let a,b;
+    if(typeof e.ts_entrada==='number'&&typeof e.ts_salida==='number'){a=e.ts_entrada-60;b=e.ts_salida+60;}
+    else{a=e.ts_inicio;b=(typeof e.ts_fin==='number')?e.ts_fin:e.ts_inicio;}
+    if(b<a)b=a;
+    if(ts<a||ts>b)continue;
+    let dm=Infinity;
+    if(pos&&typeof e.lat==='number'&&typeof e.lon==='number'){
+      dm=distMetros([e.lon,e.lat],pos);   // distancia REAL track↔cámara AHORA
+      if(isFinite(dm)&&dm>rmax)continue;  // lejos (>100 m) → no hay nada que ver
+    }
+    out.push({e,d:dm});
+  }
+  out.sort((x,y)=>x.d-y.d);
+  return out.slice(0,9);
+}
+/* Posición [lon,lat] del track en ts (interpolando entre features). Búsqueda binaria. */
+function rutPuntoEn(ts){
+  const pts=(rutRep&&rutRep.pts)||PTS;
+  const n=pts.length;
+  if(!n)return null;
+  let lo=0,hi=n-1,posi=-1;
+  while(lo<=hi){
+    const mid=(lo+hi)>>1;
+    const p=pts[mid]&&pts[mid].properties;
+    const t=(p&&typeof p.ts==='number')?p.ts:Infinity;
+    if(t>=ts){posi=mid;hi=mid-1;}else{lo=mid+1;}
+  }
+  const llDe=i=>{const ll=rutLL(pts[i]);return ll?ll:null;};
+  if(posi<0){const ll=llDe(n-1);return ll?[ll[1],ll[0]]:null;}
+  if(posi===0){const ll=llDe(0);return ll?[ll[1],ll[0]]:null;}
+  const a=pts[posi-1], b=pts[posi];
+  const ta=(a&&a.properties&&typeof a.properties.ts==='number')?a.properties.ts:-1e18;
+  const tb=(b&&b.properties&&typeof b.properties.ts==='number')?b.properties.ts:1e18;
+  const la=llDe(posi-1), lb=llDe(posi);
+  if(!la&&!lb)return null;
+  if(!lb)return [la[1],la[0]];
+  if(!la)return [lb[1],lb[0]];
+  const dt=tb-ta;
+  const pr=dt>0?Math.min(1,Math.max(0,(ts-ta)/dt)):0;
+  const lat=la[0]+(lb[0]-la[0])*pr, lon=la[1]+(lb[1]-la[1])*pr;
+  return [lon,lat];
+}
+/* Foto del evento cuyo foto_ts es el más próximo a ts; si no hay foto_ts, índice
+   proporcional (ts-ts_inicio)/(ts_fin-ts_inicio) · n_fotos. */
+function rutFotoIdx(e,ts){
+  const nf=Math.max(1,e.n_fotos||1);
+  const fts=(Array.isArray(e.foto_ts)&&e.foto_ts.length>=nf)?e.foto_ts:null;
+  if(fts){
+    let best=0,bd=Infinity;
+    for(let i=0;i<nf;i++){
+      const ft=fts[i]; if(typeof ft!=='number')continue;
+      const d=Math.abs(ft-ts); if(d<bd){bd=d;best=i;}
+    }
+    return best;
+  }
+  const t0=e.ts_inicio||0;
+  const t1=(typeof e.ts_fin==='number'&&e.ts_fin>t0)?e.ts_fin:t0+1;
+  const pr=Math.max(0,Math.min(1,(ts-t0)/(t1-t0)));
+  return Math.min(nf-1,Math.round(pr*(nf-1)));
+}
+/* ── serie de DISTANCIA de la pasada: evolución track↔cámara en los tiempos de
+   sus fotos, calculada contra el TRACK REAL (no dist_min_m). Cache por evento. */
+const _rutSeries={};
+function rutSerie(e){
+  const id=String(e.id);
+  if(_rutSeries[id])return _rutSeries[id];
+  const nf=Math.max(1,e.n_fotos||1);
+  const fts=(Array.isArray(e.foto_ts)&&e.foto_ts.length>=nf)?e.foto_ts:null;
+  const t0=e.ts_inicio||0;
+  const t1=(typeof e.ts_fin==='number'&&e.ts_fin>t0)?e.ts_fin:t0+1;
+  const camLL=[e.lon,e.lat];
+  const arr=[];
+  let nOk=0;
+  for(let i=0;i<nf;i++){
+    const ts=(fts&&typeof fts[i]==='number')?fts[i]:
+      (nf>1?t0+(t1-t0)*i/(nf-1):t0);
+    const pos=rutPuntoEn(ts);
+    if(!pos||typeof camLL[0]!=='number')continue;
+    const d=distMetros(camLL,pos);
+    if(!isFinite(d))continue;
+    arr.push({ts,d}); nOk++;
+  }
+  if(arr.length>1)arr.sort((a,b)=>a.ts-b.ts);
+  _rutSeries[id]=nOk>=2?arr:null;
+  return _rutSeries[id];
+}
+/* Submuestra la serie a <=maxPts conservando SIEMPRE el mínimo (⭐) y los
+   extremos; devuelve [{ts,d,min}] listos para pintar. */
+function rutSerieResumen(e,maxPts){
+  const full=rutSerie(e);
+  if(!full||full.length<2)return null;
+  maxPts=Math.max(3,maxPts||8);
+  if(full.length<=maxPts)return full.map(p=>({ts:p.ts,d:p.d}));
+  let iMin=0;
+  for(let i=1;i<full.length;i++)if(full[i].d<full[iMin].d)iMin=i;
+  const idxs=new Set([0,full.length-1,iMin]);
+  const resto=Math.max(0,maxPts-3);
+  for(let k=0;k<resto;k++){
+    const pos=Math.round((full.length-1)*(k+1)/(resto+1));
+    idxs.add(pos);
+  }
+  const sel=[...idxs].sort((a,b)=>a-b);
+  return sel.map(i=>({ts:full[i].ts,d:full[i].d,min:i===iMin}));
+}
+function rutCelHTML(o){
+  const e=o.e, idx=o.idx;
+  const nf=Math.max(1,e.n_fotos||1);
+  const url=(FOTOPAT!=='none'&&nf>0)?urlFoto(e.id,Math.min(idx,nf-1)):null;
+  const nomFull=e.cam_nombre||e.cam_id||String(e.id);
+  const pas=e.es_pasada!==false;
+  /* F5.11e: la distancia del chip es la ACTUAL del pin a la cámara (o.d), NO el
+     mínimo de la pasada (dist_min_m) — o.d se recalcula en vivo en rutGrid. */
+  const dAct=(typeof o.d==='number'&&isFinite(o.d))?o.d:null;
+  const ms=dAct!=null?fmtDistMin(dAct):null;
+  const tA=ms?(pas?'📍 a '+ms:'🚫 a '+ms):(pas?'📍 pasada':'🚫 lejana');
+  const med=url?`<img src="${url}" alt="${esc(nomFull)}" loading="lazy" decoding="async">`:`<div class="rutNo">📷</div>`;
+  const ttl=esc(nomFull+' · '+fmtF(e.ts_inicio)+(ms?' · '+tA:''));
+  const nAct=o.nAct||1;
+  const maxPts=nAct<=1?9:(nAct<=2?7:(nAct<=4?5:4));
+  const serie=rutSerieResumen(e,maxPts);
+  let fila='';
+  if(serie&&serie.length>=2){
+    const denso=(nAct>=5)?' denso':'';
+    fila='<div class="rutSerie'+denso+'">'+serie.map(p=>{
+      const h=rutHMS(p.ts).slice(0,5);             // HH:MM compacto
+      const dm=Math.round(p.d);
+      const et=dm<10?dm+' m':fmtDistMin(p.d);
+      return `<span class="rutP${p.min?' min':''}" data-ts="${Math.round(p.ts)}" title="${rutHMS(p.ts)} · ${fmtDistMin(p.d)}">${p.min?'⭐ ':''}${h} ${et}</span>`;
+    }).join('<i>→</i>')+'</div>';
+  }
+  return `<div class="rutCel" data-id="${esc(String(e.id))}" title="${ttl}">${med}${fila}
+    <div class="rutCap"><span class="rn">${D(nomFull)}</span><span class="rd ${pas?'pas':'lej'}">${tA}</span></div></div>`;
+}
+/* Cuadrícula adaptativa SIN parpadeos: si cambia el CONJUNTO de cámaras activas
+   se reconstruye el DOM; si es el mismo solo se renueva el src de las fotos. */
+function rutGrid(ts){
+  const rp=rutRep; if(!rp)return;
+  const g=rp.grid; if(!g)return;
+  const s=$('rutSin');
+  const act=rutEvsActivos(ts).map(x=>{x.idx=rutFotoIdx(x.e,ts);return x;});
+  if(!act.length){
+    if(g.style.display!=='none'){g.style.display='none';g.innerHTML='';rp._ord='';setCamCnt(0);}
+    if(s){s.style.display='';s.textContent='— sin cámaras en este momento —';}
+    return;
+  }
+  if(s)s.style.display='none';
+  g.style.display='grid';
+  g.classList.toggle('uni',act.length===1);
+  g.style.gridTemplateColumns=act.length===1?'1fr':(act.length<=4?'repeat(2,1fr)':'repeat(3,1fr)');
+  const key=act.map(x=>String(x.e.id)).join(',');
+  const nAct=act.length;
+  if(key!==rp._ord){
+    rp._ord=key;
+    g.innerHTML=act.map(x=>rutCelHTML(Object.assign({nAct},x))).join('');
+    setCamCnt(nAct);
+    rp._imgs={}; rp._idx={};
+    act.forEach(x=>{
+      const id=String(x.e.id);
+      const cel=g.querySelector('.rutCel[data-id="'+CSS.escape(id)+'"]');
+      rp._imgs[id]=cel?cel.querySelector('img'):null;
+      rp._idx[id]=x.idx;
+    });
+    rutSerieNow(ts);
+  }else{
+    rutSerieNow(ts);
+    for(const x of act){
+      const id=String(x.e.id);
+      const cel=g.querySelector('.rutCel[data-id="'+CSS.escape(id)+'"]');
+      /* F5.11e: el chip de distancia se actualiza EN VIVO con cada fotograma
+         (baja al acercarse, sube al alejarse) — nunca el dist_min_m fijo. */
+      if(cel&&typeof x.d==='number'&&isFinite(x.d)){
+        const rd=cel.querySelector('.rd');
+        if(rd){
+          const pas=x.e.es_pasada!==false;
+          const t=pas?'📍 a '+fmtDistMin(x.d):'🚫 a '+fmtDistMin(x.d);
+          if(rd.textContent!==t)rd.textContent=t;
+        }
+      }
+      if(rp._idx[id]===x.idx)continue;
+      rp._idx[id]=x.idx;
+      const im=rp._imgs[id];
+      if(im){const nf=Math.max(1,x.e.n_fotos||1);const u=(FOTOPAT!=='none')?urlFoto(x.e.id,Math.min(x.idx,nf-1)):null; if(u)im.src=u;}
+    }
+  }
+}
+/* Resalta en cada serie el punto más próximo al instante actual (borde azul .now). */
+function rutSerieNow(ts){
+  const g=(rutRep&&rutRep.grid); if(!g)return;
+  const celdas=g.querySelectorAll('.rutCel');
+  for(const cel of celdas){
+    const pts=cel.querySelectorAll('.rutP');
+    let best=null,bd=Infinity;
+    for(const p of pts){
+      const t=parseFloat(p.getAttribute('data-ts'));
+      if(!isFinite(t))continue;
+      const d=Math.abs(t-ts);
+      if(d<bd){bd=d;best=p;}
+    }
+    for(const p of pts)p.classList.remove('now');
+    if(best)best.classList.add('now');
+  }
+}
+function rutSeek(i,gridF){
+  const rp=rutRep; if(!rp)return;
+  const pts=rp.pts;
+  i=Math.max(0,Math.min(pts.length-1,i));
+  rp.i=i; rp._ts=pts[i].properties.ts;
+  if(rp.play)rp.t0=performance.now()-(rp._ts-rp.ts0)*1000/rp.vel;
+  rutMueve(); rutTime();
+  if(gridF)rutGrid(rp._ts);
+}
+/* Bucle rAF: tsActual = ts0 + (now-t0)/1000·vel. Cuadrícula ~cada 250 ms reales. */
+function rutBucle(now){
+  const rp=rutRep; if(!rp)return;
+  if(!rp.play){rp.raf=null;return;}
+  const pts=rp.pts, n=pts.length;
+  const ts=rp.ts0+(now-rp.t0)/1000*rp.vel;
+  rp._ts=ts;
+  if(ts>=rp.tsFin){
+    rp.i=n-1; rp._ts=rp.tsFin;
+    rp.play=false; rp.raf=null;
+    rutMueve(); rutTime(); rutGrid(rp.tsFin); rutCtrUI();
+    toast('✅ Día reproducido');
+    return;
+  }
+  let i=rp.i;
+  while(i+1<n&&pts[i+1].properties.ts<=ts)i++;
+  rp.i=i;
+  rutMueve(); rutTime();
+  if(now-rp._lu>=250){rp._lu=now;rutGrid(ts);}
+  rp.raf=requestAnimationFrame(rutBucle);
+}
+/* Arranca la reproducción del día cargado (PTS/EVS ya listos), desde el inicio. */
+function rutIniciar(){
+  if(rutRep)return;
+  const pts=PTS;
+  if(pts.length<2){toast('El día no tiene recorrido suficiente',true);return;}
+  const ts0=pts[0].properties.ts, tsFin=pts[pts.length-1].properties.ts;
+  if(!(tsFin>ts0)){toast('El recorrido no tiene duración',true);return;}
+  const g=$('rutGrid'), s=$('rutSin');
+  if(!g)return;
+  const stub={pts:null,i:0,play:false,vel:0,mk:null,raf:null,t0:0,ts0:0,tsFin:0,grid:null,_ts:0,_lu:0,_ord:'',_idx:{},_imgs:{}};
+  rutRep=stub;                                    // marca «arrancando» contra dobles clics
+  detectarPatronFotos().then(()=>{
+    if(rutRep!==stub)return;                      // lo pararon mientras esperábamos
+    g.innerHTML=''; g.style.display='none'; g.classList.remove('uni');
+    if(s)s.style.display='none';
+    const rp={pts,i:0,play:true,vel:rutVelDef,mk:null,raf:null,t0:performance.now(),ts0,tsFin,grid:g,_ts:ts0,_lu:-1e9,_ord:'',_idx:{},_imgs:{},_lS:0};
+    rutRep=rp;
+    rutMueve(); rutTime(); rutGrid(rp.ts0); rutCtrUI();
+    const sl=$('slider'); if(sl){sl.disabled=false;sl.value=0;}
+    rp.raf=requestAnimationFrame(rutBucle);
+  }).catch(()=>{ if(rutRep===stub)rutRep=null; });
+}
+function idxPuntoEn(ts){                          // índice del primer punto con p.ts >= ts
+  const pts=PTS, n=pts.length;
+  if(!n)return 0;
+  let lo=0,hi=n-1,posi=n-1;
+  while(lo<=hi){
+    const mid=(lo+hi)>>1;
+    const t=(pts[mid].properties&&pts[mid].properties.ts);
+    if(t>=ts){posi=mid;hi=mid-1;}else{lo=mid+1;}
+  }
+  return posi;
+}
+function rutCtrl(acc){
+  if(acc==='close'){rutParar(false);return;}
+  const rp=rutRep; if(!rp)return;
+  if(acc==='vel'){
+    const ix=RUT_VELS.indexOf(rp.vel);
+    rp.vel=RUT_VELS[(ix+1)%RUT_VELS.length];
+    try{localStorage.setItem('tc_rut_vel',String(rp.vel));}catch(e){}
+    if(rp.play)rp.t0=performance.now()-(rp._ts-rp.ts0)*1000/rp.vel;
+    rutCtrUI();
+    return;
+  }
+  if(acc==='playpause'){
+    if(rp.play){
+      rp.play=false;
+      if(rp.raf){cancelAnimationFrame(rp.raf);rp.raf=null;}
+    }else{
+      if(rp._ts>=rp.tsFin-1)rutSeek(0,false);       // al final → ▶ reinicia
+      rp.play=true;
+      rp.t0=performance.now()-(rp._ts-rp.ts0)*1000/rp.vel;
+      rp._lu=-1e9;
+      rp.raf=requestAnimationFrame(rutBucle);
+    }
+    rutCtrUI();
+    return;
+  }
+  if(acc==='inicio')rutSeek(0,true);
+  else if(acc==='fin')rutSeek(rp.pts.length-1,true);
+}
+/* Slider: saltar a cualquier hora y reproducir DESDE ahí (mantiene play previo) */
+function sliderASeek(){
+  const rp=rutRep; if(!rp)return;
+  const dur=rp.tsFin-rp.ts0; if(!(dur>0))return;
+  const frac=Math.max(0,Math.min(1,(parseFloat($('slider').value)||0)/SLIDE_MAX));
+  const ts=rp.ts0+frac*dur;
+  rutSeek(idxPuntoEn(ts),true);
+}
+
+/* ═══════════════ DETALLE DEL EVENTO (clic en celda) ═══════════════ */
+function abrirDetalle(id){
+  const e=EVS.find(x=>String(x.id)===String(id));
+  if(!e)return;
+  if(rutRep&&rutRep.play)rutCtrl('playpause');      // pausa el recorrido mientras ves el detalle
+  const nom=e.cam_nombre||e.cam_id||String(e.id);
+  const d=new Date((e.ts_inicio||0)*1000);
+  const fecha=d.toLocaleDateString('es-ES',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
+  $('evNom').textContent='📷 '+nom;
+  $('evMeta').textContent=fecha+' · '+horaPunto(e.ts_inicio);
+  const pas=e.es_pasada!==false;
+  const m=e.dist_min_m;
+  let chips='';
+  if(e.ts_fin!=null&&e.ts_inicio!=null)chips+=`<span class="chi">🎞 ${fmtDur(e.ts_fin-e.ts_inicio)}</span>`;
+  if(e.n_fotos!=null)chips+=`<span class="chi">📷 ${e.n_fotos}</span>`;
+  if(typeof m==='number'&&isFinite(m)){
+    const s=fmtDistMin(m);
+    chips+=pas?`<span class="chi dist" title="📍 distancia mínima real a la que pasaste: ${s}">📍 ${s}</span>`
+              :`<span class="chi lej" title="pasaste a ${s} — no cuenta como pasada">🚫 lejana ${s}</span>`;
+  }
+  $('evChips').innerHTML=chips||'';
+  const v=$('evVideo');
+  v.src=au('/api/evento/'+e.id+'/video');
+  const dl=$('evMp4');
+  dl.href=au('/api/evento/'+e.id+'/video');
+  dl.download='trackcam-'+String(e.id)+'.mp4';
+  dl.textContent='⬇ MP4';
+  $('evOverlay').classList.add('on');
+}
+function cerrarDetalle(){
+  const ov=$('evOverlay'); if(!ov||!ov.classList.contains('on'))return;
+  const v=$('evVideo'); try{v.pause();}catch(e){}
+  v.removeAttribute('src'); v.load();
+  ov.classList.remove('on');
+}
+
+/* ═══════════════ VISOR ⛶ (panel de cámaras a pantalla completa) ═══════════════ */
+function toggleCamsFull(){
+  const col=$('colCams'); if(!col)return;
+  camFull=!col.classList.contains('full');
+  col.classList.toggle('full',camFull);
+  const fs=$('btnFs');
+  fs.textContent=camFull?'🗗':'⛶';
+  fs.title=camFull?'Salir de pantalla completa del visor':'Pantalla completa del visor (⛶)';
+  setTimeout(()=>map.invalidateSize(),80);
+}
+
+/* ═══════════════ WIRING ═══════════════ */
+$('btnPP').onclick=()=>{if(!rutRep&&PTS.length>=2)rutIniciar();else rutCtrl('playpause');};
+$('btnInicio').onclick=()=>rutCtrl('inicio');
+$('btnFin').onclick=()=>rutCtrl('fin');
+$('btnVel').onclick=()=>rutCtrl('vel');
+$('selDia').onchange=ev=>{
+  const d=(DIAS_CACHE||[]).find(x=>x.dia===ev.target.value);
+  if(d)cargarDia(d);
+};
+$('btnFs').onclick=toggleCamsFull;
+$('evX').onclick=cerrarDetalle;
+$('evOverlay').addEventListener('click',ev=>{if(ev.target===$('evOverlay'))cerrarDetalle();});
+document.addEventListener('keydown',ev=>{
+  if(ev.key==='Escape')cerrarDetalle();
+});
+/* slider: input → solo mueve el cursor visual del reloj; change → seek + reproduce */
+$('slider').addEventListener('input',()=>{
+  arrastrando=true;
+  const rp=rutRep; if(!rp)return;
+  const dur=rp.tsFin-rp.ts0; if(!(dur>0))return;
+  const frac=Math.max(0,Math.min(1,(parseFloat($('slider').value)||0)/SLIDE_MAX));
+  const ts=rp.ts0+frac*dur;
+  const t=$('rutT'); if(t)t.textContent=rutHMS(ts)+' / '+rutHMS(rp.tsFin);
+});
+$('slider').addEventListener('change',()=>{
+  arrastrando=false;
+  if(!rutRep&&PTS.length>=2)rutIniciar();
+  sliderASeek();
+});
+/* clic en celda → detalle del evento (delegado: rutGrid se reconstruye) */
+$('rutGrid').addEventListener('click',ev=>{
+  const cel=ev.target&&ev.target.closest?ev.target.closest('.rutCel'):null;
+  if(cel)abrirDetalle(cel.getAttribute('data-id'));
+});
+window.addEventListener('resize',()=>{map.invalidateSize();});
+let DIAS_CACHE=[];
+
+/* ═══════════════ ARRANQUE ═══════════════ */
+(async function init(){
+  if(!leerSesion()){mostrarSinSesion();return;}
+  $('app').classList.add('on');
+  setTimeout(()=>map.invalidateSize(),60);
+  $('btnVel').textContent='⏩ '+rutVelDef+'×';
+  try{
+    const j=await api('/api/dias'+qUsuario());
+    const dias=(j&&j.dias)||[];
+    DIAS_CACHE=dias;
+    const sel=$('selDia'); sel.innerHTML='';
+    if(!dias.length){
+      sel.innerHTML='<option value="">sin días con recorrido</option>';
+      sel.disabled=true;
+      estadoCargando('sin días con track grabado');
+      $('rutSin').textContent='— no hay días con recorrido grabado —';
+      return;
+    }
+    dias.forEach(d=>{
+      const o=document.createElement('option');
+      o.value=d.dia;
+      o.textContent=lblDiaD(d);
+      o.title=`${d.dia} · ${(d.pts||0).toLocaleString('es-ES')} pts · ${horaPunto(d.desde)} – ${horaPunto(d.hasta)}`;
+      sel.appendChild(o);
+    });
+    sel.disabled=false;
+    sel.value=dias[0].dia;                          // el más reciente por defecto
+    await cargarDia(dias[0]);
+  }catch(e){
+    if(e.message==='no autorizado')return;
+    estadoCargando('⚠ no se pudieron cargar los días');
+    toast('No se pudieron cargar los días: '+e.message,true);
+  }
+})();
+</script>
+</body>
+</html>

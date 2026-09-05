@@ -223,7 +223,7 @@ elif MODO == "ingesta":
         return JSONResponse({"error": _INGESTA_MSG}, status_code=404)
 
     # Páginas web → fuera (el mapa/control viven en trackcam)
-    for _p in ("/", "/replay", "/control", "/static"):
+    for _p in ("/", "/replay", "/video", "/control", "/static"):
         @app.api_route(_p, methods=["GET", "POST", "PUT", "DELETE"])
         async def _ingesta_no_web(request: Request, _p: str = _p):
             return _solo_ingesta()
@@ -890,6 +890,46 @@ def api_ultimo_punto(request: Request):
                        "vel_gps": r[4], "v": v, "modo": _modo_vel(v)}}
 
 
+@app.get("/api/dias")
+def api_dias(request: Request):
+    """F5.12: días que tienen track grabado (para el selector de día de /video).
+    Devuelve [{dia:'YYYY-MM-DD', pts:N, desde:ts, hasta:ts}] ordenado desc.
+    Usa la zona horaria local del servidor (CEST/CET)."""
+    u = _auth(request)
+    if not u:
+        return _pedir_auth()
+    con = get_db()
+    conds, params = [], []
+    if u["rol"] == "admin":
+        vid = request.query_params.get("usuario")
+        if vid:
+            conds.append("user_id=?"); params.append(vid)
+    else:
+        conds.append("user_id=?"); params.append(str(u["id"]))
+    q = ("SELECT date(ts,'unixepoch','localtime') AS dia, COUNT(*) AS n,"
+         " MIN(ts) AS d0, MAX(ts) AS d1 FROM tracks")
+    if conds:
+        q += " WHERE " + " AND ".join(conds)
+    q += " GROUP BY dia ORDER BY dia DESC"
+    filas = con.execute(q, params).fetchall()
+    con.close()
+    # F5.12: además del rango del TRACK (d0/d1) devolver el DÍA CIVIL completo
+    # (dia0 00:00 local → dia1 23:59:59 local) para pedir los EVENTOS por día:
+    # filtrar eventos por [d0,d1] del track corta los que se cierran con el post
+    # de +60 s después del último punto (ts_fin > d1) → faltaban eventos.
+    import datetime as _dt
+    def _dia_civil(epoch_medio):
+        base = _dt.datetime.fromtimestamp(epoch_medio).replace(hour=0, minute=0, second=0, microsecond=0)
+        fin = base + _dt.timedelta(days=1, seconds=-1)
+        return base.timestamp(), fin.timestamp()
+    out = []
+    for r in filas:
+        d0c, d1c = _dia_civil((r[2] + r[3]) / 2.0)
+        out.append({"dia": r[0], "pts": r[1], "desde": r[2], "hasta": r[3],
+                    "dia0": d0c, "dia1": d1c})
+    return {"dias": out}
+
+
 # ── API: eventos ───────────────────────────────────────────────────────────
 @app.get("/api/eventos")
 def api_eventos(request: Request):
@@ -1387,10 +1427,17 @@ def index():
 
 @app.get("/replay")
 def replay():
-    """F5.11d: /replay ya no es la página vieja de un único vídeo — el «Video
-    track» moderno es el reproductor ▶ Ruta del mapa. Redirige al mapa con el
-    reproductor auto-abierto (?rut=1); el panel lateral se abre en la app."""
-    return RedirectResponse("/?rut=1", status_code=302)
+    """F5.11d: /replay era la página vieja; /video es la herramienta nueva.
+    Redirige a /video (la URL antigua que el usuario conoce)."""
+    return RedirectResponse("/video", status_code=302)
+
+
+@app.get("/video")
+def video():
+    """F5.12: reproductor de ruta profesional en página propia (pantalla
+    completa, estilo app): selector de día, slider del recorrido, cuadrícula
+    de cámaras con distancia en vivo. Misma sesión que el mapa (tc_auth_v1)."""
+    return FileResponse(os.path.join(WEB, "video.html"))
 
 
 @app.get("/control")

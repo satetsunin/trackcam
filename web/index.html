@@ -582,7 +582,7 @@ button.mchip.pel:hover{background:#3b1620}
 <div id="app">
   <div id="topbar">
     <div class="brand">🎥 TrackCam<span class="punto">.</span></div>
-    <a class="link" href="javascript:void(0)" id="linkVideoTrack" title="Reproducir la ruta: fotos de las cámaras según la velocidad + distancia">🎬 Video track</a>
+    <a class="link" href="/video" id="linkVideoTrack" title="Abrir Video track (reproductor de ruta en página propia) en pestaña nueva">🎬 Video track</a>
     <div id="verComoWrap"><span>👁 ver como</span><select id="selVerComo"></select></div>
     <div style="flex:1"></div>
     <div id="chipUser" role="button" tabindex="0" title="Abrir mi perfil (👤 Perfil)"> 
@@ -3336,11 +3336,12 @@ window.rutCel=function(id){                          // clic en una celda de la 
   });
   const rf=$('btnRutaFlot');
   if(rf)rf.onclick=()=>{ if(!rutRep)rutIniciar(); };
-  /* F5.11d: «🎬 Video track» de la topbar abre el MISMO reproductor ▶ Ruta del
-     mapa (antes llevaba a la página vieja /replay con un único vídeo). Si no hay
-     ruta cargada o ya está en marcha, el propio reproductor avisa/ignora. */
+  /* F5.12: «🎬 Video track» de la topbar abre la página propia /video (herramienta
+     de pestaña nueva con selector de día y slider). El botón flotante ▶ Ruta se
+     queda en el mapa como vista rápida (decisión del usuario). Si el admin está
+     «viendo como» otro usuario, se hereda ?usuario=. */
   const lv=$('linkVideoTrack');
-  if(lv)lv.onclick=ev=>{ev.preventDefault();if(!rutRep)rutIniciar();};
+  if(lv)lv.onclick=ev=>{ev.preventDefault();window.open('/video'+vistaQS(),'_blank');};
   window.addEventListener('resize',()=>{
     if(!rutRep)return;
     const pan=$('rutPanel');
