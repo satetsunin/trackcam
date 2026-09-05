@@ -179,6 +179,12 @@ class MotorCaptura:
         self._cargar_cfg()
 
         self.lock = __import__("threading").Lock()
+        # Los hilos del pool de descargas NUNCA toman self.lock (lo retiene
+        # el hilo motor en _procesar_punto mientras espera descargas →
+        # deadlock, mismo bug que _poda_buffer en 0758c0a). Para proteger
+        # sus estructuras usan locks dedicados:
+        self.lock_hash = __import__("threading").Lock()     # _ultimo_hash
+        self.lock_muertas = __import__("threading").Lock()  # self.muertas
         self.cams = {}          # user_id -> {cid: estado}
         self.ultimo_ts = {}     # user_id -> último ts procesado
         self.ultima_llegada = {}  # user_id -> time.time() del último lote suyo
@@ -244,13 +250,13 @@ class MotorCaptura:
 
     def _marcar_muerta(self, cid, motivo):
         """Registra una cámara como muerta (placeholder real o fallo)."""
-        with self.lock:
+        with self.lock_muertas:   # lock dedicado: se llama desde el pool
             self.muertas[str(cid)] = {"ts": time.time(), "motivo": motivo}
             self._guardar_muertas()
 
     def _marcar_viva(self, cid):
         """Si la cámara vuelve a servir imagen real, sale de la lista."""
-        with self.lock:
+        with self.lock_muertas:   # lock dedicado: se llama desde el pool
             if str(cid) in self.muertas:
                 del self.muertas[str(cid)]
                 self._guardar_muertas()
@@ -770,7 +776,7 @@ class MotorCaptura:
             if h < 0:
                 return
             clave = (str(user_id), cid)
-            with self.lock:
+            with self.lock_hash:   # lock dedicado: el pool no puede usar self.lock
                 prev = getattr(self, "_ultimo_hash", {}).get(clave)
                 prev_ts = getattr(self, "_ultimo_hash_ts", {}).get(clave, 0)
                 # visita nueva (hueco >120 s) → guardar esta foto siempre
