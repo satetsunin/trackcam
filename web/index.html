@@ -3133,7 +3133,11 @@ function rutCelHTML(o){
   const url=(S.fotoPat!=='none'&&nf>0)?urlFoto(e.id,Math.min(idx,nf-1)):null;
   const nomFull=e.cam_nombre||e.cam_id||String(e.id);
   const pas=e.es_pasada!==false;
-  const ms=fmtDistMin(e.dist_min_m);
+  // F5.11e: la distancia del chip es la ACTUAL del pin a la cámara (o.d), NO el
+  // mínimo de la pasada (dist_min_m) — el usuario: «me acerco → baja, me alejo
+  // → sube, así debe ser». o.d se recalcula en vivo en rutGrid y se reescribe.
+  const dAct=(typeof o.d==='number'&&isFinite(o.d))?o.d:null;
+  const ms=dAct!=null?fmtDistMin(dAct):null;
   const tA=ms?(pas?'📍 a '+ms:'🚫 a '+ms):(pas?'📍 pasada':'🚫 lejana');
   const med=url?`<img src="${url}" alt="${esc(nomFull)}" loading="lazy" decoding="async">`:`<div class="rutNo">📷</div>`;
   const ttl=esc(nomFull+' · '+fmtF(e.ts_inicio)+(ms?' · '+tA:''));
@@ -3191,6 +3195,17 @@ function rutGrid(ts){
     rutSerieNow(ts,nAct);
     for(const x of act){
       const id=String(x.e.id);
+      const cel=g.querySelector('.rutCel[data-id="'+CSS.escape(id)+'"]');
+      // F5.11e: la distancia del chip se actualiza EN VIVO con cada fotograma
+      // (baja al acercarse, sube al alejarse) — antes quedaba fija en el mínimo.
+      if(cel&&typeof x.d==='number'&&isFinite(x.d)){
+        const rd=cel.querySelector('.rd');
+        if(rd){
+          const pas=x.e.es_pasada!==false;
+          const t=pas?'📍 a '+fmtDistMin(x.d):'🚫 a '+fmtDistMin(x.d);
+          if(rd.textContent!==t)rd.textContent=t;
+        }
+      }
       if(rp._idx[id]===x.idx)continue;
       rp._idx[id]=x.idx;
       const im=rp._imgs[id];
