@@ -45,6 +45,9 @@ a{color:#7dd3fc}
 #topbar .est{color:var(--mut);font-size:12px;white-space:nowrap;display:flex;gap:12px;align-items:center}
 #topbar .est b{color:var(--txt)}
 #topbar .est .acc{color:#bae6fd}
+#topbar button#btnCfg{background:var(--bg4);border:1px solid var(--line2);color:#93c5fd;border-radius:8px;
+  padding:4px 9px;font-size:13px;cursor:pointer;flex:none}
+#topbar button#btnCfg:hover{border-color:var(--acc);color:var(--txt)}
 #topbar select{background:var(--bg3);color:var(--txt);border:1px solid var(--line2);border-radius:8px;
   padding:6px 8px;font-size:12.5px;outline:none;color-scheme:dark;max-width:230px;cursor:pointer}
 #topbar select:disabled{opacity:.6;cursor:wait}
@@ -96,7 +99,7 @@ a{color:#7dd3fc}
   border:1px solid var(--line2);cursor:pointer;aspect-ratio:4/3;transition:border-color .12s}
 #rutGrid.uni .rutCel{aspect-ratio:16/9}
 .rutCel:hover{border-color:var(--acc);box-shadow:0 0 0 2px rgba(56,189,248,.2)}
-.rutCel img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
+.rutCel img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;display:block;background:#000}
 .rutCel .rutNo{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
   font-size:30px;background:linear-gradient(135deg,#0f1a2e,#14213a)}
 .rutCel .rutCap{position:absolute;left:0;right:0;bottom:0;padding:16px 7px 5px;
@@ -122,6 +125,9 @@ a{color:#7dd3fc}
 .rutCel .rutP.now{color:#fff;border-color:var(--acc);background:rgba(14,60,100,.85);
   box-shadow:0 0 0 1px rgba(56,189,248,.6)}
 #rutSin{font-size:12px;color:var(--mut2);text-align:center;padding:42px 12px;font-style:italic;line-height:1.6}
+.leaflet-tooltip.camTip{background:#0d1a2e;color:#dbe6f7;border:1px solid #27395e;
+  border-radius:7px;font-size:11px;padding:3px 8px;box-shadow:0 4px 14px rgba(0,0,0,.5)}
+.leaflet-tooltip-top.camTip:before{border-top-color:#27395e}
 #rutSin b{color:var(--mut)}
 
 /* ── Pin 🟠 del reproductor ── */
@@ -155,6 +161,16 @@ a.dl{font-size:12px;padding:6px 12px;border-radius:8px;text-decoration:none;font
   background:rgba(14,165,233,.14);border:1px solid rgba(56,189,248,.35);color:#7dd3fc}
 a.dl:hover{background:rgba(14,165,233,.28)}
 .evBody .nota{font-size:11px;color:var(--mut2);line-height:1.5}
+
+/* ── Modal de configuración ⚙️ (F5.13) ── */
+#cfgOverlay{position:fixed;inset:0;z-index:8900;display:none;place-items:center;padding:16px;
+  background:rgba(3,7,14,.72);backdrop-filter:blur(4px)}
+#cfgOverlay.on{display:grid}
+#cfgOverlay .cfgLbl{display:flex;flex-direction:column;gap:5px;font-size:11.5px;color:var(--mut);
+  font-weight:600;line-height:1.4}
+#cfgOverlay .cfgLbl input{background:var(--bg3);color:var(--txt);border:1px solid var(--line2);
+  border-radius:8px;padding:7px 9px;font-size:13.5px;outline:none;color-scheme:dark;font-weight:400}
+#cfgOverlay .cfgLbl input:focus{border-color:var(--acc)}
 .chi{display:inline-flex;gap:4px;align-items:center;font-size:10.5px;color:var(--mut);
   background:var(--bg4);border-radius:6px;padding:2px 8px;margin-right:5px}
 .chi.dist{color:#93c5fd;border:1px solid rgba(56,189,248,.18)}
@@ -199,6 +215,7 @@ a.dl:hover{background:rgba(14,165,233,.28)}
     <div class="grp">
       <span class="est" id="estado"><span><b>…</b> pts</span><span><b>…</b> cámaras</span></span>
       <select id="selDia" title="Día a reproducir (el más reciente está seleccionado)"><option value="">cargando días…</option></select>
+      <button id="btnCfg" title="Configuración del reproductor (ventana antes/después, límite, horas)">⚙️</button>
     </div>
   </div>
 
@@ -252,6 +269,50 @@ a.dl:hover{background:rgba(14,165,233,.28)}
 
 <div id="toasts"></div>
 
+<!-- ══════════ MODAL CONFIGURACIÓN ⚙️ (F5.13) ══════════ -->
+<div id="cfgOverlay">
+  <div class="evCard" style="width:min(520px,96vw)">
+    <div class="evHead">
+      <span class="nom">⚙️ Configuración del reproductor</span>
+      <button class="x" id="cfgX" title="Cerrar (Esc)">✕</button>
+    </div>
+    <div class="evBody">
+      <div class="nota" style="font-size:12px;line-height:1.6">La cámara se muestra mientras el recorrido esté dentro de su ventana de tiempo: <b>entrada − antes</b> hasta <b>salida + después</b> (telemetría real del evento, no un radio fijo). Ajustes locales de esta página.</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <label class="cfgLbl">⏪ Segundos ANTES de la cámara
+          <input type="number" id="cfgAntes" min="0" max="600" step="5" value="60">
+        </label>
+        <label class="cfgLbl">⏩ Segundos DESPUÉS de la cámara
+          <input type="number" id="cfgDespues" min="0" max="600" step="5" value="60">
+        </label>
+        <label class="cfgLbl" style="grid-column:1/3">📏 Límite de distancia (m) — <b>0 = sin límite</b> (solo manda la ventana de tiempo)
+          <input type="number" id="cfgRadio" min="0" max="5000" step="10" value="0">
+        </label>
+      </div>
+      <div class="nota" style="font-size:11.5px;border-top:1px solid var(--line);padding-top:10px;margin-top:4px;line-height:1.6">
+        🗓 <b>Tramo a reproducir</b> (opcional): si eliges horas, solo se reproduce ese tramo de cada día. Vacío = día completo.
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <label class="cfgLbl">Desde el día
+          <select id="cfgD0" style="background:var(--bg3);color:var(--txt);border:1px solid var(--line2);border-radius:8px;padding:7px;font-size:12.5px;color-scheme:dark"></select>
+        </label>
+        <label class="cfgLbl">Hasta el día
+          <select id="cfgD1" style="background:var(--bg3);color:var(--txt);border:1px solid var(--line2);border-radius:8px;padding:7px;font-size:12.5px;color-scheme:dark"></select>
+        </label>
+        <label class="cfgLbl">Desde hora (opcional)
+          <input type="time" id="cfgH0" style="color-scheme:dark">
+        </label>
+        <label class="cfgLbl">Hasta hora (opcional)
+          <input type="time" id="cfgH1" style="color-scheme:dark">
+        </label>
+      </div>
+      <div class="accRow" style="justify-content:flex-end;margin-top:6px">
+        <button id="cfgGuardar" style="background:linear-gradient(135deg,#0ea5e9,#2563eb);color:#fff;border:0;border-radius:10px;padding:8px 20px;font-weight:700;font-size:13.5px">Guardar y recargar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- ══════════ JS ══════════ -->
 <script>
 'use strict';
@@ -264,8 +325,21 @@ a.dl:hover{background:rgba(14,165,233,.28)}
    adaptada a estado propio y a la sesión local tc_auth_v1.
    ============================================================ */
 const LS_AUTH='tc_auth_v1';
-const RUT_RADIO_VIS_M=100;                 // corte FIJO de visibilidad: celda solo ≤100 m reales
 const SLIDE_MAX=100000;
+/* F5.13: configuración LOCAL del reproductor (se guarda en localStorage).
+   antes_s/despues_s = ventana de tiempo alrededor de la pasada (ts_entrada−antes
+   → ts_salida+después) durante la cual la cámara se muestra aunque la distancia
+   real supere los 100 m (el usuario: «100 ya no es el límite, usar 60 s antes y
+   60 s después con la telemetría del track»). radio_m >0 añade además un corte
+   por distancia; 0 = sin corte (solo ventana temporal). */
+let CFG={antes_s:60,despues_s:60,radio_m:0};
+(function(){try{const v=JSON.parse(localStorage.getItem('tc_vid_cfg_v1')||'null');
+  if(v&&typeof v==='object'){
+    if(typeof v.antes_s==='number'&&v.antes_s>=0&&v.antes_s<=600)CFG.antes_s=v.antes_s;
+    if(typeof v.despues_s==='number'&&v.despues_s>=0&&v.despues_s<=600)CFG.despues_s=v.despues_s;
+    if(typeof v.radio_m==='number'&&v.radio_m>=0&&v.radio_m<=5000)CFG.radio_m=v.radio_m;
+  }}catch(e){}})();
+function guardarCFG(){try{localStorage.setItem('tc_vid_cfg_v1',JSON.stringify(CFG));}catch(e){}}
 const $=id=>document.getElementById(id);
 /* Sesión */
 let TOK=null,USER=null,ROL=null,UID=null,USUARIO=null;   // USUARIO: ?usuario= del admin («ver como»)
@@ -274,7 +348,7 @@ let PTS=[];        // features GeoJSON del track del día (props.ts, geometry [l
 let EVS=[];        // eventos del día (api /api/eventos)
 let FOTOPAT=null;  // 'dig' | 'pref' | 'none' (patrón de fotos detectado)
 let rutRep=null;   // estado del reproductor de ruta (top-level, NO window.*)
-let capaRuta=null, rutaLinea=null;   // polilínea del día
+let capaRuta=null, rutaLinea=null, capaCams=null;   // polilínea del día + puntos de cámaras
 let rutVelDef=8; try{const v=parseInt(localStorage.getItem('tc_rut_vel'),10); if([1,2,4,8,16,32,64].includes(v))rutVelDef=v;}catch(e){}
 const RUT_VELS=[1,2,4,8,16,32,64];
 let diaBusy=false, selSeq=0, arrastrando=false, camFull=false;
@@ -326,6 +400,48 @@ map.setView([43.2701,-2.9560],13);
 L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
   {attribution:'Imágenes © Esri, Maxar, Earthstar Geographics',maxZoom:19}).addTo(map);
 capaRuta=L.layerGroup().addTo(map);
+capaCams=L.layerGroup().addTo(map);   // F5.13: puntos de las cámaras con evento
+
+/* F5.13: pinta en el mapa un punto por CÁMARA distinta que tuvo evento en el día.
+   Verde = pasada real (≤ umbral) · ámbar = evento pero sin pasada (lejana) ·
+   gris = evento sin fotos (descarte/placeholder). Clic → salta al instante de su
+   evento más cercano a la mitad de la pasada (o el primero del día). */
+function dibujarCamsMapa(){
+  if(!capaCams)return;
+  capaCams.clearLayers();
+  const porCam=new Map();
+  for(const e of (EVS||[])){
+    if(!e||typeof e.lat!=='number'||typeof e.lon!=='number')continue;
+    const k=String(e.cam_id||e.id);
+    if(!porCam.has(k))porCam.set(k,[]);
+    porCam.get(k).push(e);
+  }
+  for(const [k,evs] of porCam){
+    const e0=evs[0];
+    const tieneFotos=evs.some(x=>x.n_fotos>0);
+    const pasada=evs.some(x=>x.es_pasada!==false);
+    const color=tieneFotos?(pasada?'#4ade80':'#fbbf24'):'#94a3b8';
+    const m=L.circleMarker([e0.lat,e0.lon],{radius:7,color:'#fff',weight:1.5,
+      fillColor:color,fillOpacity:.95,interactive:true})
+      .addTo(capaCams)
+      .bindTooltip(`${tieneFotos?(pasada?'🟢':'🟠'):'⚪'} ${e0.cam_nombre||e0.cam_id||''}${evs.length>1?' · '+evs.length+' eventos':''}`,{direction:'top',offset:[0,-8],className:'camTip'});
+    m.on('click',()=>{
+      // saltar al centro temporal del evento con más fotos (o primero)
+      let mejor=evs[0];
+      for(const x of evs)if((x.n_fotos||0)>(mejor.n_fotos||0))mejor=x;
+      const tC=(typeof mejor.ts_entrada==='number'&&typeof mejor.ts_salida==='number')
+        ?(mejor.ts_entrada+mejor.ts_salida)/2
+        :((mejor.ts_inicio||0)+(mejor.ts_fin||mejor.ts_inicio||0))/2;
+      const rp=rutRep;
+      if(rp&&rp.pts&&rp.pts.length){
+        let best=0,bd=Infinity;
+        for(let i=0;i<rp.pts.length;i++){const d=Math.abs(rp.pts[i].properties.ts-tC);if(d<bd){bd=d;best=i;}}
+        rutSeek(best,true);
+      }
+      abrirDetalle(String(mejor.id));
+    });
+  }
+}
 
 function rutLL(f){const g=f&&f.geometry&&f.geometry.coordinates;return g&&typeof g[1]==='number'?[g[1],g[0]]:null;}
 function rutHMS(ts){return horaPunto(ts);}          // HH:MM:SS
@@ -349,6 +465,7 @@ function dibujarTrack(){
   if(latlngs.length<2)return;
   L.polyline(latlngs,{color:'#0ea5e9',weight:9,opacity:.16,interactive:false}).addTo(capaRuta);
   rutaLinea=L.polyline(latlngs,{color:'#38bdf8',weight:3.5,opacity:.95,interactive:false}).addTo(capaRuta);
+  dibujarCamsMapa();   // F5.13: puntos de cámaras con evento del día
   try{map.fitBounds(L.latLngBounds(latlngs),{padding:[46,46],maxZoom:17});}catch(e){}
 }
 
@@ -387,57 +504,91 @@ function lblDiaD(d){
   const s=dt.toLocaleDateString('es-ES',{weekday:'short',day:'numeric',month:'short',year:'numeric'});
   return s.charAt(0).toUpperCase()+s.slice(1);
 }
-async function cargarDia(d){
+/* Carga UN día (o tramo) para reproducir. opts: {h0,h1} = minutos desde 00:00
+   locales para acotar a una franja horaria (opcional); GLOBAL.rango indica si
+   viene de un rango multi-día (activa el salto de huecos en el bucle). */
+let MODO_RANGO=false;
+async function cargarDia(d,opts){
   if(!d||diaBusy)return;
+  const o=opts||{};
+  const etiqueta=o.etiqueta||d.dia;
   diaBusy=true; selSeq++;
   const seq=selSeq;
   const sel=$('selDia');
-  sel.disabled=true;
+  if(sel&&!o.desdeSelect)sel.disabled=true;
   cerrarDetalle();
   rutParar(false);
   PTS=[]; EVS=[]; FOTOPAT=null;
   Object.keys(_rutSeries).forEach(k=>delete _rutSeries[k]);
-  estadoCargando('⏳ cargando '+d.dia+'…');
+  estadoCargando('⏳ cargando '+etiqueta+'…');
   $('rutSin').style.display='';
-  $('rutSin').textContent='⏳ cargando cámaras del día…';
+  $('rutSin').textContent='⏳ cargando cámaras…';
   $('rutGrid').style.display='none'; $('rutGrid').innerHTML=''; $('rutGrid').classList.remove('uni');
   setCamCnt(0);
   $('slider').disabled=true;
   $('rutT').textContent='--:--:-- / --:--:--';
   $('btnPP').textContent='▶';
   try{
-    // F5.12: el TRACK se pide con el rango exacto del día (desde/hasta = min/max
-    // ts), pero los EVENTOS con el DÍA CIVIL completo (dia0/dia1 = 00:00→23:59):
+    // F5.12: el TRACK se pide con el rango exacto (desde/hasta = min/max ts),
+    // pero los EVENTOS con el DÍA CIVIL completo (dia0/dia1 = 00:00→23:59):
     // filtrar eventos por el rango del track corta los que se cierran con el
     // post de +60 s tras el último punto (ts_fin > hasta) → faltaban eventos.
     const qT=qs({desde:d.desde,hasta:d.hasta})+(qUsuario().replace('?','&'));
     const qE=qs({desde:d.dia0!=null?d.dia0:d.desde,hasta:d.dia1!=null?d.dia1:d.hasta})+(qUsuario().replace('?','&'));
     const [tr,evs]=await Promise.all([api('/api/track'+qT),api('/api/eventos'+qE)]);
-    if(seq!==selSeq){diaBusy=false;return;}          // cambiaron de día mientras cargaba
-    const feats=(tr&&tr.features)||[];
+    if(seq!==selSeq){diaBusy=false;return;}          // cambiaron mientras cargaba
+    let feats=(tr&&tr.features)||[];
+    let evL=Array.isArray(evs)?evs:[];
+    // F5.13: franja horaria local opcional (minutos desde 00:00)
+    if(typeof o.h0==='number'&&typeof o.h1==='number'&&(o.h0>0||o.h1<1439)){
+      const enFranja=ts=>{
+        const dd=new Date(ts*1000);
+        const m=dd.getHours()*60+dd.getMinutes();
+        return m>=o.h0&&m<=o.h1;
+      };
+      feats=feats.filter(f=>f&&f.properties&&enFranja(f.properties.ts));
+      evL=evL.filter(e=>e&&typeof e.ts_inicio==='number'&&enFranja(e.ts_inicio));
+    }
     PTS=feats.filter(f=>f&&f.properties&&typeof f.properties.ts==='number'&&rutLL(f))
              .sort((a,b)=>a.properties.ts-b.properties.ts);
-    EVS=Array.isArray(evs)?evs:[];
+    EVS=evL;
     await detectarPatronFotos();
     if(seq!==selSeq){diaBusy=false;return;}
     dibujarTrack();
     pintaEstado();
     if(PTS.length<2){
-      $('rutSin').textContent='— el día '+d.dia+' no tiene recorrido con movimiento (menos de 2 puntos) —';
+      $('rutSin').textContent='— '+etiqueta+' no tiene recorrido con movimiento (menos de 2 puntos) —';
       estadoCargando('sin recorrido');
     }else{
-      rutIniciar();                                   // reproduce el día desde el principio
+      rutIniciar();                                   // reproduce desde el principio
     }
   }catch(e){
     if(e.message!=='no autorizado'){
-      estadoCargando('⚠ error al cargar '+d.dia);
-      $('rutSin').textContent='— error al cargar el día: '+esc(e.message)+' —';
-      toast('Error al cargar el día: '+e.message,true);
+      estadoCargando('⚠ error al cargar '+etiqueta);
+      $('rutSin').textContent='— error al cargar: '+esc(e.message)+' —';
+      toast('Error al cargar: '+e.message,true);
     }
   }finally{
-    if(seq===selSeq)sel.disabled=false;
+    if(seq===selSeq&&sel&&!o.desdeSelect)sel.disabled=false;
     diaBusy=false;
   }
+}
+
+/* F5.13: reproduce un RANGO de días (concatenados) con franja horaria opcional.
+   Los huecos entre días (>20 min) se saltan en la reproducción. */
+async function cargarRango(diasSel,h0,h1,etiq){
+  if(!diasSel||!diasSel.length||diaBusy)return;
+  const d0=diasSel[0], dN=diasSel[diasSel.length-1];
+  MODO_RANGO=diasSel.length>1;
+  const o={etiqueta:etiq};
+  if(typeof h0==='number'&&typeof h1==='number'){o.h0=h0;o.h1=h1;}
+  // un solo día → cargarDia normal con su día civil completo (dia0/dia1)
+  if(diasSel.length===1){await cargarDia(diasSel[0],o);return;}
+  // varios días: track con desde=dia0 del primero, hasta=dia1 del último
+  const tramo=Object.assign({},d0,{desde:d0.dia0!=null?d0.dia0:d0.desde,
+    hasta:dN.dia1!=null?dN.dia1:dN.hasta,dia0:d0.dia0!=null?d0.dia0:d0.desde,
+    dia1:dN.dia1!=null?dN.dia1:dN.hasta});
+  await cargarDia(tramo,o);
 }
 
 /* ═══════════════ PATRÓN DE FOTOS (detectado una vez, re-sondea si cambió el día) ═══════════════
@@ -505,23 +656,27 @@ function rutMueve(){
   if(!rp.mk)rp.mk=L.marker(ll,{icon:rutIconoPin(),zIndexOffset:6000}).addTo(map);
   else rp.mk.setLatLng(ll);
 }
-/* Eventos del día ACTIVOS en el instante ts (ventana del evento), ordenados por
-   DISTANCIA REAL del track a la cámara (más cercana primero), máx 9. */
+/* Eventos ACTIVOS en el instante ts, ordenados por DISTANCIA REAL del track a la
+   cámara (más cercana primero), máx 9. F5.13: la ventana de visibilidad usa la
+   TELEMETRÍA del evento (ts_entrada/ts_salida del metadata real) ± la config
+   local CFG.antes_s/despues_s (default 60/60) — la cámara aparece 60 s ANTES de
+   llegar aunque estés a >100 m y sigue 60 s después de pasar (el usuario: «100 ya
+   no es el límite»). CFG.radio_m>0 añade un corte extra por distancia; 0 = no. */
 function rutEvsActivos(ts){
   const pos=rutPuntoEn(ts);               // [lon,lat] del track en ts (o null)
-  const rmax=RUT_RADIO_VIS_M;             // corte FIJO de visibilidad: ≤100 m reales
+  const pre=CFG.antes_s, post=CFG.despues_s, rmax=CFG.radio_m;
   const out=[];
   for(const e of EVS){
     if(!e||typeof e.ts_inicio!=='number')continue;
     let a,b;
-    if(typeof e.ts_entrada==='number'&&typeof e.ts_salida==='number'){a=e.ts_entrada-60;b=e.ts_salida+60;}
+    if(typeof e.ts_entrada==='number'&&typeof e.ts_salida==='number'){a=e.ts_entrada-pre;b=e.ts_salida+post;}
     else{a=e.ts_inicio;b=(typeof e.ts_fin==='number')?e.ts_fin:e.ts_inicio;}
     if(b<a)b=a;
     if(ts<a||ts>b)continue;
     let dm=Infinity;
     if(pos&&typeof e.lat==='number'&&typeof e.lon==='number'){
       dm=distMetros([e.lon,e.lat],pos);   // distancia REAL track↔cámara AHORA
-      if(isFinite(dm)&&dm>rmax)continue;  // lejos (>100 m) → no hay nada que ver
+      if(rmax>0&&isFinite(dm)&&dm>rmax)continue;   // corte extra opcional por distancia
     }
     out.push({e,d:dm});
   }
@@ -741,6 +896,21 @@ function rutBucle(now){
   let i=rp.i;
   while(i+1<n&&pts[i+1].properties.ts<=ts)i++;
   rp.i=i;
+  /* F5.13: modo RANGO multi-día — si hay un hueco grande de tiempo sin puntos
+     (entre dos días, p.ej. de noche) se salta: la reproducción NO espera el
+     hueco en tiempo real, avanza directo al siguiente punto. */
+  if(MODO_RANGO&&i+1<n){
+    const gap=pts[i+1].properties.ts-pts[i].properties.ts;
+    if(gap>1200){            // >20 min sin puntos → salto
+      const tS=pts[i+1].properties.ts;
+      rp.i=i+1; rp._ts=tS;
+      rp.t0=now-(tS-rp.ts0)*1000/rp.vel;
+      rutMueve(); rutTime();
+      if(now-rp._lu>=250){rp._lu=now;rutGrid(tS);}
+      rp.raf=requestAnimationFrame(rutBucle);
+      return;
+    }
+  }
   rutMueve(); rutTime();
   if(now-rp._lu>=250){rp._lu=now;rutGrid(ts);}
   rp.raf=requestAnimationFrame(rutBucle);
@@ -868,14 +1038,74 @@ $('btnInicio').onclick=()=>rutCtrl('inicio');
 $('btnFin').onclick=()=>rutCtrl('fin');
 $('btnVel').onclick=()=>rutCtrl('vel');
 $('selDia').onchange=ev=>{
+  MODO_RANGO=false;                       // F5.13: el select superior es día suelto
   const d=(DIAS_CACHE||[]).find(x=>x.dia===ev.target.value);
   if(d)cargarDia(d);
 };
 $('btnFs').onclick=toggleCamsFull;
+/* ═══════════════ CONFIGURACIÓN ⚙️ (F5.13) ═══════════════ */
+function abrirCfg(){
+  $('cfgAntes').value=CFG.antes_s;
+  $('cfgDespues').value=CFG.despues_s;
+  $('cfgRadio').value=CFG.radio_m;
+  poblarCfgDias();
+  $('cfgOverlay').classList.add('on');
+}
+function poblarCfgDias(){
+  const d0=$('cfgD0'), d1=$('cfgD1'); if(!d0||!d1)return;
+  const dias=(DIAS_CACHE||[]).slice().sort((a,b)=>a.dia<b.dia?-1:(a.dia>b.dia?1:0)); // asc
+  const selAct=$('selDia')?$('selDia').value:'';
+  if(!d0.options.length&&dias.length){
+    for(const d of dias){
+      const o1=document.createElement('option');o1.value=d.dia;o1.textContent=d.dia;d0.appendChild(o1);
+      const o2=document.createElement('option');o2.value=d.dia;o2.textContent=d.dia;d1.appendChild(o2);
+    }
+    d0.value=dias[0].dia; d1.value=selAct||dias[dias.length-1].dia;
+  }
+}
+function cerrarCfg(){$('cfgOverlay').classList.remove('on');}
+$('btnCfg').onclick=abrirCfg;
+$('cfgX').onclick=cerrarCfg;
+$('cfgOverlay').addEventListener('click',ev=>{if(ev.target===$('cfgOverlay'))cerrarCfg();});
+$('cfgGuardar').onclick=()=>{
+  const a=parseInt($('cfgAntes').value,10);
+  const dp=parseInt($('cfgDespues').value,10);
+  const r=parseInt($('cfgRadio').value,10);
+  CFG.antes_s=isFinite(a)?Math.min(600,Math.max(0,a)):60;
+  CFG.despues_s=isFinite(dp)?Math.min(600,Math.max(0,dp)):60;
+  CFG.radio_m=isFinite(r)?Math.min(5000,Math.max(0,r)):0;
+  guardarCFG();
+  // Tramo: ¿rango o día suelto con horas?
+  const dA=$('cfgD0').value, dB=$('cfgD1').value;
+  const hA=$('cfgH0').value, hB=$('cfgH1').value;
+  const h0=hA?hA.split(':').reduce((s,x,i)=>s+(i===0?parseInt(x,10)*60:parseInt(x,10)),0):null;
+  const h1=hB?hB.split(':').reduce((s,x,i)=>s+(i===0?parseInt(x,10)*60:parseInt(x,10)),0):null;
+  const dias=DIAS_CACHE||[];
+  const d0s=dias.find(x=>x.dia===dA), d1s=dias.find(x=>x.dia===dB);
+  const usaHoras=(typeof h0==='number'&&typeof h1==='number');
+  cerrarCfg();
+  if(d0s&&d1s){
+    const rango=(dA!==dB);
+    if(rango){
+      const sel=[...dias].filter(x=>x.dia>=dA&&x.dia<=dB).sort((a,b)=>a.dia<b.dia?-1:1);
+      const eti=sel.length>1?(sel.length+' días · '+(usaHoras?hA+'–'+hB:'')):dA;
+      cargarRango(sel,usaHoras?h0:null,usaHoras?h1:null,eti);
+    }else{
+      const sel0=d0s;
+      const eti=dA+(usaHoras?' · '+hA+'–'+hB:'');
+      cargarRango([sel0],usaHoras?h0:null,usaHoras?h1:null,eti);
+    }
+  }else{
+    // sin selección de día → solo re-aplica la ventana al día actual
+    const rp=rutRep;
+    if(rp){rutGrid(rp._ts);rutSerieNow(rp._ts);}
+  }
+  toast('⚙️ Ventana −'+CFG.antes_s+' s / +'+CFG.despues_s+' s'+(CFG.radio_m?' · ≤'+CFG.radio_m+' m':' · sin límite de distancia'));
+};
 $('evX').onclick=cerrarDetalle;
 $('evOverlay').addEventListener('click',ev=>{if(ev.target===$('evOverlay'))cerrarDetalle();});
 document.addEventListener('keydown',ev=>{
-  if(ev.key==='Escape')cerrarDetalle();
+  if(ev.key==='Escape'){cerrarDetalle();cerrarCfg();}
 });
 /* slider: input → solo mueve el cursor visual del reloj; change → seek + reproduce */
 $('slider').addEventListener('input',()=>{
