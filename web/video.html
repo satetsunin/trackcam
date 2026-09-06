@@ -54,6 +54,9 @@ a{color:#7dd3fc}
 
 /* ────────── CUERPO: mapa izq + cámaras der ────────── */
 #cuerpo{flex:1;display:flex;min-height:0}
+#cuerpo.sinMapa #colMapa{display:none}
+#cuerpo.sinMapa #colCams{width:100%;border-left:0}
+#btnMapHide.on{color:#fff;background:rgba(56,189,248,.25);border-color:var(--acc)}
 #colMapa{flex:1;min-width:0;display:flex;flex-direction:column;min-height:0}
 #map{flex:1;min-height:0;position:relative;background:#0a1019}
 
@@ -109,6 +112,14 @@ a{color:#7dd3fc}
 .rutCap .rd{font-size:11px;font-weight:800;white-space:nowrap;flex:none}
 .rutCap .rd.pas{color:#4ade80;text-shadow:0 1px 3px rgba(0,0,0,.9)}
 .rutCap .rd.lej{color:#c7d2e0;text-shadow:0 1px 3px rgba(0,0,0,.9)}
+/* F5.15: botón ⧉ abrir cámara en pestaña nueva (esquina sup. derecha de la celda) */
+.rutCel .rutExt{position:absolute;top:5px;right:5px;z-index:4;width:24px;height:24px;line-height:1;
+  border-radius:7px;border:1px solid rgba(148,163,184,.35);background:rgba(7,13,23,.72);
+  color:#cbd5e1;font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center;
+  opacity:0;transition:opacity .12s}
+.rutCel:hover .rutExt{opacity:1}
+.rutCel .rutExt:hover{color:#fff;border-color:var(--acc);background:rgba(14,60,100,.9)}
+#rutGrid.uni .rutExt{width:30px;height:30px;font-size:17px;top:8px;right:8px}
 /* banda superior: serie de distancia (cuenta regresiva muestreada) */
 .rutCel .rutSerie{position:absolute;left:0;right:0;top:0;padding:4px 5px;display:flex;
   align-items:center;gap:3px;overflow-x:auto;white-space:nowrap;scrollbar-width:none;
@@ -238,6 +249,7 @@ a.dl:hover{background:rgba(14,165,233,.28)}
     <aside id="colCams">
       <div id="camHead">
         <span class="t">📷 Cámaras<b id="camCnt" title="Cámaras con imagen en este instante">0</b></span>
+        <button id="btnMapHide" title="Ocultar el mapa: la cuadrícula de cámaras usa toda la pantalla">🗺️</button>
         <button id="btnFs" title="Pantalla completa del visor (⛶)">⛶</button>
       </div>
       <div id="rutScroll">
@@ -817,7 +829,15 @@ function rutCelHTML(o){
     }).join('<i>→</i>')+'</div>';
   }
   return `<div class="rutCel" data-id="${esc(String(e.id))}" title="${ttl}">${med}${fila}
+    <button class="rutExt" title="Abrir esta cámara en una pestaña nueva (foto viva + detalle)" onclick="event.stopPropagation();abrirCamPestana('${esc(String(e.id))}')">⧉</button>
     <div class="rutCap"><span class="rn">${D(nomFull)}</span><span class="rd ${pas?'pas':'lej'}">${tA}</span></div></div>`;
+}
+/* F5.15: abre la cámara de una celda en una PESTAÑA NUEVA del navegador: la URL
+   /video?cam=<id> carga la página y salta a esa cámara (foto en grande + su
+   detalle). La sesión viaja en localStorage del mismo origen. */
+function abrirCamPestana(id){
+  try{window.open(location.origin+'/video?cam='+encodeURIComponent(id),'_blank');}
+  catch(e){toast('El navegador bloqueó la pestaña nueva',true);}
 }
 /* Cuadrícula adaptativa SIN parpadeos: si cambia el CONJUNTO de cámaras activas
    se reconstruye el DOM; si es el mismo solo se renueva el src de las fotos. */
@@ -833,8 +853,7 @@ function rutGrid(ts){
   }
   if(s)s.style.display='none';
   g.style.display='grid';
-  g.classList.toggle('uni',act.length===1);
-  g.style.gridTemplateColumns=act.length===1?'1fr':(act.length<=4?'repeat(2,1fr)':'repeat(3,1fr)');
+  reajustarGrid();          // F5.15: columnas según mapa oculto/ancho (en vez del bloque fijo)
   const key=act.map(x=>String(x.e.id)).join(',');
   const nAct=act.length;
   if(key!==rp._ord){
@@ -1040,6 +1059,32 @@ function cerrarDetalle(){
 }
 
 /* ═══════════════ VISOR ⛶ (panel de cámaras a pantalla completa) ═══════════════ */
+let mapHide=false;
+function toggleMapHide(){
+  mapHide=!mapHide;
+  const cu=$('cuerpo');
+  cu.classList.toggle('sinMapa',mapHide);
+  const b=$('btnMapHide');
+  b.classList.toggle('on',mapHide);
+  b.title=mapHide?'Mostrar el mapa':'Ocultar el mapa: la cuadrícula usa toda la pantalla';
+  setTimeout(()=>{map.invalidateSize();reajustarGrid();},60);
+}
+function reajustarGrid(){
+  const rp=rutRep; if(!rp)return;
+  const g=rp.grid; if(!g)return;
+  const n=(g.querySelectorAll('.rutCel')).length;
+  if(!n)return;
+  // en pantalla completa (mapa oculto) caben más columnas → celdas grandes
+  const ancho=mapHide?window.innerWidth:(g.parentElement?g.parentElement.clientWidth:0);
+  g.classList.toggle('uni',n===1);
+  let cols;
+  if(n===1)cols='1fr';
+  else if(mapHide&&n>=7)cols='repeat(4,1fr)';
+  else if(mapHide&&n>=5)cols='repeat(3,1fr)';
+  else if(n<=4)cols='repeat(2,1fr)';
+  else cols='repeat(3,1fr)';
+  g.style.gridTemplateColumns=cols;
+}
 function toggleCamsFull(){
   const col=$('colCams'); if(!col)return;
   camFull=!col.classList.contains('full');
@@ -1061,6 +1106,7 @@ $('selDia').onchange=ev=>{
   if(d)cargarDia(d);
 };
 $('btnFs').onclick=toggleCamsFull;
+$('btnMapHide').onclick=toggleMapHide;
 /* ═══════════════ CONFIGURACIÓN ⚙️ (F5.13) ═══════════════ */
 function abrirCfg(){
   $('cfgAntes').value=CFG.antes_s;
@@ -1180,6 +1226,27 @@ let DIAS_CACHE=[];
     sel.disabled=false;
     sel.value=dias[0].dia;                          // el más reciente por defecto
     await cargarDia(dias[0]);
+    // F5.15: ?cam=<id> (abierto desde una celda con ⧉) → salta a ESA cámara:
+    // seek al instante de su pasada y abre su detalle.
+    try{
+      const qc=new URLSearchParams(location.search).get('cam');
+      if(qc){
+        const ev=EVS.find(x=>String(x.id)===String(qc));
+        if(ev&&rutRep&&rutRep.pts&&rutRep.pts.length){
+          const tC=(typeof ev.ts_entrada==='number'&&typeof ev.ts_salida==='number')
+            ?(ev.ts_entrada+ev.ts_salida)/2
+            :((ev.ts_inicio||0)+(ev.ts_fin||ev.ts_inicio||0))/2;
+          let best=0,bd=Infinity;
+          for(let i=0;i<rutRep.pts.length;i++){const d=Math.abs(rutRep.pts[i].properties.ts-tC);if(d<bd){bd=d;best=i;}}
+          rutSeek(best,true);
+          if(rutRep.play)rutCtrl('playpause');      // pausa para ver el detalle
+          abrirDetalle(qc);
+        }else{
+          toast('Cámara no encontrada en el día más reciente',true);
+        }
+        try{history.replaceState(null,'',location.pathname);}catch(e){}
+      }
+    }catch(e){}
   }catch(e){
     if(e.message==='no autorizado')return;
     estadoCargando('⚠ no se pudieron cargar los días');
