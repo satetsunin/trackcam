@@ -288,6 +288,9 @@ a.dl:hover{background:rgba(14,165,233,.28)}
         <label class="cfgLbl" style="grid-column:1/3">📏 Límite de distancia (m) — <b>0 = sin límite</b> (solo manda la ventana de tiempo)
           <input type="number" id="cfgRadio" min="0" max="5000" step="10" value="0">
         </label>
+        <label class="cfgLbl" style="grid-column:1/3">📍 Distancia máx. para contar como <b>pasada</b> (m) — las cámaras a las que pasaste a MÁS de esta distancia NO se muestran (aplica a posteriori sobre lo ya grabado)
+          <input type="number" id="cfgPasada" min="10" max="1000" step="5" value="150">
+        </label>
       </div>
       <div class="nota" style="font-size:11.5px;border-top:1px solid var(--line);padding-top:10px;margin-top:4px;line-height:1.6">
         🗓 <b>Tramo a reproducir</b> (opcional): si eliges horas, solo se reproduce ese tramo de cada día. Vacío = día completo.
@@ -332,14 +335,22 @@ const SLIDE_MAX=100000;
    real supere los 100 m (el usuario: «100 ya no es el límite, usar 60 s antes y
    60 s después con la telemetría del track»). radio_m >0 añade además un corte
    por distancia; 0 = sin corte (solo ventana temporal). */
-let CFG={antes_s:60,despues_s:60,radio_m:0};
+let CFG={antes_s:60,despues_s:60,radio_m:0,pasada_m:150};
 (function(){try{const v=JSON.parse(localStorage.getItem('tc_vid_cfg_v1')||'null');
   if(v&&typeof v==='object'){
     if(typeof v.antes_s==='number'&&v.antes_s>=0&&v.antes_s<=600)CFG.antes_s=v.antes_s;
     if(typeof v.despues_s==='number'&&v.despues_s>=0&&v.despues_s<=600)CFG.despues_s=v.despues_s;
     if(typeof v.radio_m==='number'&&v.radio_m>=0&&v.radio_m<=5000)CFG.radio_m=v.radio_m;
+    if(typeof v.pasada_m==='number'&&v.pasada_m>=10&&v.pasada_m<=1000)CFG.pasada_m=v.pasada_m;
   }}catch(e){}})();
 function guardarCFG(){try{localStorage.setItem('tc_vid_cfg_v1',JSON.stringify(CFG));}catch(e){}}
+/* F5.14: ¿este evento cuenta como «pasada» para MOSTRARSE en el reproductor?
+   Se decide A POSTERIORI con la distancia mínima REAL (dist_min_m verificado por
+   el backend contra el track) ≤ el umbral local CFG.pasada_m (default 150 m) —
+   el usuario: «ajusta a 150 m mejor, pero quiero poder ajustar esa distancia
+   aunque sea a posteriori de haber pasado». Los eventos sin dist_min_m (viejos)
+   cuentan por compatibilidad. */
+function esPasadaLocal(e){return !e||e.dist_min_m==null||e.dist_min_m<=CFG.pasada_m;}
 const $=id=>document.getElementById(id);
 /* Sesión */
 let TOK=null,USER=null,ROL=null,UID=null,USUARIO=null;   // USUARIO: ?usuario= del admin («ver como»)
@@ -402,29 +413,29 @@ L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/
 capaRuta=L.layerGroup().addTo(map);
 capaCams=L.layerGroup().addTo(map);   // F5.13: puntos de las cámaras con evento
 
-/* F5.13: pinta en el mapa un punto por CÁMARA distinta que tuvo evento en el día.
-   Verde = pasada real (≤ umbral) · ámbar = evento pero sin pasada (lejana) ·
-   gris = evento sin fotos (descarte/placeholder). Clic → salta al instante de su
-   evento más cercano a la mitad de la pasada (o el primero del día). */
+/* F5.13/14: pinta en el mapa un punto verde por CÁMARA distinta con PASADA real
+   (dist_min_m ≤ CFG.pasada_m, default 150 m — el usuario: «¿por qué sale
+   Jardines Albia/General Concha/Iparraguirre si no están en verde?»). Las lejanas
+   (>umbral) NO se pintan ni salen en la reproducción. Clic → salta al instante
+   de su pasada + abre detalle. */
 function dibujarCamsMapa(){
   if(!capaCams)return;
   capaCams.clearLayers();
   const porCam=new Map();
   for(const e of (EVS||[])){
     if(!e||typeof e.lat!=='number'||typeof e.lon!=='number')continue;
+    if(!esPasadaLocal(e))continue;      // F5.14: solo cámaras de pasada (≤umbral)
     const k=String(e.cam_id||e.id);
     if(!porCam.has(k))porCam.set(k,[]);
     porCam.get(k).push(e);
   }
   for(const [k,evs] of porCam){
     const e0=evs[0];
-    const tieneFotos=evs.some(x=>x.n_fotos>0);
-    const pasada=evs.some(x=>x.es_pasada!==false);
-    const color=tieneFotos?(pasada?'#4ade80':'#fbbf24'):'#94a3b8';
+    const color='#4ade80';              // todas las pintadas cumplen el umbral
     const m=L.circleMarker([e0.lat,e0.lon],{radius:7,color:'#fff',weight:1.5,
       fillColor:color,fillOpacity:.95,interactive:true})
       .addTo(capaCams)
-      .bindTooltip(`${tieneFotos?(pasada?'🟢':'🟠'):'⚪'} ${e0.cam_nombre||e0.cam_id||''}${evs.length>1?' · '+evs.length+' eventos':''}`,{direction:'top',offset:[0,-8],className:'camTip'});
+      .bindTooltip(`🟢 ${e0.cam_nombre||e0.cam_id||''}${evs.length>1?' · '+evs.length+' eventos':''}`,{direction:'top',offset:[0,-8],className:'camTip'});
     m.on('click',()=>{
       // saltar al centro temporal del evento con más fotos (o primero)
       let mejor=evs[0];
@@ -489,8 +500,11 @@ function pintaEstado(){
   const st=$('estado');
   const np=PTS.length;
   const camU=new Set();
-  (EVS||[]).forEach(e=>{const k=(e.cam_id!=null&&e.cam_id!=='')?String(e.cam_id):String(e.id);camU.add(k);});
-  st.innerHTML=`<span><b class="acc">${np.toLocaleString('es-ES')}</b> pts</span><span><b class="acc">${camU.size}</b> cámaras</span>`;
+  // F5.14: cuenta solo cámaras de PASADA (las que realmente pueden salir)
+  (EVS||[]).forEach(e=>{if(!esPasadaLocal(e))return;const k=(e.cam_id!=null&&e.cam_id!=='')?String(e.cam_id):String(e.id);camU.add(k);});
+  const txt=camU.size===1?'cámara':'cámaras';
+  st.innerHTML=`<span><b class="acc">${np.toLocaleString('es-ES')}</b> pts</span><span><b class="acc">${camU.size}</b> ${txt}</span>`+
+    `<span class="acc" style="font-size:10.5px" title="Umbral de pasada (⚙️)">≤${CFG.pasada_m} m</span>`;
 }
 function estadoCargando(t){
   $('estado').innerHTML=`<span style="color:var(--mut2)">${esc(t||'⏳ cargando…')}</span>`;
@@ -668,6 +682,10 @@ function rutEvsActivos(ts){
   const out=[];
   for(const e of EVS){
     if(!e||typeof e.ts_inicio!=='number')continue;
+    // F5.14: solo cámaras de PASADA (distancia mínima real ≤ CFG.pasada_m).
+    // El usuario: «¿por qué sale Jardines Albia/General Concha/Iparraguirre si no
+    // están en verde?» — las lejanas (>umbral) tienen evento pero NO se muestran.
+    if(!esPasadaLocal(e))continue;
     let a,b;
     if(typeof e.ts_entrada==='number'&&typeof e.ts_salida==='number'){a=e.ts_entrada-pre;b=e.ts_salida+post;}
     else{a=e.ts_inicio;b=(typeof e.ts_fin==='number')?e.ts_fin:e.ts_inicio;}
@@ -777,7 +795,7 @@ function rutCelHTML(o){
   const nf=Math.max(1,e.n_fotos||1);
   const url=(FOTOPAT!=='none'&&nf>0)?urlFoto(e.id,Math.min(idx,nf-1)):null;
   const nomFull=e.cam_nombre||e.cam_id||String(e.id);
-  const pas=e.es_pasada!==false;
+  const pas=esPasadaLocal(e);              // F5.14: umbral local (default 150 m)
   /* F5.11e: la distancia del chip es la ACTUAL del pin a la cámara (o.d), NO el
      mínimo de la pasada (dist_min_m) — o.d se recalcula en vivo en rutGrid. */
   const dAct=(typeof o.d==='number'&&isFinite(o.d))?o.d:null;
@@ -841,7 +859,7 @@ function rutGrid(ts){
       if(cel&&typeof x.d==='number'&&isFinite(x.d)){
         const rd=cel.querySelector('.rd');
         if(rd){
-          const pas=x.e.es_pasada!==false;
+          const pas=esPasadaLocal(x.e);    // F5.14: umbral local
           const t=pas?'📍 a '+fmtDistMin(x.d):'🚫 a '+fmtDistMin(x.d);
           if(rd.textContent!==t)rd.textContent=t;
         }
@@ -995,7 +1013,7 @@ function abrirDetalle(id){
   const fecha=d.toLocaleDateString('es-ES',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
   $('evNom').textContent='📷 '+nom;
   $('evMeta').textContent=fecha+' · '+horaPunto(e.ts_inicio);
-  const pas=e.es_pasada!==false;
+  const pas=esPasadaLocal(e);              // F5.14: umbral local (default 150 m)
   const m=e.dist_min_m;
   let chips='';
   if(e.ts_fin!=null&&e.ts_inicio!=null)chips+=`<span class="chi">🎞 ${fmtDur(e.ts_fin-e.ts_inicio)}</span>`;
@@ -1048,6 +1066,7 @@ function abrirCfg(){
   $('cfgAntes').value=CFG.antes_s;
   $('cfgDespues').value=CFG.despues_s;
   $('cfgRadio').value=CFG.radio_m;
+  $('cfgPasada').value=CFG.pasada_m;
   poblarCfgDias();
   $('cfgOverlay').classList.add('on');
 }
@@ -1071,9 +1090,11 @@ $('cfgGuardar').onclick=()=>{
   const a=parseInt($('cfgAntes').value,10);
   const dp=parseInt($('cfgDespues').value,10);
   const r=parseInt($('cfgRadio').value,10);
+  const pm=parseInt($('cfgPasada').value,10);
   CFG.antes_s=isFinite(a)?Math.min(600,Math.max(0,a)):60;
   CFG.despues_s=isFinite(dp)?Math.min(600,Math.max(0,dp)):60;
   CFG.radio_m=isFinite(r)?Math.min(5000,Math.max(0,r)):0;
+  CFG.pasada_m=isFinite(pm)?Math.min(1000,Math.max(10,pm)):150;
   guardarCFG();
   // Tramo: ¿rango o día suelto con horas?
   const dA=$('cfgD0').value, dB=$('cfgD1').value;
@@ -1096,11 +1117,13 @@ $('cfgGuardar').onclick=()=>{
       cargarRango([sel0],usaHoras?h0:null,usaHoras?h1:null,eti);
     }
   }else{
-    // sin selección de día → solo re-aplica la ventana al día actual
+    // sin selección de día → re-aplica el filtro al día actual SIN recargar:
+    // rutGrid (cámaras visibles según pasada_m) + puntos del mapa + serie
     const rp=rutRep;
     if(rp){rutGrid(rp._ts);rutSerieNow(rp._ts);}
+    dibujarCamsMapa();
   }
-  toast('⚙️ Ventana −'+CFG.antes_s+' s / +'+CFG.despues_s+' s'+(CFG.radio_m?' · ≤'+CFG.radio_m+' m':' · sin límite de distancia'));
+  toast('⚙️ Pasada ≤'+CFG.pasada_m+' m · −'+CFG.antes_s+' s / +'+CFG.despues_s+' s'+(CFG.radio_m?' · corte '+CFG.radio_m+' m':''));
 };
 $('evX').onclick=cerrarDetalle;
 $('evOverlay').addEventListener('click',ev=>{if(ev.target===$('evOverlay'))cerrarDetalle();});
