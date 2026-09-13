@@ -141,28 +141,41 @@ def colapsar_estancias(pts, radio_m=40.0, tiempo_s=480.0):
     solo 1 punto dejaría un hueco visual entre la llegada y la salida.
     Robusto a la deriva errática: no mira velocidades entre consecutivos,
     solo si todo el grupo cabe en la burbuja.
+
+    RENDIMIENTO (F5.16): con series densas (el móvil manda ~2 pts/s) este
+    bucle es el 99 % del tiempo del pipeline (165 s con 150k puntos). Se usa
+    distancia EQUIRECTANGULAR (sin trig por comparación salvo 1 cos al mover
+    el centroide) — error <0,1 % a escala de 40 m, resultado equivalente.
     """
     if len(pts) < 3:
         return list(pts)
+    n = len(pts)
+    ts_l = [p[0] for p in pts]
+    lat_l = [p[1] for p in pts]
+    lon_l = [p[2] for p in pts]
     out = []
     i = 0
-    n = len(pts)
     while i < n:
         # centroide acumulado de la serie (la deriva de 2 h puede recorrer
         # ~40 m; fijar el ref en el primer punto partiría la estancia en 2)
-        clat = pts[i][1]; clon = pts[i][2]; cnt = 1
+        clat = lat_l[i]; clon = lon_l[i]; cnt = 1
         j = i
+        _cosf = math.cos(math.radians(clat)) * 111320.0
+        _ky = 110540.0
+        _r2 = radio_m * radio_m
         # extender mientras el punto quepa en la burbuja del centroide
         while j + 1 < n:
-            d = _hav(clat, clon, pts[j + 1][1], pts[j + 1][2])
-            if d <= radio_m:
+            dy = (lat_l[j + 1] - clat) * _ky
+            dx = (lon_l[j + 1] - clon) * _cosf
+            if dx * dx + dy * dy <= _r2:
                 j += 1
-                clat = (clat * cnt + pts[j][1]) / (cnt + 1)
-                clon = (clon * cnt + pts[j][2]) / (cnt + 1)
+                clat = (clat * cnt + lat_l[j]) / (cnt + 1)
+                clon = (clon * cnt + lon_l[j]) / (cnt + 1)
                 cnt += 1
+                _cosf = math.cos(math.radians(clat)) * 111320.0
             else:
                 break
-        dur = pts[j][0] - pts[i][0]
+        dur = ts_l[j] - ts_l[i]
         if dur >= tiempo_s and j > i:
             # estancia larga en la burbuja → entrada y salida (con ts real)
             out.append(pts[i])
@@ -202,6 +215,20 @@ def autocompletar_huecos(pts, hueco_max=HUECO_MAX_S, paso=INTERP_S,
     return out
 
 
+def _adelgazar(pts, min_dt):
+    """Conserva 1 punto por cada min_dt s (el primero de cada tramo).
+    Usado solo en series enormes, donde el colapso de estancias se dispara."""
+    if min_dt <= 1 or len(pts) < 2:
+        return list(pts)
+    out = [pts[0]]
+    ult = pts[0][0]
+    for p in pts[1:]:
+        if p[0] - ult >= min_dt:
+            out.append(p)
+            ult = p[0]
+    return out
+
+
 def limpiar_track(filas, zonas=None):
     """Pipeline completo. filas: [(ts, lat, lon, acc, vel), ...] cronológico.
     Devuelve [(ts, lat, lon), ...] filtrado + colapsado + autocompletado.
@@ -215,5 +242,16 @@ def limpiar_track(filas, zonas=None):
             r[4] if len(r) > 4 else 0) for r in filas]
     pts = filtro_saltos(pts)                 # 1º: saltos de red (ida y vuelta)
     limpios = filtro_anti_deriva(pts, zonas=zonas)   # 2º: anti-deriva + zonas
-    limpios = colapsar_estancias([(p[0], p[1], p[2]) for p in limpios])
+    limpios = [(p[0], p[1], p[2]) for p in limpios]
+    # RENDIMIENTO (F5.16): el colapso de estancias cuesta ~n·k (k = puntos en
+    # una burbuja de 8 min). Con rangos enormes («todo»: semanas, 150k+ pts)
+    # eran 90 s y el mapa se quedaba cargando. Se adelgaza la serie con un
+    # espaciado mínimo creciente con n: solo afecta al DIBUJO del rango largo
+    # (el frontend ya submuestrea) — la distancia de paso de cada evento y el
+    # reproductor /video trabajan por día, con series pequeñas y sin adelgazar.
+    n = len(limpios)
+    if n > 60000:
+        dt_min = 3.0 if n <= 120000 else (5.0 if n <= 240000 else 8.0)
+        limpios = _adelgazar(limpios, dt_min)
+    limpios = colapsar_estancias(limpios)
     return autocompletar_huecos(limpios)

@@ -1420,9 +1420,15 @@ if MODO_VISION:
     app.mount("/static", StaticFiles(directory=WEB), name="static")
 
 
+_SIN_CACHE = {"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache"}
+
+
 @app.get("/")
 def index():
-    return FileResponse(os.path.join(WEB, "index.html"))
+    # F5.16: las páginas HTML siempre frescas — el navegador cacheaba el JS
+    # inline y tras cada cambio se seguía ejecutando la versión antigua
+    # (el usuario veía comportamiento viejo sin saber por qué).
+    return FileResponse(os.path.join(WEB, "index.html"), headers=_SIN_CACHE)
 
 
 @app.get("/replay")
@@ -1437,13 +1443,13 @@ def video():
     """F5.12: reproductor de ruta profesional en página propia (pantalla
     completa, estilo app): selector de día, slider del recorrido, cuadrícula
     de cámaras con distancia en vivo. Misma sesión que el mapa (tc_auth_v1)."""
-    return FileResponse(os.path.join(WEB, "video.html"))
+    return FileResponse(os.path.join(WEB, "video.html"), headers=_SIN_CACHE)
 
 
 @app.get("/control")
 def control():
     """Panel de control remoto: config de la app (OTA sin recompilar)."""
-    return FileResponse(os.path.join(WEB, "control.html"))
+    return FileResponse(os.path.join(WEB, "control.html"), headers=_SIN_CACHE)
 
 
 # ── Eventos: servir vídeo/fotos + borrado (solo propietario o admin) ──────

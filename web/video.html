@@ -381,7 +381,17 @@ function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&l
 function D(s){return esc(String(s??''));}
 function toast(msg,err){const d=document.createElement('div');d.className='toast'+(err?' err':'');d.textContent=msg;$('toasts').appendChild(d);setTimeout(()=>d.remove(),3800);}
 const qs=p=>{const o=[];for(const k in p){if(p[k]===null||p[k]===undefined||p[k]==='')continue;o.push(k+'='+encodeURIComponent(p[k]));}return o.length?'?'+o.join('&'):'';};
-function qUsuario(){return (USUARIO!=null&&USUARIO!=='')?qs({usuario:USUARIO}):'';}
+/* F5.16: para el ADMIN, por defecto verse a SÍ MISMO (igual que el mapa) —
+   antes /video no pasaba ?usuario= y el backend servía TODOS los usuarios
+   mezclados (el 05-09 salían los 2.180 pts del usuario de prueba). ?usuario=
+   en la URL permite «ver como» otro usuario. */
+function qUsuario(){
+  if(ROL==='admin'){
+    const u=(USUARIO!=null&&USUARIO!=='')?USUARIO:UID;
+    return (u!=null&&u!=='')?qs({usuario:u}):'';
+  }
+  return '';
+}
 /* URL con token (para <video>/<img>/<a>, que no llevan header) */
 function au(path){return path+(path.includes('?')?'&':'?')+'token='+encodeURIComponent(TOK||'');}
 /* fetch JSON autenticado; 401 ⇒ sesión caducada → pantalla de sesión */
@@ -587,6 +597,10 @@ async function cargarDia(d,opts){
       estadoCargando('sin recorrido');
     }else{
       rutIniciar();                                   // reproduce desde el principio
+      // F5.16: aviso si el día apenas tiene recorrido (p.ej. hoy recién empezado)
+      if(PTS.length<100){
+        toast('ℹ️ '+etiqueta+' solo tiene '+PTS.length+' puntos de recorrido (¿día recién empezado?) — elige otro día en el selector.');
+      }
     }
   }catch(e){
     if(e.message!=='no autorizado'){
@@ -1224,8 +1238,21 @@ let DIAS_CACHE=[];
       sel.appendChild(o);
     });
     sel.disabled=false;
-    sel.value=dias[0].dia;                          // el más reciente por defecto
-    await cargarDia(dias[0]);
+    /* F5.16: día por DEFECTO = el más reciente CON RECORRIDO REAL. Si el más
+       reciente es hoy recién empezado (p.ej. 7 pts a las 00:11) no sirve para
+       nada y parecía que «no cargaban las rutas» — se elige el primero con
+       ≥200 pts y se avisa. */
+    const MIN_PTS=200;
+    let dDef=dias[0];
+    const dOk=dias.find(x=>(x.pts||0)>=MIN_PTS);
+    if(dOk&&dOk.dia!==dias[0].dia){
+      dDef=dOk;
+      const nd=DIAS_CACHE.find(x=>x.dia===dias[0].dia);
+      toast('El día más reciente ('+dias[0].dia+') solo tiene '+
+        (nd?nd.pts:0).toLocaleString('es-ES')+' pts (recién empezado) — cargando '+dOk.dia+'. Cambia de día en el selector de arriba.');
+    }
+    sel.value=dDef.dia;
+    await cargarDia(dDef);
     // F5.15: ?cam=<id> (abierto desde una celda con ⧉) → salta a ESA cámara:
     // seek al instante de su pasada y abre su detalle.
     try{
