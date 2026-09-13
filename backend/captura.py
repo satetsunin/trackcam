@@ -68,6 +68,8 @@ UMBRAL_DEDUP = 4            # bits de diferencia dHash → misma imagen
 CUOTA_TEMPS_MB = 500.0
 POOL_HILOS = 12
 INTERVALO_ESTANCIA_S = 60.0  # F5.18: parado (deriva) → 1 foto/min por cámara en vez de cada 5 s
+RADIO_CAPTURA_RAPIDA_M = 500.0   # F5.19: a menos de 500 m de la cámara…
+INTERVALO_CAPTURA_CERCA_S = 2.0  # …se captura cada 2 s (antes: 5 s fijos)
 TIMEOUT_DESCARGA = 5
 PROXY_IMAGEN = "http://127.0.0.1:8000/api/img?u="
 FFMPEG = "/usr/bin/ffmpeg"
@@ -170,6 +172,8 @@ class MotorCaptura:
             "radio_activa_m": RADIO_ACTIVA,
             "radio_captura_m": RADIO_CAPTURA,
             "intervalo_estancia_s": INTERVALO_ESTANCIA_S,
+            "radio_captura_rapida_m": RADIO_CAPTURA_RAPIDA_M,
+            "intervalo_captura_cerca_s": INTERVALO_CAPTURA_CERCA_S,
             "radio_evento_m": RADIO_EVENTO,
             "intervalo_captura_s": INTERVALO_S,
             "ventana_antes_s": VENTANA_ANTES,
@@ -635,9 +639,22 @@ class MotorCaptura:
                     est["estado"] = EST_EVENTO if est.get("en_post") else EST_CAPTURANDO
                     est["_dentro"] = 0            # F5.18: fuera del radio de evento
                     self._encolar_captura(user_id, cid, cam, ts, est, quieto)
-                else:  # ≤1500 m: activa
+                else:  # ≤r_act: activa
                     est["_dentro"] = 0            # F5.18: fuera del radio de evento
+                    en_post = (est.get("salida_ts") is not None and
+                               ts - est["salida_ts"] < self.cfg["ventana_despues_s"])
                     if estado_ant == EST_EVENTO and est["entrada_ts"] is not None:
+                        if en_post:
+                            # F5.19: la ventana posterior (60 s) NO se ha
+                            # completado todavía. En carretera se sale del
+                            # radio de captura (1 km) a los pocos segundos de
+                            # pasar, y el código cerraba el evento ahí mismo
+                            # (por eso a 73 km/h los eventos salían cortos o
+                            # vacíos). Se mantiene abierto y se sigue
+                            # capturando la cola hasta completar la ventana.
+                            est["estado"] = EST_EVENTO
+                            self._encolar_captura(user_id, cid, cam, ts, est, quieto)
+                            continue
                         self._finalizar_evento(user_id, cid, est)
                     est["estado"] = EST_ACTIVA
                     if not est["ctx_hecho"]:
@@ -763,12 +780,34 @@ class MotorCaptura:
 
     def _encolar_descarga(self, user_id, cid, cam, ts, tipo,
                           forzar_cache=False):
+        # F5.19: instantánea del estado AHORA (al encolar). Una descarga que
+        # termine más tarde debe podar el búfer con el estado que tenía la
+        # cámara cuando se encoló, no con el actual: si mientras tanto el
+        # usuario se alejó, el estado es EST_ACTIVA/INACTIVA y `_poda_buffer`
+        # VACIABA el búfer entero — incluidas las fotos de la pasada que se
+        # acababan de descargar (eventos con "0 fotos" en carretera).
+        _est = None
+        try:
+            _e = (self.cams.get(str(user_id)) or {}).get(cid)
+            if _e is not None:
+                _est = {"estado": _e.get("estado"),
+                        "entrada_ts": _e.get("entrada_ts"),
+                        "en_post": _e.get("en_post")}
+        except Exception:
+            _est = None
         fut = self.pool.submit(self._descargar_y_guardar, user_id, cid,
-                               cam, ts, tipo, forzar_cache)
+                               cam, ts, tipo, forzar_cache, _est)
         self.pendientes.setdefault((str(user_id), cid), []).append(fut)
 
     def _encolar_captura(self, user_id, cid, cam, ts, est, quieto=False):
         inter = self.cfg["intervalo_captura_s"]
+        # F5.19: CERCA de la cámara se captura más rápido. A 73 km/h el tramo a
+        # <100 m dura ~10 s: con 5 s solo salían 1-2 fotos y el evento se
+        # descartaba por el mínimo de 3 (las cámaras de carretera nunca se
+        # grababan). Con 2 s a <500 m salen 8-15 fotos por pasada.
+        d = est.get("ultima_dist")
+        if d is not None and d <= self.cfg.get("radio_captura_rapida_m", 500.0):
+            inter = min(inter, self.cfg.get("intervalo_captura_cerca_s", 2.0))
         pasada = (est["estado"] == EST_EVENTO) or bool(est.get("en_post"))
         if quieto and not pasada:
             # F5.18: parado (deriva GPS) y sin pasada en curso → una foto cada
@@ -788,7 +827,7 @@ class MotorCaptura:
                                forzar_cache=en_pasada)
 
     def _descargar_y_guardar(self, user_id, cid, cam, ts, tipo,
-                             forzar_cache=False):
+                             forzar_cache=False, _est=None):
         try:
             datos = self._descargar_url(cam["url"])
         except Exception:
@@ -819,7 +858,7 @@ class MotorCaptura:
                 f.write(datos)
         except OSError:
             return
-        self._poda_buffer(user_id, cid)
+        self._poda_buffer(user_id, cid, _est=_est)   # F5.19: estado del encolado
         # Caché persistente (F5.3): con dedup fuera de la pasada; SIN dedup
         # (cinta completa) durante la pasada → el caché de 30 días puede
         # reconstruir el evento por coincidencia de timestamp.
