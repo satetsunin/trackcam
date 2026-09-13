@@ -36,6 +36,13 @@ import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
+# F5.18: constantes del criterio de estancia/ancla compartidas con el filtro
+# que sirve el track (motor y mapa deben usar los mismos umbrales).
+try:
+    from backend import geo_filtro as _gf
+except ImportError:            # ejecución suelta desde backend/
+    import geo_filtro as _gf
+
 log = logging.getLogger("trackcam.captura")
 
 # Especificación de Alvaro (F5): 60 s antes + estancia + 60 s después
@@ -60,6 +67,7 @@ RETENCION_CACHE_DIAS = 30.0 # días que permanecen las imágenes en caché
 UMBRAL_DEDUP = 4            # bits de diferencia dHash → misma imagen
 CUOTA_TEMPS_MB = 500.0
 POOL_HILOS = 12
+INTERVALO_ESTANCIA_S = 60.0  # F5.18: parado (deriva) → 1 foto/min por cámara en vez de cada 5 s
 TIMEOUT_DESCARGA = 5
 PROXY_IMAGEN = "http://127.0.0.1:8000/api/img?u="
 FFMPEG = "/usr/bin/ffmpeg"
@@ -161,6 +169,7 @@ class MotorCaptura:
         self.cfg = {
             "radio_activa_m": RADIO_ACTIVA,
             "radio_captura_m": RADIO_CAPTURA,
+            "intervalo_estancia_s": INTERVALO_ESTANCIA_S,
             "radio_evento_m": RADIO_EVENTO,
             "intervalo_captura_s": INTERVALO_S,
             "ventana_antes_s": VENTANA_ANTES,
@@ -192,6 +201,7 @@ class MotorCaptura:
         self.descargas_fallo = 0
         self.eventos_creados = 0
         self._fallos_cam = {}   # cid -> fallos de descarga seguidos
+        self._deriva = {}       # str(uid) -> {modo, lat, lon, t, fuera} (F5.18 estancia)
 
         # Zonas de no-monitorización por usuario (F5.8): caché {uid: {ts, zonas}}
         # refrescada cada ~10 s desde la BD. El motor NO procesa puntos que
@@ -516,12 +526,51 @@ class MotorCaptura:
         except Exception as e:
             print(f"[captura] poda cache: {e}")
 
+    # ── F5.18: estancia (quieto) vs movimiento, criterio de ANCLA ──────
+    def _en_estancia(self, user_id, ts, lat, lon):
+        """¿El usuario está QUIETO (deriva GPS) en este punto?
+
+        Mismo criterio que geo_filtro.filtro_anti_deriva (ancla + histéresis)
+        para que el motor y el mapa coincidan: dentro de RADIO_ESTANCIA_M del
+        ancla durante T_ESTANCIA_S → estancia; se sale al superar
+        RADIO_SALIDA_M durante CONF_SALIDA puntos seguidos.
+        """
+        uid = str(user_id)
+        d = self._deriva.get(uid)
+        if d is None:
+            d = {"modo": "mov", "lat": lat, "lon": lon, "t": ts, "fuera": 0}
+            self._deriva[uid] = d
+            return False
+        dist = haversine(d["lat"], d["lon"], lat, lon)
+        if d["modo"] == "mov":
+            if dist > _gf.RADIO_ESTANCIA_M:
+                d["lat"], d["lon"], d["t"] = lat, lon, ts
+                return False
+            if ts - d["t"] >= _gf.T_ESTANCIA_S:
+                d["modo"] = "est"
+                d["fuera"] = 0
+                return True
+            return False
+        if dist > _gf.RADIO_SALIDA_M:
+            d["fuera"] += 1
+            if d["fuera"] >= _gf.CONF_SALIDA:
+                d.update({"modo": "mov", "lat": lat, "lon": lon,
+                          "t": ts, "fuera": 0})
+                return False
+        else:
+            d["fuera"] = 0
+        return True
+
     # ── procesado de un punto ──────────────────────────────────────────
     def _procesar_punto(self, user_id, ts, lat, lon):
         with self.lock:
             r_act = self.cfg["radio_activa_m"]
             r_cap = self.cfg["radio_captura_m"]
             r_ev = self.cfg["radio_evento_m"]
+            # F5.18: ¿está quieto? (deriva GPS) → no abrir eventos por saltos
+            # de deriva y espaciar las fotos de caché (antes: una foto cada
+            # 5 s de cada cámara cercana las 24 h → 1,9 GB y 24k fotos)
+            quieto = self._en_estancia(user_id, ts, lat, lon)
             cams_u = self.cams.setdefault(str(user_id), {})
             c1500 = self.cams_cerca(lat, lon, r_act)
             ids_ahora = set()
@@ -538,9 +587,14 @@ class MotorCaptura:
                 estado_ant = est["estado"]
 
                 if dist <= r_ev:
+                    # F5.18: contador de puntos seguidos dentro del radio de
+                    # evento. Parado (deriva) se exige 2 seguidos para abrir
+                    # evento: un salto puntual de deriva no crea una pasada.
+                    est["_dentro"] = est.get("_dentro", 0) + 1
                     # Entrada en el radio de evento (viene de >100 m)
                     if est["entrada_ts"] is None and (
-                            est["dist_prev"] is None or est["dist_prev"] > r_ev):
+                            est["dist_prev"] is None or est["dist_prev"] > r_ev) \
+                            and ((not quieto) or est["_dentro"] >= 2):
                         est["entrada_ts"] = ts
                         est["salida_ts"] = None
                         # F5.9b: nueva pasada → el mínimo empieza AQUÍ, no
@@ -565,7 +619,7 @@ class MotorCaptura:
                               f"user={user_id} cámara {cid} ts={ts:.1f}")
                     est["estado"] = EST_EVENTO
                     est["en_post"] = False
-                    self._encolar_captura(user_id, cid, cam, ts, est)
+                    self._encolar_captura(user_id, cid, cam, ts, est, quieto)
                 elif dist <= r_cap:
                     # Salió de los 100 m: registrar salida, seguir capturando
                     # la ventana posterior (60 s) y finalizar al completarla
@@ -579,8 +633,10 @@ class MotorCaptura:
                             self._finalizar_evento(user_id, cid, est)
                             est["en_post"] = False
                     est["estado"] = EST_EVENTO if est.get("en_post") else EST_CAPTURANDO
-                    self._encolar_captura(user_id, cid, cam, ts, est)
+                    est["_dentro"] = 0            # F5.18: fuera del radio de evento
+                    self._encolar_captura(user_id, cid, cam, ts, est, quieto)
                 else:  # ≤1500 m: activa
+                    est["_dentro"] = 0            # F5.18: fuera del radio de evento
                     if estado_ant == EST_EVENTO and est["entrada_ts"] is not None:
                         self._finalizar_evento(user_id, cid, est)
                     est["estado"] = EST_ACTIVA
@@ -711,8 +767,15 @@ class MotorCaptura:
                                cam, ts, tipo, forzar_cache)
         self.pendientes.setdefault((str(user_id), cid), []).append(fut)
 
-    def _encolar_captura(self, user_id, cid, cam, ts, est):
+    def _encolar_captura(self, user_id, cid, cam, ts, est, quieto=False):
         inter = self.cfg["intervalo_captura_s"]
+        pasada = (est["estado"] == EST_EVENTO) or bool(est.get("en_post"))
+        if quieto and not pasada:
+            # F5.18: parado (deriva GPS) y sin pasada en curso → una foto cada
+            # 5 s de cada cámara del entorno no aporta nada: se espacia.
+            # (El caché acumulaba 24.454 fotos / 1,9 GB casi todo de ratos
+            # parado.) Dentro de una pasada se mantiene el ritmo normal.
+            inter = max(inter, self.cfg.get("intervalo_estancia_s", 60.0))
         ult = est.get("ultima_captura_ts")
         if ult is not None and (ts - ult) < (inter - 0.1):
             return

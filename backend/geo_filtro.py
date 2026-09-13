@@ -27,6 +27,19 @@ VEL_MOVIMIENTO = 1.2        # m/s: refuerzo (si el receptor la reporta)
 VENTANA_POS_S = 60.0        # ventana de comparación de posición (anti-deriva)
 UMBRAL_POS_M = 15.0         # desplazamiento en la ventana = movimiento real
 LATIDO_S = 120.0            # parado: guardar 1 punto cada 2 min (hilo)
+# F5.18 — criterio de ANCLA (estancia vs movimiento) que sustituye en la
+# práctica al umbral de 15 m/60 s: parado en la calle el GPS deriva más que
+# eso y el filtro antiguo pintaba garabatos (Gernika: 1.931 puntos en 4 h
+# quieto). Ver filtro_anti_deriva().
+RADIO_ESTANCIA_M = 110.0    # dentro de este radio del ancla = mismo sitio
+T_ESTANCIA_S = 240.0        # 4 min dentro del radio → estancia confirmada
+LATIDO_ESTANCIA_S = 150.0   # en estancia: 1 punto cada 2,5 min
+RADIO_SALIDA_M = 130.0      # para salir de la estancia hay que superar esto…
+CONF_SALIDA = 4             # …durante 4 puntos consecutivos (histéresis).
+                            # Verificado con datos reales: en la estancia de
+                            # Gernika (4 h, deriva 114 m) el criterio antiguo
+                            # dejaba 1.931 puntos y este 449, conservando el
+                            # 80 % del movimiento real de los paseos.
 HUECO_MAX_S = 90.0          # huecos <= 90 s se autocompletan
 INTERP_S = 2.0              # paso de interpolación
 DIST_SALTO_MAX_M = 600.0    # si los extremos están a más de 600 m no interpolar
@@ -50,16 +63,33 @@ def _interpolar(a, b, frac):
 
 def filtro_anti_deriva(pts, vel_mov=VEL_MOVIMIENTO,
                        ventana_s=VENTANA_POS_S, umbral_m=UMBRAL_POS_M,
-                       latido_s=LATIDO_S, zonas=None):
+                       latido_s=LATIDO_S, zonas=None,
+                       r_estancia_m=RADIO_ESTANCIA_M,
+                       t_estancia_s=T_ESTANCIA_S,
+                       latido_est_s=LATIDO_ESTANCIA_S,
+                       r_salida_m=RADIO_SALIDA_M,
+                       conf_salida=CONF_SALIDA):
     """pts: [(ts, lat, lon, acc, vel), ...] cronológico.
 
-    Devuelve los puntos que representan movimiento real (o latidos cada
-    latido_s cuando estás parado, para no perder el hilo).
+    Devuelve los puntos que representan movimiento real (y latidos espaciados
+    cuando estás parado, para no perder el hilo).
 
-    Discriminador por POSICIÓN en ventana (no por vel GPS — el Redmi la
-    reporta 0 o fantasma): si el punto actual está a >= umbral_m del punto
-    de hace ~ventana_s segundos, hubo movimiento real → guardar. Si no,
-    deriva/parado → solo latidos espaciados.
+    F5.18 — CRITERIO DE ANCLA con histéresis (sustituye al de «15 m en 60 s»):
+    estando parado el GPS deriva más de 15 m en 60 s (sobre todo en calles
+    estrechas), así que el criterio anterior lo confundía con movimiento y
+    dibujaba garabatos: en una estancia real de 4 h en Gernika (deriva máxima
+    114 m, desplazamiento neto 62 m) dejaba pasar 1.931 puntos.
+
+    Ahora:
+      · MOVIMIENTO: el ancla se mueve CON el usuario cada vez que el punto se
+        aleja más de r_estancia_m → se emiten TODOS los puntos (movimiento
+        intacto, sin perder detalle de curvas).
+      · ESTANCIA: si el punto se mantiene dentro de r_estancia_m del ancla
+        durante t_estancia_s → estás quieto (aunque la deriva salte) → solo
+        1 latido cada latido_est_s.
+      · SALIDA de la estancia: alejarse más de r_salida_m durante conf_salida
+        puntos CONSECUTIVOS (histéresis: un salto puntual de deriva no la
+        rompe).
 
     zonas: lista de zonas {lat, lon, radio_m}. Un punto PARADO que cae en
     una zona NO se guarda (ni latido): la zona de no-monitorización elimina
@@ -69,28 +99,54 @@ def filtro_anti_deriva(pts, vel_mov=VEL_MOVIMIENTO,
     if not pts:
         return []
     n = len(pts)
-    # ancla: el primer punto se conserva (para no perder el arranque del
-    # track) salvo que caiga en una zona de no-monitorización: si empiezas
-    # a grabar en casa, la línea debe arrancar donde sales de la zona.
-    out = [] if (zonas and _en_zona_lista(zonas, pts[0][1], pts[0][2])) else [pts[0]]
+    # El primer punto se conserva (para no perder el arranque del track)
+    # salvo que caiga en una zona de no-monitorización: si empiezas a grabar
+    # en casa, la línea debe arrancar donde sales de la zona.
+    _en_z0 = bool(zonas) and _en_zona_lista(zonas, pts[0][1], pts[0][2])
+    out = [] if _en_z0 else [pts[0]]
     ult_guardado_ts = pts[0][0]
-    j = 0                   # índice del punto ~ventana_s atrás
+    modo = "mov"
+    an_lat, an_lon = pts[0][1], pts[0][2]
+    t_ancla = pts[0][0]
+    fuera = 0
     for i in range(1, n):
-        ts_i = pts[i][0]
-        # avanzar j hasta el último punto con ts <= ts_i - ventana
-        while j < i - 1 and pts[j + 1][0] <= ts_i - ventana_s:
-            j += 1
-        ref = pts[j] if pts[j][0] <= ts_i - ventana_s else pts[0]
-        d = _hav(ref[1], ref[2], pts[i][1], pts[i][2])
+        ts_i, la, lo = pts[i][0], pts[i][1], pts[i][2]
         vel = pts[i][4] if len(pts[i]) > 4 and pts[i][4] else 0
-        if d >= umbral_m or (vel and vel > vel_mov):
-            # movimiento real en la ventana (o vel GPS alta como refuerzo)
-            out.append(pts[i])
-            ult_guardado_ts = ts_i
-        elif ts_i - ult_guardado_ts >= latido_s:
-            # parado: latido de presencia para mantener el hilo temporal,
-            # salvo si estamos dentro de una zona de no-monitorización
-            if not zonas or not _en_zona_lista(zonas, pts[i][1], pts[i][2]):
+        d = _hav(an_lat, an_lon, la, lo)
+        en_zona = bool(zonas) and _en_zona_lista(zonas, la, lo)
+        if modo == "mov":
+            if d > r_estancia_m:
+                # se aleja del ancla: movimiento real → el ancla le sigue
+                an_lat, an_lon, t_ancla = la, lo, ts_i
+                out.append(pts[i])
+                ult_guardado_ts = ts_i
+            elif ts_i - t_ancla >= t_estancia_s:
+                # lleva t_estancia dentro del radio sin alejarse → ESTANCIA
+                modo = "est"
+                fuera = 0
+                if not en_zona:
+                    out.append(pts[i])
+                    ult_guardado_ts = ts_i
+            else:
+                # cerca del ancla pero aún sin confirmar estancia: se emite
+                # (cubre el arranque parado y los paseos en un radio pequeño)
+                if not en_zona:
+                    out.append(pts[i])
+                    ult_guardado_ts = ts_i
+        else:  # ESTANCIA: la deriva no se dibuja
+            if d > r_salida_m:
+                fuera += 1
+                if fuera >= conf_salida:
+                    modo = "mov"
+                    an_lat, an_lon, t_ancla = la, lo, ts_i
+                    fuera = 0
+                    if not en_zona:
+                        out.append(pts[i])
+                        ult_guardado_ts = ts_i
+                    continue
+            else:
+                fuera = 0
+            if ts_i - ult_guardado_ts >= latido_est_s and not en_zona:
                 out.append(pts[i])
                 ult_guardado_ts = ts_i
     return out
