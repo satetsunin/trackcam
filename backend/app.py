@@ -52,6 +52,22 @@ app = FastAPI(title="TrackCam")
 from fastapi.middleware.gzip import GZipMiddleware  # noqa: E402
 app.add_middleware(GZipMiddleware, minimum_size=1024)
 
+
+@app.middleware("http")
+async def _api_sin_cache(request: Request, call_next):
+    """F5.20: las respuestas de DATOS no se cachean en el navegador.
+
+    Sin cabeceras, el navegador puede cachear heurísticamente /api/track y
+    servir una versión vieja (el usuario veía el track antiguo tras un cambio
+    del filtro). El catálogo se excluye a propósito: usa ETag + no-cache para
+    revalidar y no volver a bajar 10 MB.
+    """
+    resp = await call_next(request)
+    p = request.url.path
+    if p.startswith("/api/") and p != "/api/catalogo":
+        resp.headers["Cache-Control"] = "no-store, must-revalidate"
+    return resp
+
 # ── BD ──────────────────────────────────────────────────────────────────────
 def get_db():
     con = sqlite3.connect(DB, timeout=30)
