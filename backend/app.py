@@ -19,7 +19,8 @@ import hmac
 import threading
 from datetime import datetime, timezone
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, FileResponse, PlainTextResponse, RedirectResponse
+from fastapi.responses import (JSONResponse, FileResponse, PlainTextResponse,
+                               RedirectResponse, Response)
 from fastapi.staticfiles import StaticFiles
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -43,6 +44,13 @@ MODO_VISION = MODO == "vision"
 
 os.makedirs(DATA, exist_ok=True)
 app = FastAPI(title="TrackCam")
+
+# ── Compresión de las respuestas (F5.17) ─────────────────────────────────
+# El track y el catálogo son GeoJSON/JSON de coordenadas: comprimen ~85-88 %
+# (track 8,2 MB → 0,9 MB; catálogo 10,4 MB → 1,7 MB). Sin esto el mapa bajaba
+# ~49 MB por carga y tardaba 32 s. Aplica a partir de 1 KB.
+from fastapi.middleware.gzip import GZipMiddleware  # noqa: E402
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 # ── BD ──────────────────────────────────────────────────────────────────────
 def get_db():
@@ -760,6 +768,62 @@ def _modo_vel(v):
     return "rapido"
 
 
+_TCACHE = {}            # clave -> (ult_ts_bd, respuesta, ts_calculo)
+_TCACHE_MAX = 16        # entradas (cada una puede ser grande: se limita el nº)
+_TCACHE_TTL_VIVO = 4.0  # s de gracia con datos vivos (móvil enviando puntos)
+
+
+def _tcache_get(clave, ult_ts):
+    """Devuelve la respuesta cacheada si los datos NO han cambiado (mismo
+    MAX(ts) en BD) — cualquier punto nuevo la invalida.
+
+    Excepción: en los rangos LARGOS (no incrementales) con el móvil enviando
+    puntos cada pocos segundos, se reutiliza hasta `_TCACHE_TTL_VIVO` s para no
+    recalcular el histórico entero en cada recarga; el rango «24 h / 7 días /
+    Todo» no necesita precisión al segundo. En MODO INCREMENTAL (track en vivo,
+    clave con incremental=True) NO se aplica gracia: ahí el resultado debe estar
+    fresco al segundo para que la línea en vivo no pierda puntos.
+    """
+    e = _TCACHE.get(clave)
+    if e is None:
+        return None
+    ult_ok = (e[0] == ult_ts and ult_ts is not None)
+    if ult_ok:
+        return e[1]
+    incremental = bool(clave[3]) if len(clave) > 3 else False
+    if not incremental and ult_ts is not None and (time.time() - e[2]) < _TCACHE_TTL_VIVO:
+        return e[1]
+    return None
+
+
+def _tcache_set(clave, ult_ts, resp):
+    if ult_ts is not None:
+        if len(_TCACHE) >= _TCACHE_MAX and clave not in _TCACHE:
+            try:
+                _TCACHE.pop(next(iter(_TCACHE)))   # el más antiguo
+            except StopIteration:
+                pass
+        _TCACHE[clave] = (ult_ts, resp, time.time())
+    return resp
+
+
+def _es_incremental(request: Request) -> bool:
+    """¿La consulta de track es el MODO INCREMENTAL (track en vivo)?
+
+    F5.17: solo si `desde` es un ts REAL > 0. El rango «Todo» del mapa manda
+    `desde=0`, que como cadena es truthy y colaba como incremental (sin
+    colapso ni adelgazado → 150k pts / 31 MB por carga). Con desde=0 o
+    ausente se aplica el pipeline COMPLETO.
+    """
+    d = request.query_params.get("desde")
+    if d is None:
+        return False
+    try:
+        return float(d) > 0
+    except (TypeError, ValueError):
+        return False
+
+
 @app.get("/api/track")
 def api_track(request: Request):
     """GeoJSON del track con velocidad CALCULADA por el servidor (km/h).
@@ -772,14 +836,13 @@ def api_track(request: Request):
     if not u:
         return _pedir_auth()
     con = get_db()
-    q = "SELECT ts,lat,lon,acc,vel,dev,user_id FROM tracks"
     params = []
     conds = []
-    if u["rol"] == "admin":
-        vid = request.query_params.get("usuario")
-        if vid:
-            conds.append("user_id=?"); params.append(vid)
-    else:
+    vid = request.query_params.get("usuario") if u["rol"] == "admin" else None
+    uid_datos = str(vid) if vid else str(u["id"])
+    if vid:
+        conds.append("user_id=?"); params.append(vid)
+    elif u["rol"] != "admin":
         conds.append("user_id=?"); params.append(str(u["id"]))
     ts_ini = request.query_params.get("desde")
     ts_fin = request.query_params.get("hasta")
@@ -787,6 +850,35 @@ def api_track(request: Request):
         conds.append("ts>=?"); params.append(float(ts_ini))
     if ts_fin:
         conds.append("ts<=?"); params.append(float(ts_fin))
+
+    # Zonas de no-monitorización (F5.8): la BD guarda todo, pero al servir el
+    # anti-deriva no deja latidos PARADOS dentro de una zona del usuario
+    # (casa/bar) — así la deriva no se pinta. El movimiento real que cruza una
+    # zona (sales andando de casa) SÍ se conserva: la línea no se corta.
+    # Se resuelven ANTES de la consulta porque entran en la clave de caché.
+    try:
+        _zonas = _zonas_usuario(u["id"])
+    except Exception:
+        _zonas = []
+
+    # ── Caché del track servido (F5.17) ────────────────────────────────
+    # Guarda el GeoJSON YA CALCULADO y lo reutiliza mientras no entre ningún
+    # punto nuevo: la clave incluye user/rango/zonas y la validez se comprueba
+    # con MAX(ts) (índice, instantáneo) — en cuanto llega UN punto, el MAX
+    # cambia y se recalcula. No sirve datos viejos: solo evita repetir el
+    # mismo cálculo con los mismos datos.
+    _ck = (uid_datos, ts_ini, ts_fin, _es_incremental(request),
+           tuple(sorted((round(float(z.get("lat", 0)), 5),
+                         round(float(z.get("lon", 0)), 5),
+                         int(z.get("radio_m", 30) or 30)) for z in _zonas)))
+    qmax = "SELECT MAX(ts) FROM tracks" + (" WHERE " + " AND ".join(conds) if conds else "")
+    ult_ts = con.execute(qmax, params).fetchone()[0]
+    _hit = _tcache_get(_ck, ult_ts)
+    if _hit is not None:
+        con.close()
+        return _hit
+
+    q = "SELECT ts,lat,lon,acc,vel,dev,user_id FROM tracks"
     if conds:
         q += " WHERE " + " AND ".join(conds)
     q += " ORDER BY ts ASC"
@@ -802,20 +894,16 @@ def api_track(request: Request):
     # solo se aplica anti-deriva: el autocompletado necesita contexto y
     # los puntos nuevos llegan en el siguiente ciclo.
     from backend import geo_filtro as _gf
-    # Zonas de no-monitorización (F5.8): la BD guarda todo, pero al servir
-    # el anti-deriva no deja latidos PARADOS dentro de una zona del usuario
-    # (casa/bar) — así la deriva no se pinta. El movimiento real que cruza
-    # una zona (sales andando de casa) SÍ se conserva: la línea no se corta
-    # en la puerta de casa.
-    try:
-        _zonas = _zonas_usuario(u["id"])
-    except Exception:
-        _zonas = []
     crudos = [(r[0], r[1], r[2],
                r[3] if len(r) > 3 else 0,
                r[4] if len(r) > 4 else 0) for r in filas]
-    if request.query_params.get("desde"):
+    if _es_incremental(request):
         sel = _gf.filtro_anti_deriva(crudos, zonas=_zonas or None)
+        # F5.17: el rango «Todo» del mapa manda desde=0 (antes se trataba como
+        # track en vivo → sin colapso NI adelgazado → 150k pts / 31 MB por
+        # carga). Si aún así la serie es enorme, adelgazar para el dibujo.
+        if len(sel) > 60000:
+            sel = _gf.adelgazar(sel, 3.0)
         # features directas con sus metadatos
         vels = _vel_entre([(p[0], p[1], p[2]) for p in sel])
         feats = []
@@ -831,9 +919,9 @@ def api_track(request: Request):
         # último ts REAL de la BD (aunque el filtro lo descarte): así el
         # frontend avanza su marca de agua sin re-pedir puntos ya vistos
         ult_db = filas[-1][0] if filas else None
-        return {"type": "FeatureCollection", "features": feats,
-                "vel_media": None, "filtro": True,
-                "ultimo_ts_db": ult_db}
+        return _tcache_set(_ck, ult_ts, {"type": "FeatureCollection", "features": feats,
+                                         "vel_media": None, "filtro": True,
+                                         "ultimo_ts_db": ult_db})
     # modo completo: anti-deriva (con zonas) + colapso + autocompletar.
     # Construimos un índice ts→fila original para conservar acc/vel/dev.
     por_ts = {r[0]: r for r in filas}
@@ -854,8 +942,9 @@ def api_track(request: Request):
                                      "modo": _modo_vel(v),
                                      "dev": orig[5] if orig and len(orig) > 5 else "",
                                      "user_id": orig[6] if orig and len(orig) > 6 else u["id"]}})
-    return {"type": "FeatureCollection", "features": feats,
-            "vel_media": None, "filtro": True, "n_crudos": len(crudos)}
+    return _tcache_set(_ck, ult_ts, {"type": "FeatureCollection", "features": feats,
+                                     "vel_media": None, "filtro": True,
+                                     "n_crudos": len(crudos)})
 
 
 @app.get("/api/ultimo_punto")
@@ -1032,27 +1121,102 @@ def api_catalogo_recargar(request: Request):
     return {"antes": antes, "ahora": n, "fuente": EUROCAMS_JSON}
 
 
+_CAT_LISTA_CLAVE = None
+_CAT_LISTA_DATOS = None
+
+
+def _cat_lista():
+    """Lista de cámaras normalizada (id/nombre/lat/lon/fuente/pais/url),
+    construida UNA vez por carga del catálogo (no por petición)."""
+    global _CAT_LISTA_CLAVE, _CAT_LISTA_DATOS
+    clave = (len(camaras), CAMARAS_CARGADO_TS)
+    if _CAT_LISTA_CLAVE != clave or _CAT_LISTA_DATOS is None:
+        out = []
+        for c in camaras:
+            cid = c.get("id") or "%s_%.5f_%.5f" % (c.get("fuente", "cam"),
+                                                   c["lat"], c["lon"])
+            out.append({"id": cid, "nombre": c.get("nombre", "?"),
+                        "lat": c["lat"], "lon": c["lon"],
+                        "fuente": c.get("fuente", "?"),
+                        "pais": c.get("pais", "?"),
+                        "url": c.get("url", "")})
+        _CAT_LISTA_CLAVE, _CAT_LISTA_DATOS = clave, out
+    return _CAT_LISTA_DATOS
+
+
+def _ambito_usuario(uid, margen_km=25.0):
+    """BBox (minlat,minlon,maxlat,maxlon) que cubre los tracks del usuario +
+    margen — la idea del usuario: «solo de Vizcaya si no he salido de
+    Vizcaya, o de España si he salido». Devuelve None si no hay tracks."""
+    try:
+        con = get_db()
+        r = con.execute("SELECT MIN(lat),MIN(lon),MAX(lat),MAX(lon) FROM tracks"
+                        " WHERE user_id=?", (str(uid),)).fetchone()
+        con.close()
+    except Exception:
+        return None
+    if not r or r[0] is None:
+        return None
+    la0, lo0, la1, lo1 = float(r[0]), float(r[1]), float(r[2]), float(r[3])
+    dla = margen_km / 111.0
+    clo = max(0.2, math.cos(math.radians((la0 + la1) / 2.0)))
+    dlo = margen_km / (111.0 * clo)
+    return (la0 - dla, lo0 - dlo, la1 + dla, lo1 + dlo)
+
+
 @app.get("/api/catalogo")
 def api_catalogo(request: Request):
-    """Catálogo completo de cámaras (para pintar todas en el mapa).
+    """Cámaras para pintar en el mapa. Autenticado.
 
-    Campos: id, nombre, lat, lon, fuente, pais, url. Autenticado.
+    Parámetros (opcionales):
+      ?ambito=1     → solo las cámaras del ÁMBITO del usuario (bbox de sus
+                      tracks + 25 km): si no ha salido de Vizcaya, solo Vizcaya
+                      (10 MB → unos cientos de KB). Devuelve `bbox` usado.
+      ?bbox=a,b,c,d → solo las cámaras de ese bbox (minlat,minlon,maxlat,maxlon).
+      Sin parámetros → catálogo completo (42.928).
+
+    F5.17: el catálogo solo cambia al recargar el JSON de EuroCams → la lista se
+    construye UNA vez y la respuesta se sirve con ETag + `Cache-Control:
+    no-cache`: el navegador la guarda y revalida con If-None-Match → 304 sin
+    cuerpo (10,4 MB → 0 B) mientras no cambie nada.
     """
     u = _auth(request)
     if not u:
         return _pedir_auth()
-    out = []
-    for c in camaras:
-        cid = c.get("id") or "%s_%.5f_%.5f" % (c.get("fuente", "cam"),
-                                                c["lat"], c["lon"])
-        out.append({"id": cid, "nombre": c.get("nombre", "?"),
-                    "lat": c["lat"], "lon": c["lon"],
-                    "fuente": c.get("fuente", "?"),
-                    "pais": c.get("pais", "?"),
-                    "url": c.get("url", "")})
-    return {"total": len(out), "camaras": out,
-            "fuente": EUROCAMS_JSON,
-            "cargado_ts": CAMARAS_CARGADO_TS}
+    vid = request.query_params.get("usuario") if u["rol"] == "admin" else None
+    uid_datos = str(vid) if vid else str(u["id"])
+    lista = _cat_lista()
+    bbox = None
+    if request.query_params.get("ambito"):
+        bbox = _ambito_usuario(uid_datos, 25.0)
+    q_bbox = request.query_params.get("bbox")
+    if q_bbox:
+        try:
+            b = [float(x) for x in q_bbox.split(",")]
+            if len(b) == 4:
+                bbox = tuple(b) if bbox is None else (
+                    min(bbox[0], b[0]), min(bbox[1], b[1]),
+                    max(bbox[2], b[2]), max(bbox[3], b[3]))
+        except ValueError:
+            pass
+    if bbox:
+        la0, lo0, la1, lo1 = bbox
+        sel = [c for c in lista
+               if la0 <= c["lat"] <= la1 and lo0 <= c["lon"] <= lo1]
+    else:
+        sel = lista
+    cuerpo = json.dumps({"total": len(sel), "total_catalogo": len(lista),
+                         "camaras": sel, "fuente": EUROCAMS_JSON,
+                         "cargado_ts": CAMARAS_CARGADO_TS,
+                         "bbox": list(bbox) if bbox else None,
+                         "ambito": bool(bbox)},
+                        separators=(",", ":"), ensure_ascii=False, default=str)
+    etag = '"%s"' % hashlib.md5(cuerpo.encode()).hexdigest()[:20]
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers={"ETag": etag,
+                                                  "Cache-Control": "no-cache"})
+    return Response(cuerpo, media_type="application/json",
+                    headers={"ETag": etag, "Cache-Control": "no-cache"})
 
 
 @app.get("/api/verdes")

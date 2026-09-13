@@ -215,7 +215,7 @@ def autocompletar_huecos(pts, hueco_max=HUECO_MAX_S, paso=INTERP_S,
     return out
 
 
-def _adelgazar(pts, min_dt):
+def adelgazar(pts, min_dt):
     """Conserva 1 punto por cada min_dt s (el primero de cada tramo).
     Usado solo en series enormes, donde el colapso de estancias se dispara."""
     if min_dt <= 1 or len(pts) < 2:
@@ -252,6 +252,6 @@ def limpiar_track(filas, zonas=None):
     n = len(limpios)
     if n > 60000:
         dt_min = 3.0 if n <= 120000 else (5.0 if n <= 240000 else 8.0)
-        limpios = _adelgazar(limpios, dt_min)
+        limpios = adelgazar(limpios, dt_min)
     limpios = colapsar_estancias(limpios)
     return autocompletar_huecos(limpios)

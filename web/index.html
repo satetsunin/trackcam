@@ -608,7 +608,7 @@ button.mchip.pel:hover{background:#3b1620}
     <span style="color:var(--mut2);font-size:10.5px;text-transform:uppercase;letter-spacing:.8px">Tiempo</span>
     <div class="grp" id="grpPills">
       <label class="pill"><input type="radio" name="perf" value="phoy"><span>HOY</span></label>
-      <label class="pill"><input type="radio" name="perf" value="p24h"><span>24 h</span></label>
+      <label class="pill"><input type="radio" name="perf" value="p24h" checked><span>24 h</span></label>
       <label class="pill"><input type="radio" name="perf" value="p7d"><span>7 días</span></label>
       <label class="pill"><input type="radio" name="perf" value="p30d"><span>1 mes</span></label>
       <label class="pill"><input type="radio" name="perf" value="p90d"><span>3 meses</span></label>
@@ -724,8 +724,8 @@ button.mchip.pel:hover{background:#3b1620}
 const LS_AUTH = 'tc_auth_v1';
 const $ = id => document.getElementById(id);
 const S = {token:null, user:null, rol:null, uid:null, vista:null /*null=yo, ''=global(admin)*/,
-           cat:null, catOK:false, verdes:[], eventos:[], pts:[],
-           perf:'ptodo', rangoD:null, rangoH:null, horaA:'00:00', horaB:'23:59', horaActiva:false,
+           cat:null, catOK:false, catBBox:null, catTotal:0, verdes:[], eventos:[], pts:[],
+           perf:'p24h', rangoD:null, rangoH:null, horaA:'00:00', horaB:'23:59', horaActiva:false,
            histCam:null, histCamNom:null, fotoPat:null, busy:false, tab:'evs',
            modoHist:'pasadas', cache:[], cacheCam:null, cacheRec:null, cacheIdx:0, cacheUser:null, cacheUlt:0, cacheOK:false,
            muertas:[], muertasOK:false,   // 📵 cámaras sin señal (/api/muertas)
@@ -1596,6 +1596,10 @@ function ultTsDePts(feats){               // último ts (epoch s) presente en S.
 }
 async function crecerTrack(){
   if(!S.token||trackVivoBusy||!trackVivoActivo())return;
+  // F5.17: sin marca de agua todavía (refreshTodo no ha terminado) NO pedir —
+  // desde=0 equivale a pedir el histórico ENTERO (era una 2ª descarga de
+  // 31 MB además de la de refreshTodo).
+  if(!ultTsTrack)return;
   trackVivoBusy=true;
   try{
     const params={desde:ultTsTrack||0};  // el API es inclusivo (ts>=desde): el borde se descarta abajo
@@ -2065,13 +2069,51 @@ function actualizarChip(){ $('chipDetalle').textContent=(S.rol==='admin'&&S.vist
 let catCargando=false;
 function cargarCatalogo(){
   if(S.catOK||catCargando) return; catCargando=true;
-  $('catInfo').textContent='⏳ Cargando catálogo de cámaras (≈10 MB) en segundo plano…';
-  api('/api/catalogo').then(j=>{
+  // F5.17: primero el ÁMBITO del usuario (bbox de sus tracks + 25 km): si no
+  // ha salido de Vizcaya solo baja las cámaras de Vizcaya (~10 MB → cientos
+  // de KB). Al mover el mapa fuera del ámbito se pide el bbox que falte.
+  $('catInfo').textContent='⏳ Cargando cámaras de tu ámbito…';
+  api('/api/catalogo?ambito=1').then(j=>{
     S.cat=j.camaras||[]; S.catOK=true;
+    S.catBBox=j.bbox||null; S.catTotal=j.total_catalogo||S.cat.length;
     leyendaCapas();
+    // el contador va DESPUÉS: leyendaCapas() reescribe #catInfo
+    if(j.ambito){
+      const n=Number(S.cat.length).toLocaleString('es-ES');
+      const t=Number(S.catTotal).toLocaleString('es-ES');
+      $('catInfo').insertAdjacentHTML('afterbegin',
+        '<b id="catAmbito">🛰 '+n+' cámaras en tu ámbito</b> (de '+t+' del catálogo mundial). ');
+    }
     pintarGrises(); pintarVerdes(); pintarNaranjas(); pintarMuertas();   // el catálogo da nombre/coordenadas exactas a los naranjas/muertas
   }).catch(e=>{ $('catInfo').textContent='⚠ Catálogo no disponible: se muestran solo las cámaras verdes (pasadas).'; }).finally(()=>{catCargando=false;});
 }
+
+/* F5.17: si el usuario mueve el mapa fuera del ámbito ya cargado, pedir SOLO
+   el bbox que falta (el servidor devuelve esas cámaras) y fusionarlas. Así el
+   catálogo crece a demanda (Madrid si viaja) sin volver a bajar el mundial. */
+let catBBoxBusy=false, catBBoxTimer=null;
+function ampliarCatalogoSiHaceFalta(){
+  if(!S.catOK||catBBoxBusy) return;
+  let b; try{ b=map.getBounds(); }catch(e){ return; }
+  const v=[b.getSouth(),b.getWest(),b.getNorth(),b.getEast()];
+  const c=S.catBBox;
+  if(c && v[0]>=c[0] && v[1]>=c[1] && v[2]<=c[2] && v[3]<=c[3]) return;   // ya cubierto
+  const dla=0.15, dlo=0.2;                       // margen ~17/15 km
+  const ped=[v[0]-dla, v[1]-dlo, v[2]+dla, v[3]+dlo];
+  catBBoxBusy=true;
+  api('/api/catalogo?bbox='+ped.map(x=>x.toFixed(4)).join(',')).then(j=>{
+    const cam=j.camaras||[];
+    if(cam.length){
+      const vistos=new Set(S.cat.map(x=>x.id));
+      let n=0; for(const x of cam){ if(!vistos.has(x.id)){ S.cat.push(x); n++; } }
+      if(n){ pintarGrises(); }
+    }
+    // unir bbox cargado
+    S.catBBox = c ? [Math.min(c[0],ped[0]),Math.min(c[1],ped[1]),
+                     Math.max(c[2],ped[2]),Math.max(c[3],ped[3])] : ped;
+  }).catch(()=>{}).finally(()=>{catBBoxBusy=false;});
+}
+map.on('moveend',()=>{ clearTimeout(catBBoxTimer); catBBoxTimer=setTimeout(ampliarCatalogoSiHaceFalta,900); });
 
 /* ═══════════════ FILTROS TEMPORALES ═══════════════ */
 function rangoSeleccion(){
