@@ -68,6 +68,9 @@ UMBRAL_DEDUP = 4            # bits de diferencia dHash → misma imagen
 CUOTA_TEMPS_MB = 500.0
 POOL_HILOS = 12
 INTERVALO_ESTANCIA_S = 60.0  # F5.18: parado (deriva) → 1 foto/min por cámara en vez de cada 5 s
+VEL_AUTOPISTA_KMH = 80.0         # F5.21: a partir de aquí se amplía el caché
+RADIO_CAPTURA_AUTOPISTA_M = 2500.0   # …capturando la cinta desde 2,5 km
+VENTANA_ANTES_AUTOPISTA_S = 120.0    # y la ventana del evento cubre 2 min antes
 RADIO_CAPTURA_RAPIDA_M = 500.0   # F5.19: a menos de 500 m de la cámara…
 INTERVALO_CAPTURA_CERCA_S = 2.0  # …se captura cada 2 s (antes: 5 s fijos)
 TIMEOUT_DESCARGA = 5
@@ -173,6 +176,9 @@ class MotorCaptura:
             "radio_captura_m": RADIO_CAPTURA,
             "intervalo_estancia_s": INTERVALO_ESTANCIA_S,
             "radio_captura_rapida_m": RADIO_CAPTURA_RAPIDA_M,
+            "vel_autopista_kmh": VEL_AUTOPISTA_KMH,
+            "radio_captura_autopista_m": RADIO_CAPTURA_AUTOPISTA_M,
+            "ventana_antes_autopista_s": VENTANA_ANTES_AUTOPISTA_S,
             "intervalo_captura_cerca_s": INTERVALO_CAPTURA_CERCA_S,
             "radio_evento_m": RADIO_EVENTO,
             "intervalo_captura_s": INTERVALO_S,
@@ -530,40 +536,65 @@ class MotorCaptura:
         except Exception as e:
             print(f"[captura] poda cache: {e}")
 
-    # ── F5.18: estancia (quieto) vs movimiento, criterio de ANCLA ──────
+    # ── F5.18/F5.20: estancia (quieto/deriva) vs movimiento ─────────────
     def _en_estancia(self, user_id, ts, lat, lon):
         """¿El usuario está QUIETO (deriva GPS) en este punto?
 
-        Mismo criterio que geo_filtro.filtro_anti_deriva (ancla + histéresis)
-        para que el motor y el mapa coincidan: dentro de RADIO_ESTANCIA_M del
-        ancla durante T_ESTANCIA_S → estancia; se sale al superar
-        RADIO_SALIDA_M durante CONF_SALIDA puntos seguidos.
+        Mismo criterio que geo_filtro.filtro_anti_deriva (F5.20): COHERENCIA
+        DE TRAYECTORIA — eficiencia = desplazamiento neto / recorrido
+        acumulado en una ventana de 5 min. Parado el GPS va y vuelve
+        (eficiencia ~0,1-0,2); andando o conduciendo, aunque sea lento, el
+        neto crece con el recorrido (eficiencia alta). Con red de seguridad
+        por radio: 4 min sin alejarse >110 m también es estancia.
         """
         uid = str(user_id)
         d = self._deriva.get(uid)
         if d is None:
-            d = {"modo": "mov", "lat": lat, "lon": lon, "t": ts, "fuera": 0}
+            d = {"buf": [], "modo": "mov"}
             self._deriva[uid] = d
+        buf = d["buf"]
+        buf.append((ts, lat, lon))
+        while len(buf) > 1 and buf[0][0] < ts - _gf.VENT_COHERENCIA_S:
+            buf.pop(0)
+        if len(buf) > 300:
+            del buf[:-300]
+        if len(buf) < 3:
             return False
-        dist = haversine(d["lat"], d["lon"], lat, lon)
-        if d["modo"] == "mov":
-            if dist > _gf.RADIO_ESTANCIA_M:
-                d["lat"], d["lon"], d["t"] = lat, lon, ts
-                return False
-            if ts - d["t"] >= _gf.T_ESTANCIA_S:
-                d["modo"] = "est"
-                d["fuera"] = 0
-                return True
-            return False
-        if dist > _gf.RADIO_SALIDA_M:
-            d["fuera"] += 1
-            if d["fuera"] >= _gf.CONF_SALIDA:
-                d.update({"modo": "mov", "lat": lat, "lon": lon,
-                          "t": ts, "fuera": 0})
-                return False
-        else:
-            d["fuera"] = 0
-        return True
+        rec = 0.0
+        for k in range(1, len(buf)):
+            rec += haversine(buf[k - 1][1], buf[k - 1][2], buf[k][1], buf[k][2])
+        neto = haversine(buf[0][1], buf[0][2], lat, lon)
+        ef = (neto / rec) if rec > 1.0 else 0.0
+        if ef >= _gf.EF_MOV and neto >= _gf.MIN_NETO_M:
+            d["modo"] = "mov"
+        elif ef < _gf.EF_DER or rec < 30.0 or neto < _gf.MIN_NETO_M:
+            d["modo"] = "der"
+        # red de seguridad por radio: sin alejarse del punto de hace 4 min
+        if d["modo"] != "der":
+            for p in buf:
+                if p[0] >= ts - _gf.T_ESTANCIA_S:
+                    if haversine(p[1], p[2], lat, lon) <= _gf.RADIO_ESTANCIA_M:
+                        d["modo"] = "der"
+                    break
+        return d["modo"] == "der"
+
+    def _vel_derivada_kmh(self, user_id, n=4):
+        """Velocidad derivada de la posición (km/h), promediando los últimos
+        tramos — el Redmi reporta vel GPS 0 o fantasma."""
+        buf = (self._deriva.get(str(user_id)) or {}).get("buf") or []
+        if len(buf) < 2:
+            return 0.0
+        tramos = []
+        for k in range(max(1, len(buf) - n), len(buf)):
+            t1, la1, lo1 = buf[k - 1]
+            t2, la2, lo2 = buf[k]
+            dt = t2 - t1
+            if dt > 0 and dt <= 30:
+                tramos.append(haversine(la1, lo1, la2, lo2) / dt * 3.6)
+        if not tramos:
+            return 0.0
+        tramos.sort()
+        return tramos[len(tramos) // 2]
 
     # ── procesado de un punto ──────────────────────────────────────────
     def _procesar_punto(self, user_id, ts, lat, lon):
@@ -575,6 +606,16 @@ class MotorCaptura:
             # de deriva y espaciar las fotos de caché (antes: una foto cada
             # 5 s de cada cámara cercana las 24 h → 1,9 GB y 24k fotos)
             quieto = self._en_estancia(user_id, ts, lat, lon)
+            # F5.21: a velocidad de autopista se amplía el radio de captura de
+            # caché (idea del usuario: "si voy a más de 80 km/h que haga caché
+            # de una zona de X km a la redonda y si detecta que he pasado por
+            # ahí, pase de caché a evento"). A 80-120 km/h el motor no llega a
+            # capturar durante el paso, así que se guarda la cinta desde antes
+            # y el evento se reconstruye desde el caché (ventana ampliada).
+            vel_kmh = self._vel_derivada_kmh(user_id)
+            rapido = vel_kmh >= self.cfg.get("vel_autopista_kmh", 80.0)
+            r_cap = (self.cfg.get("radio_captura_autopista_m", 2500.0)
+                     if rapido else self.cfg["radio_captura_m"])
             cams_u = self.cams.setdefault(str(user_id), {})
             c1500 = self.cams_cerca(lat, lon, r_act)
             ids_ahora = set()
@@ -601,6 +642,12 @@ class MotorCaptura:
                             and ((not quieto) or est["_dentro"] >= 2):
                         est["entrada_ts"] = ts
                         est["salida_ts"] = None
+                        # F5.21: en autopista la ventana del evento cubre 2 min
+                        # antes (la cinta capturada desde 2,5 km): así el caché
+                        # se convierte en evento al detectar el paso.
+                        est["ventana_antes_ev"] = (
+                            self.cfg.get("ventana_antes_autopista_s")
+                            if rapido else None)
                         # F5.9b: nueva pasada → el mínimo empieza AQUÍ, no
                         # hereda el de la pasada anterior (bug: si el track
                         # volvía a entrar sin salir del radio de 2000 m, el
@@ -623,7 +670,7 @@ class MotorCaptura:
                               f"user={user_id} cámara {cid} ts={ts:.1f}")
                     est["estado"] = EST_EVENTO
                     est["en_post"] = False
-                    self._encolar_captura(user_id, cid, cam, ts, est, quieto)
+                    self._encolar_captura(user_id, cid, cam, ts, est, quieto, rapido)
                 elif dist <= r_cap:
                     # Salió de los 100 m: registrar salida, seguir capturando
                     # la ventana posterior (60 s) y finalizar al completarla
@@ -638,7 +685,7 @@ class MotorCaptura:
                             est["en_post"] = False
                     est["estado"] = EST_EVENTO if est.get("en_post") else EST_CAPTURANDO
                     est["_dentro"] = 0            # F5.18: fuera del radio de evento
-                    self._encolar_captura(user_id, cid, cam, ts, est, quieto)
+                    self._encolar_captura(user_id, cid, cam, ts, est, quieto, rapido)
                 else:  # ≤r_act: activa
                     est["_dentro"] = 0            # F5.18: fuera del radio de evento
                     en_post = (est.get("salida_ts") is not None and
@@ -653,7 +700,7 @@ class MotorCaptura:
                             # vacíos). Se mantiene abierto y se sigue
                             # capturando la cola hasta completar la ventana.
                             est["estado"] = EST_EVENTO
-                            self._encolar_captura(user_id, cid, cam, ts, est, quieto)
+                            self._encolar_captura(user_id, cid, cam, ts, est, quieto, rapido)
                             continue
                         self._finalizar_evento(user_id, cid, est)
                     est["estado"] = EST_ACTIVA
@@ -799,8 +846,17 @@ class MotorCaptura:
                                cam, ts, tipo, forzar_cache, _est)
         self.pendientes.setdefault((str(user_id), cid), []).append(fut)
 
-    def _encolar_captura(self, user_id, cid, cam, ts, est, quieto=False):
+    def _encolar_captura(self, user_id, cid, cam, ts, est, quieto=False,
+                         rapido=False):
         inter = self.cfg["intervalo_captura_s"]
+        # F5.21: a velocidad de autopista el intervalo se adapta a la distancia
+        # (2 s a 200 m, 25 s a 2,5 km): así la cinta cubre toda la aproximación
+        # sin descargar en balde decenas de cámaras lejanas.
+        if rapido:
+            _d = est.get("ultima_dist")
+            if _d is not None:
+                inter = min(inter, max(self.cfg.get("intervalo_captura_cerca_s", 2.0),
+                                       _d / 100.0))
         # F5.19: CERCA de la cámara se captura más rápido. A 73 km/h el tramo a
         # <100 m dura ~10 s: con 5 s solo salían 1-2 fotos y el evento se
         # descartaba por el mínimo de 3 (las cámaras de carretera nunca se
@@ -960,7 +1016,7 @@ class MotorCaptura:
                 pass
 
     # ── eventos ────────────────────────────────────────────────────────
-    def _fotos_ventana(self, user_id, cid, entrada_ts, salida_ts):
+    def _fotos_ventana(self, user_id, cid, entrada_ts, salida_ts, antes=None):
         """Fotos en [entrada - antes, (salida o entrada+despues) + despues].
 
         Primero busca en el buffer temporal; si no hay suficientes, usa el
@@ -969,7 +1025,7 @@ class MotorCaptura:
         el evento se reconstruye por COINCIDENCIA TEMPORAL aunque el buffer
         se haya perdido/podado. Devuelve lista [(ts, ruta)] ordenada.
         """
-        antes = self.cfg["ventana_antes_s"]
+        antes = self.cfg["ventana_antes_s"] if antes is None else antes
         despues = self.cfg["ventana_despues_s"]
         ini = entrada_ts - antes
         fin = (salida_ts if salida_ts else entrada_ts) + despues
@@ -1009,7 +1065,8 @@ class MotorCaptura:
         salida = est.get("salida_ts")
         self._esperar_descargas(user_id, cid, timeout=10.0)
 
-        fotos = self._fotos_ventana(user_id, cid, entrada, salida)
+        fotos = self._fotos_ventana(user_id, cid, entrada, salida,
+                                    est.get("ventana_antes_ev"))
         if len(fotos) < 3:
             est["entrada_ts"] = None
             est["salida_ts"] = None
