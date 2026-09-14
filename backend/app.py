@@ -9,6 +9,7 @@ Todas las rutas /api/* (salvo /api/login) exigen
   Authorization: Bearer <token>.
 """
 import os
+import re
 import sqlite3
 import math
 import json
@@ -125,6 +126,62 @@ def _campo_punto(body, qp, clave):
     return v
 
 
+# ── Contexto del punto: dispositivo + wifi (F5.26) ──────────────────────────
+# Contrato FIJO con la APK (igual que act/act_conf de F5.25):
+#   dev_id    = identificador ESTABLE del dispositivo (ANDROID_ID), ≤32 car.
+#   wifi_ssid = SSID del wifi AL QUE ESTÁ CONECTADO el móvil ('' si no hay).
+#   wifi_hue  = huella de las redes wifi VISIBLES, formato EXACTO
+#               "<hash8>:<n>" (8 hex + ':' + nº de redes) → ≤24 car.
+# Los tres son OPCIONALES: si faltan, vienen con un tipo raro, traen caracteres
+# de control o se pasan de largo lo que se guarda es '' — un campo de contexto
+# NUNCA puede tumbar la ingesta de un punto.
+LARGO_DEV_ID = 32
+LARGO_WIFI_SSID = 40
+LARGO_WIFI_HUE = 24
+_RE_WIFI_HUE = re.compile(r"^[0-9a-f]{8}:[0-9]{1,6}$")
+
+
+def _texto_punto(v, largo):
+    """Sanea un campo de texto del punto: sin controles, sin sobras, truncado.
+
+    Devuelve '' si el valor es None, no es texto/numérico o queda vacío.
+    """
+    if v is None or isinstance(v, bool):
+        return ""
+    if isinstance(v, (int, float)):
+        s = str(v)
+    elif isinstance(v, str):
+        s = v
+    else:
+        return ""  # listas, dicts…: valor absurdo para un campo de texto
+    # fuera caracteres de control (\n, \r, \t, \x00…): ni un SSID ni un id de
+    # dispositivo los llevan y ensucian la BD y el GeoJSON
+    s = "".join(c for c in s if c.isprintable()).strip()
+    return s[:largo]
+
+
+def _dev_id_valido(v):
+    """`dev_id`: identificador del dispositivo (≤32 caracteres) o ''."""
+    return _texto_punto(v, LARGO_DEV_ID)
+
+
+def _wifi_ssid_valido(v):
+    """`wifi_ssid`: SSID del wifi conectado (≤40 caracteres) o ''."""
+    return _texto_punto(v, LARGO_WIFI_SSID)
+
+
+def _wifi_hue_valida(v):
+    """`wifi_hue`: huella "<hash8>:<n>" EXACTA; cualquier otra cosa se descarta.
+
+    El formato lo fija la APK; si no cuadra (otra forma, texto suelto, valor
+    gigante) se guarda '' en vez de propagar basura al mapa. El hash se
+    normaliza a MINÚSCULAS: es hexadecimal, así `A1B2C3D4:5` y `a1b2c3d4:5`
+    son la misma huella y no se pierde el dato por un formato descuidado.
+    """
+    s = _texto_punto(v, LARGO_WIFI_HUE).lower()
+    return s if _RE_WIFI_HUE.match(s) else ""
+
+
 def init_db():
     con = get_db()
     con.execute("""CREATE TABLE IF NOT EXISTS usuarios(
@@ -145,6 +202,17 @@ def init_db():
     # 'tilt'|'foot' (o '' si se desconoce) y `act_conf` = entero 0-100.
     # Las BD anteriores a F5.25 no las tienen: se añaden si faltan.
     for _col, _tipo in (("act", "TEXT"), ("act_conf", "INTEGER")):
+        try:
+            con.execute("ALTER TABLE tracks ADD COLUMN %s %s" % (_col, _tipo))
+        except Exception:
+            pass  # ya existe (migración repetible)
+    # Migración F5.26 (IDEMPOTENTE): CONTEXTO del punto GPS — identificador
+    # estable del dispositivo (ANDROID_ID) y datos de wifi (SSID al que está
+    # conectado + huella de las redes visibles). Son OPCIONALES: los puntos que
+    # no las traigan quedan con '' y el comportamiento es el de siempre. Las BD
+    # creadas antes de F5.26 no tienen las columnas: se añaden si faltan.
+    for _col, _tipo in (("dev_id", "TEXT"), ("wifi_ssid", "TEXT"),
+                        ("wifi_hue", "TEXT")):
         try:
             con.execute("ALTER TABLE tracks ADD COLUMN %s %s" % (_col, _tipo))
         except Exception:
@@ -739,8 +807,10 @@ async def _procesar_punto(request: Request):
     """Guarda un punto GPS. Requiere auth (Bearer o ?token=).
 
     Acepta los campos básicos (lat, lon, ts, acc, vel, dev) y, desde F5.25,
-    la ACTIVIDAD del móvil: `act` y `act_conf`, por body JSON o por query
-    string. Los valores fuera del contrato se descartan ('' y NULL).
+    la ACTIVIDAD del móvil: `act` y `act_conf`; desde F5.26 también el
+    CONTEXTO: `dev_id` (ANDROID_ID), `wifi_ssid` (wifi conectado) y `wifi_hue`
+    (huella "<hash8>:<n>" de las redes visibles). Todos por body JSON o por
+    query string. Los valores fuera del contrato se descartan ('' / NULL).
     """
     u = _auth(request)
     if not u:
@@ -757,18 +827,29 @@ async def _procesar_punto(request: Request):
     if lat is None or lon is None:
         return JSONResponse({"error": "faltan lat/lon"}, status_code=400)
     lat, lon = float(lat), float(lon)
-    ts = float(body.get("ts", time.time()))
-    acc = float(body.get("acc", 0) or 0)
-    vel = float(body.get("vel", 0) or 0)
-    dev = str(body.get("dev", "desconocido"))[:40]
+    # F5.26: todos los campos del punto se aceptan por body O query string
+    # (antes `ts` solo miraba el body: si venía por query se ignoraba y se
+    # guardaba la hora del servidor, falseando el punto).
+    try:
+        ts = float(_campo_punto(body, qp, "ts") or time.time())
+    except (TypeError, ValueError):
+        ts = time.time()
+    acc = float(_campo_punto(body, qp, "acc") or 0)
+    vel = float(_campo_punto(body, qp, "vel") or 0)
+    dev = str(_campo_punto(body, qp, "dev") or "desconocido")[:40]
     # F5.25 — actividad del móvil (acelerómetro), validada
     act = _act_valida(_campo_punto(body, qp, "act"))
     act_conf = _act_conf_valida(_campo_punto(body, qp, "act_conf"))
+    # F5.26 — contexto del punto: dispositivo estable + wifi (opcionales)
+    dev_id = _dev_id_valido(_campo_punto(body, qp, "dev_id"))
+    wifi_ssid = _wifi_ssid_valido(_campo_punto(body, qp, "wifi_ssid"))
+    wifi_hue = _wifi_hue_valida(_campo_punto(body, qp, "wifi_hue"))
 
     con = get_db()
-    con.execute("INSERT INTO tracks(user_id,ts,lat,lon,acc,vel,dev,act,act_conf) "
-                "VALUES(?,?,?,?,?,?,?,?,?)",
-                (str(u["id"]), ts, lat, lon, acc, vel, dev, act, act_conf))
+    con.execute("INSERT INTO tracks(user_id,ts,lat,lon,acc,vel,dev,act,act_conf,"
+                "dev_id,wifi_ssid,wifi_hue) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                (str(u["id"]), ts, lat, lon, acc, vel, dev, act, act_conf,
+                 dev_id, wifi_ssid, wifi_hue))
     con.commit()
     cerca = cams_cerca(lat, lon, 1500)
     n500 = sum(1 for d, _ in cams_cerca(lat, lon, 500))
@@ -776,6 +857,7 @@ async def _procesar_punto(request: Request):
     con.close()
     return {"ok": True, "user": u["username"], "pts": 1,
             "act": act, "act_conf": act_conf,
+            "dev_id": dev_id, "wifi_ssid": wifi_ssid, "wifi_hue": wifi_hue,
             "camaras_1500": len(cerca), "camaras_500": n500, "camaras_100": n100}
 
 
@@ -787,7 +869,8 @@ async def track(request: Request):
 
 @app.post("/api/punto")
 async def api_punto(request: Request):
-    """Alias de /track: mismo punto (lat/lon/ts/acc/vel/dev + act/act_conf)."""
+    """Alias de /track: mismo punto (lat/lon/ts/acc/vel/dev + act/act_conf +
+    dev_id/wifi_ssid/wifi_hue)."""
     return await _procesar_punto(request)
 
 
@@ -1028,7 +1111,7 @@ def api_track(request: Request):
         con.close()
         return _hit
 
-    q = "SELECT ts,lat,lon,acc,vel,dev,user_id,act,act_conf FROM tracks"
+    q = "SELECT ts,lat,lon,acc,vel,dev,user_id,act,act_conf,dev_id,wifi_hue FROM tracks"
     if conds:
         q += " WHERE " + " AND ".join(conds)
     q += " ORDER BY ts ASC"
@@ -1056,6 +1139,13 @@ def api_track(request: Request):
         if a:
             actos[r[0]] = (a, r[8] if len(r) > 8 else None)
     acts_par = ([actos.get(c[0]) for c in crudos] if actos else None)
+    # F5.26 — contexto del punto (dispositivo/wifi) indexado por ts. Igual que
+    # con la actividad: solo si ALGÚN punto lo trae (si no, no entra nada en
+    # las properties y el GeoJSON es idéntico al de antes).
+    contexto = {}
+    for r in filas:
+        if len(r) > 10 and (r[9] or r[10]):
+            contexto[r[0]] = (r[9] or "", r[10] or "")
     if _es_incremental(request):
         sel = _gf.filtro_anti_deriva(crudos, zonas=_zonas or None, acts=acts_par)
         # F5.17: el rango «Todo» del mapa manda desde=0 (antes se trataba como
@@ -1086,6 +1176,14 @@ def api_track(request: Request):
                 props["act"] = _a[0]
                 if _a[1] is not None:
                     props["act_conf"] = _a[1]
+            # F5.26: dev_id y wifi_hue solo si el punto los trae (el ssid NO se
+            # expone en el mapa; se guarda en BD para uso interno)
+            _c = contexto.get(p[0])
+            if _c:
+                if _c[0]:
+                    props["dev_id"] = _c[0]
+                if _c[1]:
+                    props["wifi_hue"] = _c[1]
             feats.append({"type": "Feature",
                           "geometry": {"type": "Point",
                                        "coordinates": [p[2], p[1]]},
@@ -1118,6 +1216,13 @@ def api_track(request: Request):
             props["act"] = orig[7]
             if orig[8] is not None:
                 props["act_conf"] = orig[8]
+        # F5.26: contexto del punto (dev_id / wifi_hue) solo si existe; el
+        # wifi_ssid NO se expone (no se pide siquiera en el SELECT)
+        if orig and len(orig) > 10:
+            if orig[9]:
+                props["dev_id"] = orig[9]
+            if orig[10]:
+                props["wifi_hue"] = orig[10]
         feats.append({"type": "Feature",
                       "geometry": {"type": "Point",
                                    "coordinates": [lon, lat]},
@@ -2026,8 +2131,8 @@ async def api_ajustes_set(request: Request):
 
 # ── OTA (F4/F5): versión y descarga de la APK ───────────────────────────
 APK_FILE = os.path.join(BASE, "apk", "trackcam-release.apk")
-APK_VERSION_CODE = 8
-APK_VERSION_NAME = "1.10"
+APK_VERSION_CODE = 9
+APK_VERSION_NAME = "1.11"
 
 @app.get("/api/apk/version")
 def apk_version():

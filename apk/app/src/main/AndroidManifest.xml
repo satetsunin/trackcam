@@ -5,6 +5,21 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
+    <!-- Wifi (contexto que viaja con cada punto):
+         - ACCESS_WIFI_STATE: leer el SSID conectado y getScanResults().
+         - CHANGE_WIFI_STATE:   startScan() (el escaneo periódico de la huella).
+         - ACCESS_FINE_LOCATION (ya declarado arriba): startScan() y
+           getScanResults() lo EXIGEN en Android 10+ aunque la app solo quiera
+           el SSID/huella; por eso se mantiene sin maxSdkVersion.
+         - NEARBY_WIFI_DEVICES (API 33+): obligatorio declararlo si se llama a
+           cualquier API de wifi con targetSdk 33+. NO se marca con
+           usesPermissionFlags="neverForLocation" porque el SSID/huella sí se
+           usan como contexto de localización (y con el flag el sistema
+           dejaría de aceptar ACCESS_FINE_LOCATION para el escaneo). -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+    <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES" />
+
     <!-- Ubicación -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />

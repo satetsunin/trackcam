@@ -10,10 +10,13 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.location.Location
+import android.net.wifi.ScanResult
+import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Looper
 import android.os.PowerManager
 import android.os.SystemClock
+import android.provider.Settings
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
@@ -32,6 +35,7 @@ import com.google.android.gms.location.Priority
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
@@ -43,6 +47,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.io.IOException
+import java.security.MessageDigest
 import java.text.SimpleDateFormat
 import java.util.ArrayDeque
 import java.util.Date
@@ -93,6 +98,17 @@ class TrackService : LifecycleService() {
         private const val ACTIVITY_INTERVAL_MS = 25_000L
         private const val ACTIVITY_PI_REQUEST = 42
 
+        /**
+         * Cada cuánto se RECALCULA la huella de redes wifi visibles (~8 min).
+         * NO en cada punto: en Android moderno startScan() está limitado
+         * (throttling en segundo plano) y escanear cada 2 s no aportaría nada.
+         * Entre recálculo y recálculo se reenvía la última huella calculada.
+         */
+        private const val WIFI_HUE_INTERVAL_MS = 8 * 60 * 1000L
+
+        /** Pausa tras startScan() para que el sistema rellene la lista (best-effort). */
+        private const val WIFI_SCAN_SETTLE_MS = 1_200L
+
         // ── Estado compartido con la UI (volátil → hilo seguro) ──
         @Volatile var tracking = false
             private set
@@ -136,6 +152,31 @@ class TrackService : LifecycleService() {
 
     /** PendingIntent registrado para recibir los resultados de actividad (null = sin registrar). */
     private var activityPendingIntent: PendingIntent? = null
+
+    /**
+     * Identificador ESTABLE del dispositivo: Settings.Secure.ANDROID_ID.
+     * Es un valor de 64 bits (hex de 16 caracteres) único por app+usuario+
+     * dispositivo; NO cambia mientras la app siga instalada, así que se lee
+     * una sola vez y se reutiliza en todos los puntos.
+     * A diferencia de `dev` (fabricante_modelo, que es idéntico en todos los
+     * Redmi de este modelo) permite distinguir dispositivos en la BD.
+     * No requiere ningún permiso; si no se puede leer → cadena vacía.
+     */
+    private val androidId: String by lazy {
+        try {
+            Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID).orEmpty()
+        } catch (e: Exception) {
+            Log.w(TAG, "No se pudo leer ANDROID_ID: ${e.message}")
+            ""
+        }
+    }
+
+    /** Última huella de redes wifi visibles ("<hash8>:<n>"), "" si no hay datos. */
+    @Volatile
+    private var wifiHueActual: String = ""
+
+    /** Job del bucle periódico de escaneo wifi (null = no está corriendo). */
+    private var wifiHueJob: Job? = null
 
     private val sendScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val queueLock = Any()
@@ -223,6 +264,8 @@ class TrackService : LifecycleService() {
         sendScope.cancel()
         // Quitar la detección de actividad (deja de llegar el PendingIntent)
         stopActivityRecognition()
+        // Parar el bucle de escaneo wifi
+        stopWifiHueLoop()
         if (::wakeLock.isInitialized && wakeLock.isHeld) {
             try {
                 wakeLock.release()
@@ -250,6 +293,8 @@ class TrackService : LifecycleService() {
         startLocationUpdates()
         // Detección de actividad: opcional — si no hay permiso, degrada en silencio
         startActivityRecognition()
+        // Contexto wifi (SSID + huella de redes visibles): opcional, degrada en silencio
+        startWifiHueLoop()
         reuseLastKnownPosition()
         broadcastStatus()
         // Config remota (OTA): descargar al arrancar + reenviar puntos offline
@@ -305,6 +350,8 @@ class TrackService : LifecycleService() {
         }
         // Dejar de pedir detección de actividad (ahorra batería al parar)
         stopActivityRecognition()
+        // Parar el bucle de escaneo wifi y olvidar la última huella
+        stopWifiHueLoop()
         synchronized(queueLock) {
             queue.clear()
         }
@@ -522,6 +569,154 @@ class TrackService : LifecycleService() {
         else -> ""
     }
 
+    // ── Contexto WiFi (SSID conectado + huella de redes visibles) ────────────
+    //
+    // Con cada punto se envían tres cosas nuevas:
+    //   dev_id    → ANDROID_ID (identificador estable del dispositivo)
+    //   wifi_ssid → SSID del wifi al que está CONECTADO el móvil ("" si no hay)
+    //   wifi_hue  → huella "<hash8>:<n>" de las redes wifi VISIBLES
+    //
+    // Degradación limpia: sin permisos de wifi, con el wifi apagado o sin que el
+    // sistema devuelva resultados, la app sigue enviando puntos con los tres
+    // campos vacíos. Nada de esto puede lanzar excepciones hacia arriba.
+
+    /**
+     * Arranca el bucle que recalcula la huella de redes visibles cada ~8 min
+     * (WIFI_HUE_INTERVAL_MS). La huella se guarda en [wifiHueActual] y cada
+     * punto GPS la reenvía tal cual: no se escanea en cada punto porque en
+     * Android moderno startScan() está limitado y sería inútil/gastón.
+     */
+    private fun startWifiHueLoop() {
+        wifiHueJob?.cancel()
+        wifiHueJob = sendScope.launch {
+            // Primera lectura inmediata: no esperar 8 min al primer punto
+            wifiHueActual = escanearYCalcularHue()
+            Log.i(TAG, "Huella wifi visible: ${wifiHueActual.ifEmpty { "(vacía)" }}")
+            while (coroutineContext.isActive && tracking) {
+                delay(WIFI_HUE_INTERVAL_MS)
+                wifiHueActual = escanearYCalcularHue()
+                Log.i(TAG, "Huella wifi visible: ${wifiHueActual.ifEmpty { "(vacía)" }}")
+            }
+        }
+    }
+
+    /** Cancela el bucle de escaneo y olvida la última huella (se recalcula al re-arrancar). */
+    private fun stopWifiHueLoop() {
+        wifiHueJob?.cancel()
+        wifiHueJob = null
+        wifiHueActual = ""
+    }
+
+    /**
+     * SSID del wifi al que está CONECTADO el móvil, o "" si no hay wifi o no se
+     * puede leer (permiso denegado, wifi apagado, SSID oculto...).
+     *
+     * Es barato (solo consulta el estado del adaptador, no escanea), así que se
+     * lee en CADA punto para reflejar cambios de red al momento.
+     * getSSID() puede devolver valores basura — "<unknown ssid>", "0x" o vacío —
+     * cuando la app no tiene permiso de ubicación o el wifi está apagado: se
+     * filtran y se envían como cadena vacía.
+     */
+    private fun wifiSsidConectado(): String {
+        return try {
+            val wm = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+                ?: return ""
+            @Suppress("DEPRECATION")
+            val crudo = wm.connectionInfo?.ssid ?: return ""
+            val ssid = crudo.trim().trim('"')
+            when {
+                ssid.isEmpty() -> ""
+                crudo.equals("<unknown ssid>", ignoreCase = true) -> ""
+                ssid.equals("<unknown ssid>", ignoreCase = true) -> ""
+                ssid == "0x" -> ""
+                else -> ssid
+            }
+        } catch (e: SecurityException) {
+            "" // sin permiso: se envía wifi_ssid vacío
+        } catch (e: Exception) {
+            Log.w(TAG, "No se pudo leer el SSID conectado: ${e.message}")
+            ""
+        }
+    }
+
+    /**
+     * Intenta un escaneo wifi (best-effort) y devuelve la huella resultante.
+     *
+     * startScan() puede fallar o estar limitado (throttling) en segundo plano:
+     * da igual — getScanResults() devuelve los últimos resultados que el
+     * sistema tenga cacheados (Android escanea por su cuenta para el
+     * posicionamiento). Cualquier fallo → "" y el envío de puntos continúa.
+     */
+    @Suppress("DEPRECATION") // startScan() está deprecado en API 28+, pero sigue siendo la vía pública
+    private suspend fun escanearYCalcularHue(): String {
+        return try {
+            val wm = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+                ?: return ""
+            try {
+                // Solo se usa para intentar refrescar; su fallo NO se propaga.
+                wm.startScan()
+            } catch (e: SecurityException) {
+                Log.d(TAG, "startScan() sin permiso: se usan los resultados cacheados")
+            } catch (e: Exception) {
+                Log.d(TAG, "startScan() rechazado (limitado): se usan los resultados cacheados")
+            }
+            // Margen para que un escaneo aceptado rellene la lista
+            delay(WIFI_SCAN_SETTLE_MS)
+            calcularWifiHue()
+        } catch (e: Exception) {
+            Log.w(TAG, "Escaneo wifi no disponible: ${e.message}")
+            ""
+        }
+    }
+
+    /**
+     * Huella de las redes wifi VISIBLES: "<hash8>:<n>".
+     *   hash8 = 8 primeros caracteres hex de sha1(BSSID de las 5 redes más
+     *           fuertes, ordenados — el orden del escaneo no es estable)
+     *   n     = número total de redes devueltas por el escaneo
+     *
+     * ¿Por qué una HUELLA y no las redes completas?
+     *  1. Privacidad: el BSSID es un identificador permanente del router; una
+     *     lista de BSSID en claro permite geolocalizar al móvil cruzando bases
+     *     de datos públicas de wifi. Un sha1 truncado a 8 hex no es reversible
+     *     para este uso: no reconstruye la red ni su posición.
+     *  2. Tamaño: con un punto cada 2 s, mandar 20-50 redes completas
+     *     multiplicaría el tráfico y llenaría la BD sin aportar nada. Al
+     *     servidor solo le interesa saber si es LA MISMA huella o ha CAMBIADO
+     *     (indicio de que el móvil cambió de sitio o de red).
+     *
+     * Sin resultados (sin permiso, ubicación apagada, escaneo limitado) → "".
+     */
+    private fun calcularWifiHue(): String {
+        return try {
+            val wm = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+                ?: return ""
+            val resultados: List<ScanResult> = wm.scanResults ?: return ""
+            if (resultados.isEmpty()) return ""
+            // Las 5 redes MÁS FUERTES: se ordenan por nivel de señal, se toman 5
+            // y luego se ordenan por BSSID para que la huella sea estable e
+            // independiente del orden en que el sistema devuelva el escaneo.
+            val bssids = resultados.asSequence()
+                .filter { !it.BSSID.isNullOrBlank() }
+                .sortedByDescending { it.level }
+                .take(5)
+                .map { it.BSSID.lowercase(Locale.US) }
+                .sorted()
+                .toList()
+            if (bssids.isEmpty()) return ""
+            val digest = MessageDigest.getInstance("SHA-1")
+                .digest(bssids.joinToString("|").toByteArray(Charsets.UTF_8))
+            val hash8 = digest.joinToString("") { "%02x".format(it.toInt() and 0xFF) }.take(8)
+            "$hash8:${resultados.size}"
+        } catch (e: SecurityException) {
+            Log.w(TAG, "Sin permiso para leer las redes wifi visibles: huella vacía")
+            ""
+        } catch (e: Exception) {
+            Log.w(TAG, "No se pudo calcular la huella wifi: ${e.message}")
+            ""
+        }
+    }
+
     // ── Cola de envíos ──────────────────────────────────────────────────────
 
     private fun enqueue(loc: Location) {
@@ -711,6 +906,14 @@ class TrackService : LifecycleService() {
             .put("act", lastActivity)
             .put("act_conf", lastActivityConf)
             .put("dev", deviceId())
+            // Identificador ESTABLE del dispositivo (ANDROID_ID): distingue
+            // móviles aunque compartan fabricante+modelo. "" si no se pudo leer.
+            .put("dev_id", androidId)
+            // Wifi: SSID al que está conectado (se lee ahora, es barato) y
+            // huella de las redes visibles (última calculada, ~8 min). "" si no
+            // hay wifi/datos — el punto se envía igual.
+            .put("wifi_ssid", wifiSsidConectado())
+            .put("wifi_hue", wifiHueActual)
             .toString()
     }
 

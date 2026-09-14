@@ -15,8 +15,8 @@ android {
         applicationId = "com.trackcam.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 8
-        versionName = "1.10"
+        versionCode = 9
+        versionName = "1.11"
     }
 
     buildTypes {
