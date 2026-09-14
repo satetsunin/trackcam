@@ -41,9 +41,16 @@ EF_MOV = 0.40               # neto/recorrido >= 0,40 y neto >= 50 m → moviendo
 EF_DER = 0.25               # neto/recorrido < 0,25 → deriva errática (parado)
 MIN_NETO_M = 50.0           # desplazamiento neto mínimo para hablar de movimiento
 CONF_MOV_M = 3              # puntos seguidos para CONFIRMAR movimiento (histéresis)
-RADIO_SALIDA_ESTANCIA_M = 200.0  # para SALIR de una estancia hay que alejarse
-                            # 200 m del sitio: la deriva oscila dentro y no la
-                            # rompe en trozos (daba 42 puntos en vez de 1)
+RADIO_SALIDA_ESTANCIA_M = 200.0  # (legado) alejarse del sitio de la estancia
+# F5.23: VENTANA CORTA de movimiento. Con la ventana larga (5 min) los
+# arranques tras una parada y los paseos lentos se colapsaban: se perdían
+# 1.508 puntos de RUTA REAL en un día y el 6,5 % del recorrido (curvas
+# cortadas). Ahora, para SALIR de la estancia basta con que el movimiento se
+# confirme en 2 min (neto ≥60 m con eficiencia ≥0,5): el paseo se dibuja
+# entero aunque acabe de arrancar.
+VENT_MOV_S = 120.0          # ventana corta (2 min)
+EF_MOV_CORTO = 0.50         # neto/recorrido en la ventana corta
+MIN_NETO_CORTO = 60.0       # desplazamiento neto en 2 min para considerar movimiento
 RADIO_SALIDA_M = 130.0      # (legado del criterio de radio)
 CONF_SALIDA = 4             # (legado)
 HUECO_MAX_S = 90.0          # huecos <= 90 s se autocompletan
@@ -75,6 +82,9 @@ def filtro_anti_deriva(pts, vel_mov=VEL_MOVIMIENTO,
                        min_neto_m=MIN_NETO_M,
                        conf_mov=CONF_MOV_M,
                        r_sal_est=RADIO_SALIDA_ESTANCIA_M,
+                       vent_mov_s=VENT_MOV_S,
+                       ef_mov_c=EF_MOV_CORTO,
+                       min_neto_c=MIN_NETO_CORTO,
                        latido_est_s=LATIDO_ESTANCIA_S,
                        r_estancia_m=RADIO_ESTANCIA_M,
                        t_estancia_s=T_ESTANCIA_S):
@@ -124,7 +134,8 @@ def filtro_anti_deriva(pts, vel_mov=VEL_MOVIMIENTO,
     der_emitido = False
     mov_consec = 0              # puntos seguidos con criterio de movimiento
     est_lat, est_lon = pts[0][1], pts[0][2]
-    j0 = 0                      # inicio de la ventana de coherencia
+    j0 = 0                      # inicio de la ventana LARGA de coherencia
+    jc = 0                      # inicio de la ventana CORTA (movimiento)
     j_cap = 0                   # inicio de la ventana del criterio de radio
     for i in range(1, n):
         ts_i, la, lo = pts[i][0], pts[i][1], pts[i][2]
@@ -134,9 +145,18 @@ def filtro_anti_deriva(pts, vel_mov=VEL_MOVIMIENTO,
         rec = pref[i] - pref[j0]
         neto = _hav(pts[j0][1], pts[j0][2], la, lo)
         ef = (neto / rec) if rec > 1.0 else 0.0
+        # ventana CORTA (2 min): para reconocer rápido que te has puesto en
+        # marcha (arranques tras parada, paseos lentos)
+        ts_mov = ts_i - vent_mov_s
+        while jc < i and pts[jc][0] < ts_mov:
+            jc += 1
+        rec_c = pref[i] - pref[jc]
+        neto_c = _hav(pts[jc][1], pts[jc][2], la, lo)
+        ef_c = (neto_c / rec_c) if rec_c > 1.0 else 0.0
+        mov_corto = (ef_c >= ef_mov_c and neto_c >= min_neto_c)
         en_zona = bool(zonas) and _en_zona_lista(zonas, la, lo)
         # 1) coherencia de trayectoria: ¿el criterio dice movimiento o deriva?
-        if ef >= ef_mov and neto >= min_neto_m:
+        if mov_corto or (ef >= ef_mov and neto >= min_neto_m):
             mov_consec += 1
         else:
             mov_consec = 0
@@ -152,7 +172,12 @@ def filtro_anti_deriva(pts, vel_mov=VEL_MOVIMIENTO,
             # Así la deriva (que oscila dentro del radio) no rompe la estancia
             # en trozos, que era lo que dejaba 42 puntos en la estancia de
             # Gernika en lugar de 1.
-            if mov_consec >= conf_mov and _hav(est_lat, est_lon, la, lo) >= r_sal_est:
+            # F5.23: se sale de la estancia en cuanto el movimiento se confirma
+            # en la ventana corta (antes exigía alejarse 200 m del sitio, y eso
+            # borraba el inicio de cada paseo y los paseos cortos enteros: se
+            # perdían 1.508 puntos de ruta real y curvas). La limpieza de la
+            # parada la hace ahora unificar_estancias() por separado.
+            if mov_consec >= conf_mov:
                 modo = "mov"
         # 2) red de seguridad por radio (parado: sin alejarse del punto de hace
         #    t_estancia_s aunque la eficiencia salga alta por casualidad)
@@ -316,6 +341,61 @@ def adelgazar(pts, min_dt):
     return out
 
 
+def unificar_estancias(pts, radio_m=200.0, min_dur_s=600.0, min_neto_m=150.0):
+    """F5.23 — Una PARADA se sustituye por UN SOLO PUNTO.
+
+    Un tramo que se mantiene dentro de un radio de radio_m durante al menos
+    min_dur_s y con desplazamiento neto pequeño (<= min_neto_m) es una parada
+    (GPS derivando en el mismo sitio): se emite solo su primer punto. Así la
+    estancia de Gernika (4 h, excursión 169 m) pasa de cientos de puntos y
+    1.800 m de recorrido falso a UN punto, sin tocar la ruta real.
+
+    Se aplica DESPUÉS del filtro de movimiento: el filtro puede ser generoso
+    (conserva todo el movimiento, sin cortar curvas) y este paso elimina la
+    deriva de los ratos parado.
+    """
+    if not pts:
+        return []
+    out = []
+    i = 0
+    n = len(pts)
+    while i < n:
+        la, lo = pts[i][1], pts[i][2]
+        j = i
+        s_lat = pts[i][1]
+        s_lon = pts[i][2]
+        cnt = 1
+        # Extensión mientras los puntos quepan en el radio del centroide. SIN
+        # tope de tiempo: una estancia de 4 h se extiende entera y luego se
+        # salta de golpe (i = j+1), así que el coste sigue siendo lineal. El
+        # tope anterior (min_dur_s) cortaba la extensión antes de alcanzar la
+        # duración mínima cuando los puntos venían espaciados → la unificación
+        # no hacía nada.
+        while j + 1 < n and (j - i) < 20000:
+            clat = s_lat / cnt
+            clon = s_lon / cnt
+            if _hav(clat, clon, pts[j + 1][1], pts[j + 1][2]) <= radio_m:
+                j += 1
+                s_lat += pts[j][1]
+                s_lon += pts[j][2]
+                cnt += 1
+            else:
+                break
+        dur = pts[j][0] - pts[i][0]
+        neto = _hav(pts[i][1], pts[i][2], pts[j][1], pts[j][2])
+        if j > i and dur >= min_dur_s and neto <= min_neto_m:
+            out.append(pts[i])          # parada → 1 punto
+            i = j + 1
+        elif j > i and dur >= min_dur_s:
+            # hay movimiento real en la ventana: conservar todo el tramo
+            out.extend(pts[i:j + 1])
+            i = j + 1
+        else:
+            out.append(pts[i])
+            i += 1
+    return out
+
+
 def limpiar_track(filas, zonas=None):
     """Pipeline completo. filas: [(ts, lat, lon, acc, vel), ...] cronológico.
     Devuelve [(ts, lat, lon), ...] filtrado + colapsado + autocompletado.
@@ -341,4 +421,5 @@ def limpiar_track(filas, zonas=None):
         dt_min = 3.0 if n <= 120000 else (5.0 if n <= 240000 else 8.0)
         limpios = adelgazar(limpios, dt_min)
     limpios = colapsar_estancias(limpios)
-    return autocompletar_huecos(limpios)
+    limpios = autocompletar_huecos(limpios)
+    return unificar_estancias(limpios)

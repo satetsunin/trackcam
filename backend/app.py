@@ -920,6 +920,9 @@ def api_track(request: Request):
         # carga). Si aún así la serie es enorme, adelgazar para el dibujo.
         if len(sel) > 60000:
             sel = _gf.adelgazar(sel, 3.0)
+        # F5.23: unificar paradas (una estancia = 1 punto) también en el modo
+        # incremental, que no pasa por limpiar_track()
+        sel = _gf.unificar_estancias(sel)
         # features directas con sus metadatos
         vels = _vel_entre([(p[0], p[1], p[2]) for p in sel])
         feats = []
