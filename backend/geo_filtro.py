@@ -50,6 +50,26 @@ RADIO_SALIDA_ESTANCIA_M = 200.0  # (legado) alejarse del sitio de la estancia
 # entero aunque acabe de arrancar.
 VENT_MOV_S = 120.0          # ventana corta (2 min)
 EF_MOV_CORTO = 0.50         # neto/recorrido en la ventana corta
+# F5.24 — el criterio de deriva pasa a medir RECORRIDO ACUMULADO, no "¿volviste
+# al mismo sitio?": dar vueltas por un pueblo (llegada a Gernika) o un paseo de
+# ida y vuelta tienen desplazamiento neto pequeño pero SON movimiento real. Con
+# el criterio viejo se colapsaban (la llegada a Gernika perdía el 83 % del
+# recorrido y sus giros). Deriva = el GPS te mueve poco ACUMULADO.
+# La métrica decisiva es la VELOCIDAD MEDIA, no el recorrido total ni el neto:
+#   deriva de Gernika (parado 4 h): 1.819 m / 240 min = 7,6 m/min (0,45 km/h)
+#   llegada dando vueltas:          4.000 m /  40 min =   100 m/min (6 km/h)
+#   paseo:                          9.180 m /  30 min =   306 m/min
+# Un recorrido total alto NO significa movimiento: puede ser deriva acumulada.
+MIN_VEL_MOV = 75.0          # >=75 m/min → moviendo (MEDIDO en sus datos:
+                            # jitter del GPS parado 60 m/min · vaivén 92 · andar
+                            # 83-92 · coche 1.160; el corte limpio está en 75)
+MIN_VEL_DER = 60.0          # <=60 m/min → parado/deriva (jitter medido)
+MIN_RUMB_MOV = 0.65         # coherencia de rumbo para considerar movimiento
+MIN_RUMB_DER = 0.45         # por debajo: direcciones aleatorias → jitter
+MIN_DMAX_MOV = 60.0         # haberse alejado >=60 m del inicio de la ventana
+MIN_REC_MOV = 60.0          # equivalente en recorrido para la ventana corta
+MIN_REC_DER = 60.0          # equivalente en recorrido para la ventana larga
+MIN_REC_DER2 = 250.0
 MIN_NETO_CORTO = 60.0       # desplazamiento neto en 2 min para considerar movimiento
 RADIO_SALIDA_M = 130.0      # (legado del criterio de radio)
 CONF_SALIDA = 4             # (legado)
@@ -74,6 +94,92 @@ def _interpolar(a, b, frac):
             a[2] + (b[2] - a[2]) * frac)
 
 
+def _vel_mediana(pts, i, k=40, dt_min_s=0.5):
+    """Mediana de la VELOCIDAD INSTANTÁNEA (m/min) de los últimos k puntos.
+
+    F5.24 — es la métrica que separa la deriva del movimiento real, y es
+    inmune al multipath: parado con GPS bueno la mediana del salto entre
+    puntos es ~0,3 m (7 m/min) aunque algunos saltos de reflexión lleguen a
+    100 m e inflen la media y el recorrido acumulado (medido: una estancia de
+    4 h con recorrido aparente de 10 km = 53 m/min falsos). Caminando la
+    mediana es ~1,2 m por punto (~33 m/min).
+    """
+    j = max(1, i - k + 1)
+    vs = []
+    for z in range(j, i + 1):
+        dt = pts[z][0] - pts[z - 1][0]
+        if dt < dt_min_s:
+            continue
+        vs.append(_hav(pts[z - 1][1], pts[z - 1][2], pts[z][1], pts[z][2])
+                  / (dt / 60.0))
+    if not vs:
+        return 0.0
+    vs.sort()
+    return vs[len(vs) // 2]
+
+
+def _coherencia(pts, i, k=45):
+    """(coherencia de rumbo R, mediana de velocidad m/min) de los últimos k puntos.
+
+    F5.24 — R es la longitud del vector resultante medio (estadística circular):
+    vale ~1 cuando todos los desplazamientos van en la MISMA dirección (andar,
+    ir en línea, trazar una curva) y ~0 cuando van y vienen en direcciones
+    aleatorias (deriva/jitter del GPS parado). Es el discriminante que pedía el
+    usuario: "movimiento continuado lógico" = rumbo coherente.
+
+    Necesario porque la velocidad sola no basta: con el móvil emitiendo un
+    punto cada ~0,4 s, el jitter de 0,3 m parado equivale a 45 m/min (2,7 km/h),
+    indistinguible de andar despacio. Lo que los separa es la DIRECCIÓN.
+    """
+    j = max(1, i - k + 1)
+    sx = sy = 0.0
+    n = 0
+    vs = []
+    for z in range(j, i + 1):
+        dt = pts[z][0] - pts[z - 1][0]
+        if dt <= 0:
+            continue
+        dx = (pts[z][2] - pts[z - 1][2]) * 111320.0 * math.cos(math.radians(pts[z][1]))
+        dy = (pts[z][1] - pts[z - 1][1]) * 110540.0
+        d = math.hypot(dx, dy)
+        if d < 0.25:            # sin desplazamiento: ni cuenta ni rompe la racha
+            continue
+        sx += dx / d
+        sy += dy / d
+        n += 1
+        if dt >= 0.5:
+            vs.append(d / (dt / 60.0))
+    r = (math.hypot(sx, sy) / n) if n else 0.0
+    # desplazamiento MÁXIMO desde el inicio de la ventana: en un vaivén (ir y
+    # volver por la misma calle) el rumbo global es incoherente, pero te has
+    # alejado de verdad; el jitter parado nunca se aleja decenas de metros.
+    # Mediana (no máximo) de la distancia al inicio de la ventana: en un vaivén
+    # te has alejado de verdad y se mantiene alta; el jitter se queda bajo y los
+    # saltos aislados de multipath no la mueven (el máximo sí, y por eso no vale).
+    ds = sorted(_hav(pts[j][1], pts[j][2], pts[z][1], pts[z][2])
+                for z in range(j, i + 1))
+    dmed = ds[len(ds) // 2] if ds else 0.0
+    if not vs:
+        return (r, 0.0, dmed)
+    vs.sort()
+    return (r, vs[len(vs) // 2], dmed)
+
+
+def _vel_mediana_tramo(pts, i, j, dt_min_s=0.5):
+    """Mediana de la velocidad instantánea entre los índices i y j."""
+    vs = []
+    for z in range(i + 1, min(j + 1, len(pts))):
+        dt = pts[z][0] - pts[z - 1][0]
+        if dt < dt_min_s:
+            continue
+        vs.append(_hav(pts[z - 1][1], pts[z - 1][2], pts[z][1], pts[z][2])
+                  / (dt / 60.0))
+    if not vs:
+        return 0.0
+    vs.sort()
+    return vs[len(vs) // 2]
+
+
 def filtro_anti_deriva(pts, vel_mov=VEL_MOVIMIENTO,
                        ventana_s=VENTANA_POS_S, umbral_m=UMBRAL_POS_M,
                        latido_s=LATIDO_S, zonas=None,
@@ -85,6 +191,14 @@ def filtro_anti_deriva(pts, vel_mov=VEL_MOVIMIENTO,
                        vent_mov_s=VENT_MOV_S,
                        ef_mov_c=EF_MOV_CORTO,
                        min_neto_c=MIN_NETO_CORTO,
+                       min_rec_mov=MIN_REC_MOV,
+                       min_rec_der=MIN_REC_DER,
+                       min_rec_der2=MIN_REC_DER2,
+                       min_vel_mov=MIN_VEL_MOV,
+                       min_vel_der=MIN_VEL_DER,
+                       min_rumb_mov=MIN_RUMB_MOV, vent_rumbo_k=45,
+                       min_dmax_mov=MIN_DMAX_MOV,
+                       min_rumb_der=MIN_RUMB_DER,
                        latido_est_s=LATIDO_ESTANCIA_S,
                        r_estancia_m=RADIO_ESTANCIA_M,
                        t_estancia_s=T_ESTANCIA_S):
@@ -133,7 +247,9 @@ def filtro_anti_deriva(pts, vel_mov=VEL_MOVIMIENTO,
     modo = "mov"
     der_emitido = False
     mov_consec = 0              # puntos seguidos con criterio de movimiento
+    mov_ini_ts = 0              # inicio de la racha de movimiento
     est_lat, est_lon = pts[0][1], pts[0][2]
+    _ULT_VM = [0, 0.0]          # caché de la mediana de velocidad
     j0 = 0                      # inicio de la ventana LARGA de coherencia
     jc = 0                      # inicio de la ventana CORTA (movimiento)
     j_cap = 0                   # inicio de la ventana del criterio de radio
@@ -153,14 +269,42 @@ def filtro_anti_deriva(pts, vel_mov=VEL_MOVIMIENTO,
         rec_c = pref[i] - pref[jc]
         neto_c = _hav(pts[jc][1], pts[jc][2], la, lo)
         ef_c = (neto_c / rec_c) if rec_c > 1.0 else 0.0
-        mov_corto = (ef_c >= ef_mov_c and neto_c >= min_neto_c)
+        # F5.24: basta con haberse movido >= min_rec_mov en la ventana corta
+        # (antes exigía eficiencia y desplazamiento NETO, y eso descartaba dar
+        # vueltas o ir y volver, que es movimiento real)
+        # F5.24: la mediana de la velocidad instantánea decide (robusta al
+        # multipath). Se recalcula cada 8 puntos por coste.
+        if i - _ULT_VM[0] >= 8 or _ULT_VM[1] == 0.0:
+            _ULT_VM[0] = i
+            _ULT_VM[1] = _coherencia(pts, i, k=vent_rumbo_k)
+        rumb, vel_med, dmed = _ULT_VM[1]
+        # movimiento real = rumbo COHERENTE con algo de movimiento, o te has
+        # alejado de verdad (vaivén: rumbo incoherente pero desplazamiento real),
+        # o mucha velocidad (un coche tiene giros, no jitter)
+        # OJO: dmax (desplazamiento máximo) NO se usa para declarar movimiento:
+        # un salto de multipath aislado lo infla y hacía que una estancia parado
+        # volviera a emitir puntos (medido: 1.373 en vez de 1). El rumbo y la
+        # velocidad sí son robustos.
+        mov_corto = (vel_med >= min_vel_mov) \
+            or (rumb >= min_rumb_mov and vel_med >= 45.0)
         en_zona = bool(zonas) and _en_zona_lista(zonas, la, lo)
         # 1) coherencia de trayectoria: ¿el criterio dice movimiento o deriva?
-        if mov_corto or (ef >= ef_mov and neto >= min_neto_m):
+        if mov_corto or (ef >= ef_mov and neto >= min_neto_m and rec >= min_rec_mov):
+            if mov_consec == 0:
+                mov_ini_ts = ts_i
             mov_consec += 1
         else:
             mov_consec = 0
-        es_der = (ef < ef_der) or (rec < 30.0) or (neto < min_neto_m)
+            mov_ini_ts = 0
+        # F5.24: deriva = recorrido acumulado bajo. Si te moviste mucho
+        # (>= min_rec_der2), NO es deriva aunque vuelvas al punto de partida.
+        # F5.24: deriva = te mueves DESPACIO (velocidad media baja). Un
+        # recorrido alto con neto bajo pero rápido es movimiento real (dar
+        # vueltas, ir y volver), y no puede confundirse con la deriva parada.
+        # parado = se mueve poco, o va en direcciones aleatorias (jitter) sin ir
+        # rápido: un coche en curva tiene rumbo bajo pero velocidad muy alta
+        es_der = (vel_med <= min_vel_der) \
+            or (rumb < min_rumb_der and vel_med < min_vel_mov)
         if modo == "mov":
             if es_der:
                 modo = "der"
@@ -177,14 +321,33 @@ def filtro_anti_deriva(pts, vel_mov=VEL_MOVIMIENTO,
             # borraba el inicio de cada paseo y los paseos cortos enteros: se
             # perdían 1.508 puntos de ruta real y curvas). La limpieza de la
             # parada la hace ahora unificar_estancias() por separado.
-            if mov_consec >= conf_mov:
+            # F5.24: se sale de la estancia si llevas >=60 s moviéndote, estás a
+            # >=100 m del ancla Y en el último minuto NO has pasado cerca de ella
+            # (si has vuelto, era una racha de deriva, no movimiento real).
+            # F5.24: se sale de la estancia por VELOCIDAD SOSTENIDA, no por
+            # alejarse del ancla: un paseo de ida y vuelta (dar vueltas en una
+            # plaza, ir y volver por la misma calle) nunca se aleja 100 m del
+            # ancla, así que la condición anterior lo dejaba dentro de la
+            # estancia y borraba sus giros (llegada a Gernika: 26 % conservado).
+            # La deriva parada se mueve a ~8 m/min y no alcanza este umbral.
+            j_sal = i
+            while j_sal > 0 and pts[j_sal - 1][0] >= ts_i - 90.0:
+                j_sal -= 1
+            vel_sal = (pref[i] - pref[j_sal]) / max(1.0, (ts_i - pts[j_sal][0]) / 60.0)
+            if mov_consec >= conf_mov and mov_corto:
                 modo = "mov"
         # 2) red de seguridad por radio (parado: sin alejarse del punto de hace
         #    t_estancia_s aunque la eficiencia salga alta por casualidad)
         ts_cap = ts_i - t_estancia_s
         while j_cap < i and pts[j_cap][0] < ts_cap:
             j_cap += 1
-        if modo != "der" and ts_i - pts[j_cap][0] >= t_estancia_s \
+        # F5.24: la red de seguridad por radio SOLO puede declarar parado si
+        # además te mueves despacio. Antes bastaba con estar en un área pequeña,
+        # y eso colapsaba los paseos de ida y vuelta (dar vueltas en una plaza,
+        # ir y volver por la misma calle: movimiento real que no se aleja): la
+        # llegada a Gernika perdía el 88 % de sus puntos y sus giros.
+        if modo != "der" and rumb < min_rumb_der \
+                and ts_i - pts[j_cap][0] >= t_estancia_s \
                 and _hav(pts[j_cap][1], pts[j_cap][2], la, lo) <= r_estancia_m:
             modo = "der"
             der_emitido = False
@@ -341,7 +504,10 @@ def adelgazar(pts, min_dt):
     return out
 
 
-def unificar_estancias(pts, radio_m=200.0, min_dur_s=600.0, min_neto_m=150.0):
+def unificar_estancias(pts, radio_m=200.0, min_dur_s=600.0, min_neto_m=150.0,
+                       max_vel_m_min=15.0, min_rumb_der=MIN_RUMB_DER,
+                       min_dmax_mov=MIN_DMAX_MOV, min_dur_larga_s=7200.0,
+                       min_neto_larga_m=300.0, encadenada=False, paso_max_m=300.0):
     """F5.23 — Una PARADA se sustituye por UN SOLO PUNTO.
 
     Un tramo que se mantiene dentro de un radio de radio_m durante al menos
@@ -372,9 +538,17 @@ def unificar_estancias(pts, radio_m=200.0, min_dur_s=600.0, min_neto_m=150.0):
         # duración mínima cuando los puntos venían espaciados → la unificación
         # no hacía nada.
         while j + 1 < n and (j - i) < 20000:
-            clat = s_lat / cnt
-            clon = s_lon / cnt
-            if _hav(clat, clon, pts[j + 1][1], pts[j + 1][2]) <= radio_m:
+            if encadenada:
+                # extensión punto a punto: sigue la deriva aunque el conjunto se
+                # extienda más que el radio (una estancia de 4 h con jitter de
+                # 200 m se cortaba al salirse del centroide y no se unificaba)
+                cabe = _hav(pts[j][1], pts[j][2], pts[j + 1][1],
+                            pts[j + 1][2]) <= paso_max_m
+            else:
+                clat = s_lat / cnt
+                clon = s_lon / cnt
+                cabe = _hav(clat, clon, pts[j + 1][1], pts[j + 1][2]) <= radio_m
+            if cabe:
                 j += 1
                 s_lat += pts[j][1]
                 s_lon += pts[j][2]
@@ -383,7 +557,29 @@ def unificar_estancias(pts, radio_m=200.0, min_dur_s=600.0, min_neto_m=150.0):
                 break
         dur = pts[j][0] - pts[i][0]
         neto = _hav(pts[i][1], pts[i][2], pts[j][1], pts[j][2])
-        if j > i and dur >= min_dur_s and neto <= min_neto_m:
+        # F5.24: además del neto, el RECORRIDO ACUMULADO del tramo debe ser
+        # pequeño. Si recorriste cientos de metros dentro del radio (dando
+        # vueltas, aparcando, un paseo de ida y vuelta), es movimiento real y
+        # no se toca: era la causa de que desaparecieran giros.
+        rec = 0.0
+        for k in range(i + 1, j + 1):
+            rec += _hav(pts[k - 1][1], pts[k - 1][2], pts[k][1], pts[k][2])
+        # el tramo es una parada si su rumbo es incoherente (jitter) o se
+        # movió muy despacio; si hay rumbo coherente es movimiento real
+        rumb_tramo, vel_tramo, dmax_tramo = _coherencia(pts, j, k=min(400, max(1, j - i)))
+        # parada = movimiento lento, o jitter (rumbo incoherente) SIN haberse
+        # alejado: un vaivén tiene rumbo incoherente pero se aleja decenas de
+        # metros y es movimiento real (no se toca)
+        # Es parada si: (a) se mueve poquísimo, o (b) es jitter (rumbo
+        # incoherente y sin alejarse), o (c) lleva MÁS DE 2 H sin salir del
+        # radio: con jitter de 2 m por punto, "parado" y "andar despacio en un
+        # espacio de 70 m" tienen firmas casi idénticas (medido: 60 y 92 m/min),
+        # así que la duración es el criterio fiable para una estancia de verdad.
+        if j > i and neto <= min_neto_m and (
+                (dur >= min_dur_s
+                 and (vel_tramo <= MIN_VEL_DER
+                      or (rumb_tramo < min_rumb_der and dmax_tramo < 25.0)))
+                or (dur >= min_dur_larga_s and neto <= min_neto_larga_m)):
             out.append(pts[i])          # parada → 1 punto
             i = j + 1
         elif j > i and dur >= min_dur_s:
@@ -422,4 +618,15 @@ def limpiar_track(filas, zonas=None):
         limpios = adelgazar(limpios, dt_min)
     limpios = colapsar_estancias(limpios)
     limpios = autocompletar_huecos(limpios)
+    # dos escalas: paradas cortas (>=4 min dentro de 80 m) y estancias largas
+    limpios = unificar_estancias(limpios, radio_m=80.0, min_dur_s=240.0,
+                                 min_neto_m=60.0, max_vel_m_min=15.0)
+    limpios = unificar_estancias(limpios)
+    # NOTA F5.24: una pasada extra con extensión encadenada (para colapsar
+    # estancias de horas) se probó y se RETIRÓ: fusionaba el vaivén con la
+    # estancia contigua y borraba tramos reales (medido: llegada y coche a 0 %).
+    # La firma de "parado" (jitter 2 m por punto = 60 m/min) y la de "andar
+    # despacio o dar vueltas" (83-92 m/min) son demasiado parecidas para
+    # separarlas solo con coordenadas: hace falta la señal de actividad del
+    # móvil (acelerómetro) o un modelo con modelo de error (Kalman/HMM).
     return unificar_estancias(limpios)
