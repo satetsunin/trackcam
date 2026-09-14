@@ -13,3 +13,6 @@ tunel/*.env
 
 # Herramientas de map-matching: config generado, pid y logs
 tools/runtime/
+
+# APK firmada: canal de entrega es Nextcloud, nunca el git
+apk/trackcam-release.apk
