@@ -10,3 +10,6 @@ apk/.gradle/
 apk/app/build/
 # Túnel Cloudflare: el token vive en ~/.cloudflared/ (fuera del repo). Por si acaso:
 tunel/*.env
+
+# Herramientas de map-matching: config generado, pid y logs
+tools/runtime/

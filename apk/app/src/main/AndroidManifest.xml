@@ -10,6 +10,13 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
 
+    <!-- Detección de actividad (acelerómetro): still/walk/run/bike/vehicle/tilt.
+         - android.permission.ACTIVITY_RECOGNITION: permiso de runtime en Android 10+ (API 29+).
+         - com.google.android.gms.permission.ACTIVITY_RECOGNITION: permiso NORMAL que
+           usaba Google Play Services en Android ≤9 (se concede al instalar, sin diálogo). -->
+    <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
+    <uses-permission android:name="com.google.android.gms.permission.ACTIVITY_RECOGNITION" />
+
     <!-- Servicio en primer plano 24/7 -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />

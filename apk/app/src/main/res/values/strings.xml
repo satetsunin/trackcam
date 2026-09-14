@@ -43,6 +43,7 @@
     <string name="toast_bateria">Importante: desactiva la optimización de batería o el trackeo se detendrá al bloquear el teléfono</string>
     <string name="toast_bg_location">Para trackeo 24/7 activa \"Permitir siempre\" en los permisos de ubicación</string>
     <string name="toast_ota_permiso">Activa \"Permitir instalar apps desconocidas\" para poder actualizar la app</string>
+    <string name="toast_act_perm">Detección de actividad no autorizada: la app sigue enviando puntos, pero sin el dato de actividad (actívalo en Ajustes → Aplicaciones → TrackCam → Permisos → Actividad física)</string>
 
     <!-- Servicios de ubicación -->
     <string name="lbl_servicios">Servicios de ubicación (marca los que uses)</string>

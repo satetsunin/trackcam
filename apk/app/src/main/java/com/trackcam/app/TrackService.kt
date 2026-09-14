@@ -1,11 +1,13 @@
 package com.trackcam.app
 
+import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.location.Location
 import android.os.Build
@@ -15,7 +17,12 @@ import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleService
+import com.google.android.gms.location.ActivityRecognition
+import com.google.android.gms.location.ActivityRecognitionClient
+import com.google.android.gms.location.ActivityRecognitionResult
+import com.google.android.gms.location.DetectedActivity
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationCallback
 import com.google.android.gms.location.LocationRequest
@@ -68,12 +75,23 @@ class TrackService : LifecycleService() {
         /** Broadcast: 401 → sesión caducada, volver al login. */
         const val ACTION_UNAUTHORIZED = "com.trackcam.app.action.UNAUTHORIZED"
 
+        /**
+         * Acción interna del PendingIntent con el que Google entrega los
+         * resultados de Activity Recognition a este mismo servicio.
+         * NO es una orden de arranque/parada: solo refresca la última actividad.
+         */
+        const val ACTION_ACTIVITY_UPDATE = "com.trackcam.app.action.ACTIVITY_UPDATE"
+
         private const val TAG = "TrackCamService"
         private const val NOTIF_CHANNEL_ID = "trackcam_channel"
         private const val NOTIF_ID = 1
         private const val MAX_PENDING = 30
         private const val HTTP_TIMEOUT_S = 8L
         private const val MAX_ATTEMPTS = 2
+
+        /** Cada cuánto pide Google una muestra de actividad (~25 s: barato). */
+        private const val ACTIVITY_INTERVAL_MS = 25_000L
+        private const val ACTIVITY_PI_REQUEST = 42
 
         // ── Estado compartido con la UI (volátil → hilo seguro) ──
         @Volatile var tracking = false
@@ -94,12 +112,30 @@ class TrackService : LifecycleService() {
             private set
         /** Última posición ENVIADA [lat, lon] (para el filtro de movimiento). */
         @Volatile var lastEnviado: DoubleArray? = null
+
+        /**
+         * Última actividad conocida, ya mapeada al contrato del servidor:
+         * 'still'|'walk'|'run'|'bike'|'vehicle'|'tilt' — "" si se desconoce
+         * (sin permiso, sin datos todavía o actividad UNKNOWN).
+         */
+        @Volatile var lastActivity: String = ""
+            private set
+
+        /** Confianza (0-100) de [lastActivity]; 0 si se desconoce. */
+        @Volatile var lastActivityConf: Int = 0
+            private set
     }
 
     private lateinit var fusedLocationClient: FusedLocationProviderClient
     private lateinit var wakeLock: PowerManager.WakeLock
     private lateinit var okHttpClient: OkHttpClient
     private lateinit var notifManager: NotificationManager
+
+    /** Cliente de detección de actividad (acelerómetro) de Google Play Services. */
+    private lateinit var activityRecognitionClient: ActivityRecognitionClient
+
+    /** PendingIntent registrado para recibir los resultados de actividad (null = sin registrar). */
+    private var activityPendingIntent: PendingIntent? = null
 
     private val sendScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val queueLock = Any()
@@ -142,6 +178,9 @@ class TrackService : LifecycleService() {
 
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
 
+        // Detección de actividad (acelerómetro) — se registra al arrancar el trackeo.
+        activityRecognitionClient = ActivityRecognition.getClient(this)
+
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
         wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "TrackCam:location")
         wakeLock.setReferenceCounted(false)
@@ -163,6 +202,17 @@ class TrackService : LifecycleService() {
                 stopTracking()
                 return START_NOT_STICKY
             }
+            ACTION_ACTIVITY_UPDATE -> {
+                // Resultado de Activity Recognition: SOLO actualiza la última
+                // actividad; nunca arranca ni detiene el trackeo. Si el servicio
+                // ya no trackea (PendingIntent obsoleto), se apaga solo.
+                if (tracking) {
+                    onActivityDeteccion(intent)
+                    return START_STICKY
+                }
+                stopSelf()
+                return START_NOT_STICKY
+            }
             // null intent = reinicio del sistema (START_STICKY): reanudar si toca
             else -> startTracking()
         }
@@ -171,6 +221,8 @@ class TrackService : LifecycleService() {
 
     override fun onDestroy() {
         sendScope.cancel()
+        // Quitar la detección de actividad (deja de llegar el PendingIntent)
+        stopActivityRecognition()
         if (::wakeLock.isInitialized && wakeLock.isHeld) {
             try {
                 wakeLock.release()
@@ -196,6 +248,8 @@ class TrackService : LifecycleService() {
         TrackPrefs.setRunning(this, true)
         startForegroundCompat()
         startLocationUpdates()
+        // Detección de actividad: opcional — si no hay permiso, degrada en silencio
+        startActivityRecognition()
         reuseLastKnownPosition()
         broadcastStatus()
         // Config remota (OTA): descargar al arrancar + reenviar puntos offline
@@ -249,6 +303,8 @@ class TrackService : LifecycleService() {
         } catch (e: Exception) {
             // no había updates
         }
+        // Dejar de pedir detección de actividad (ahorra batería al parar)
+        stopActivityRecognition()
         synchronized(queueLock) {
             queue.clear()
         }
@@ -352,6 +408,118 @@ class TrackService : LifecycleService() {
         } catch (e: SecurityException) {
             // aún sin permiso: el requestLocationUpdates ya está en marcha
         }
+    }
+
+    // ── Detección de actividad (Google Activity Recognition, acelerómetro) ──
+    //
+    // requestActivityUpdates: Google entrega (vía PendingIntent → este servicio,
+    // acción ACTION_ACTIVITY_UPDATE) la actividad MÁS PROBABLE con su confianza,
+    // pidiendo una muestra cada ACTIVITY_INTERVAL_MS (~25 s). Es barato en batería
+    // frente a leer el acelerómetro sin parar, y suficiente porque cada punto GPS
+    // viaja con la última actividad conocida.
+    //
+    // Degradación limpia: si el permiso está denegado (o Google Play Services no
+    // está disponible), NO se registra nada y los puntos siguen enviándose con
+    // act="" y act_conf=0. Nunca lanza excepción hacia arriba.
+
+    private fun startActivityRecognition() {
+        // En Android 10+ (API 29) ACTIVITY_RECOGNITION es permiso de runtime.
+        // En Android ≤9 el permiso de Google es normal (concedido al instalar).
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+            ContextCompat.checkSelfPermission(
+                this, Manifest.permission.ACTIVITY_RECOGNITION
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            Log.w(TAG, "Sin permiso de actividad: se enviará act='' act_conf=0")
+            return
+        }
+        try {
+            // Re-registrar limpiamente (el servicio puede arrancarse de nuevo)
+            removeActivityUpdatesQuieto()
+
+            val flags = PendingIntent.FLAG_UPDATE_CURRENT or
+                (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    PendingIntent.FLAG_MUTABLE // Android 12+: el sistema rellena extras
+                } else {
+                    0
+                })
+            val pi = PendingIntent.getService(
+                this,
+                ACTIVITY_PI_REQUEST,
+                Intent(this, TrackService::class.java).setAction(ACTION_ACTIVITY_UPDATE),
+                flags
+            )
+            activityPendingIntent = pi
+            activityRecognitionClient
+                .requestActivityUpdates(ACTIVITY_INTERVAL_MS, pi)
+                .addOnFailureListener { e ->
+                    Log.w(TAG, "Detección de actividad no disponible: ${e.message}")
+                }
+            Log.i(TAG, "Detección de actividad registrada cada ${ACTIVITY_INTERVAL_MS / 1000} s")
+        } catch (e: SecurityException) {
+            Log.w(TAG, "Permiso de actividad denegado: se envía sin act/act_conf")
+        } catch (e: Exception) {
+            Log.w(TAG, "No se pudo registrar la detección de actividad: ${e.message}")
+        }
+    }
+
+    /** Desregistra la detección de actividad y descarta el PendingIntent. */
+    private fun stopActivityRecognition() {
+        val pi = activityPendingIntent ?: return
+        activityPendingIntent = null
+        if (::activityRecognitionClient.isInitialized) {
+            try {
+                activityRecognitionClient.removeActivityUpdates(pi)
+            } catch (e: Exception) {
+                // sin updates que quitar / sin permiso
+            }
+        }
+        pi.cancel()
+        // Reiniciar el estado: la próxima muestra lo recalculará.
+        lastActivity = ""
+        lastActivityConf = 0
+    }
+
+    /** Igual que [stopActivityRecognition] pero sin tocar el estado compartido. */
+    private fun removeActivityUpdatesQuieto() {
+        val pi = activityPendingIntent ?: return
+        activityPendingIntent = null
+        try {
+            activityRecognitionClient.removeActivityUpdates(pi)
+        } catch (e: Exception) {
+            // nada que quitar
+        }
+        pi.cancel()
+    }
+
+    /**
+     * Procesa el resultado de Activity Recognition y actualiza la última
+     * actividad conocida con su confianza (0-100).
+     */
+    private fun onActivityDeteccion(intent: Intent) {
+        val result = ActivityRecognitionResult.extractResult(intent) ?: return
+        // mostProbableActivity nunca es null en esta versión de Play Services
+        // (si no hay certeza devuelve UNKNOWN, que mapea a "").
+        val actividad = result.mostProbableActivity
+        lastActivity = mapActividad(actividad.type)
+        lastActivityConf = actividad.confidence.coerceIn(0, 100)
+        Log.i(TAG, "Actividad: '$lastActivity' ($lastActivityConf%) [tipo=${actividad.type}]")
+        broadcastStatus()
+    }
+
+    /**
+     * Mapea el tipo de [DetectedActivity] al contrato del servidor:
+     * STILL→'still', ON_FOOT/WALKING→'walk', RUNNING→'run', ON_BICYCLE→'bike',
+     * IN_VEHICLE→'vehicle', TILTING→'tilt', UNKNOWN u otro→'' (desconocido).
+     */
+    private fun mapActividad(tipo: Int): String = when (tipo) {
+        DetectedActivity.STILL -> "still"
+        DetectedActivity.ON_FOOT, DetectedActivity.WALKING -> "walk"
+        DetectedActivity.RUNNING -> "run"
+        DetectedActivity.ON_BICYCLE -> "bike"
+        DetectedActivity.IN_VEHICLE -> "vehicle"
+        DetectedActivity.TILTING -> "tilt"
+        else -> ""
     }
 
     // ── Cola de envíos ──────────────────────────────────────────────────────
@@ -538,6 +706,10 @@ class TrackService : LifecycleService() {
             .put("ts", tsMs / 1000.0)
             .put("acc", if (loc.hasAccuracy()) loc.accuracy.toDouble() else 0.0)
             .put("vel", if (loc.hasSpeed()) loc.speed.toDouble() else 0.0)
+            // Actividad del móvil (acelerómetro): contrato fijo del servidor.
+            // act = "" si se desconoce; act_conf = 0 en ese caso.
+            .put("act", lastActivity)
+            .put("act_conf", lastActivityConf)
             .put("dev", deviceId())
             .toString()
     }

@@ -31,6 +31,7 @@ class MainActivity : AppCompatActivity() {
         private const val RC_LOCATION = 1001
         private const val RC_NOTIF = 1002
         private const val RC_BG_LOCATION = 1003
+        private const val RC_ACTIVITY = 1004
     }
 
     private lateinit var spInterval: Spinner
@@ -221,6 +222,8 @@ class MainActivity : AppCompatActivity() {
         // Paso 2 (Android 10+): ubicación "permitir siempre" (background)
         maybeRequestBackgroundLocation()
         maybeRequestNotificationPermission()
+        // Paso 3 (Android 10+): detección de actividad (acelerómetro) — opcional
+        maybeRequestActivityPermission()
         maybeRequestInstallPackages()
         doStart()
     }
@@ -294,6 +297,24 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Pide el permiso de detección de actividad (acelerómetro), Android 10+.
+     * Es OPCIONAL: si se deniega, la app sigue enviando puntos por GPS y
+     * simplemente los envía con act="" y act_conf=0.
+     * En Android ≤9 el permiso de Google es "normal" (no pide diálogo).
+     */
+    private fun maybeRequestActivityPermission() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
+        if (ContextCompat.checkSelfPermission(
+                this, Manifest.permission.ACTIVITY_RECOGNITION
+            ) == PackageManager.PERMISSION_GRANTED) return
+        ActivityCompat.requestPermissions(
+            this,
+            arrayOf(Manifest.permission.ACTIVITY_RECOGNITION),
+            RC_ACTIVITY
+        )
+    }
+
     private fun doStart() {
         if (TrackPrefs.token(this).isNullOrBlank()) {
             goToLogin(LoginActivity.MOTIVO_SESION_EXPIRADA)
@@ -342,10 +363,19 @@ class MainActivity : AppCompatActivity() {
                 grantResults.any { it == PackageManager.PERMISSION_GRANTED }
             ) {
                 maybeRequestNotificationPermission()
+                maybeRequestActivityPermission()
                 doStart()
             } else {
                 Toast.makeText(this, R.string.err_location_perm, Toast.LENGTH_LONG).show()
             }
+        }
+        if (requestCode == RC_ACTIVITY &&
+            (grantResults.isEmpty() ||
+                grantResults.all { it != PackageManager.PERMISSION_GRANTED })
+        ) {
+            // Denegado: NO bloquea el trackeo. Los puntos se enviarán sin el
+            // dato de actividad (act="" y act_conf=0). Solo se informa.
+            Toast.makeText(this, R.string.toast_act_perm, Toast.LENGTH_LONG).show()
         }
     }
 

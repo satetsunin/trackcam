@@ -90,6 +90,41 @@ def _verif_pass(password: str, stored: str) -> bool:
         _hash_pass(password, salt_hex).split("$")[1], dk_hex)
 
 
+# ── Actividad del móvil (F5.25) ─────────────────────────────────────────────
+# Contrato: `act` ∈ {'still','walk','run','bike','vehicle','tilt'} (o '') y
+# `act_conf` = entero 0-100. Valores fuera del contrato o confianza fuera de
+# rango se DESCARTAN (se guardan como '' y NULL) — el filtro usará la
+# heurística de rumbo + velocidad mediana de siempre.
+from backend import geo_filtro as _gf  # noqa: E402
+
+
+def _act_valida(v):
+    """Normaliza `act`: vacío si falta o no está en el contrato."""
+    if v is None:
+        return ""
+    s = str(v).strip().lower()
+    return s if s in _gf.ACTS_VALIDAS else ""
+
+
+def _act_conf_valida(v):
+    """Normaliza `act_conf`: entero 0-100, o None si falta/es inválido."""
+    if v is None or v == "":
+        return None
+    try:
+        c = int(float(v))
+    except (TypeError, ValueError):
+        return None
+    return c if 0 <= c <= 100 else None
+
+
+def _campo_punto(body, qp, clave):
+    """Valor de un campo del punto en el body JSON o, si falta, en la query."""
+    v = body.get(clave)
+    if v is None or v == "":
+        v = qp.get(clave)
+    return v
+
+
 def init_db():
     con = get_db()
     con.execute("""CREATE TABLE IF NOT EXISTS usuarios(
@@ -105,6 +140,15 @@ def init_db():
     con.execute("""CREATE TABLE IF NOT EXISTS tracks(
         user_id TEXT, ts REAL, lat REAL, lon REAL, acc REAL, vel REAL, dev TEXT)""")
     con.execute("CREATE INDEX IF NOT EXISTS idx_tracks_user_ts ON tracks(user_id, ts)")
+    # Migración F5.25 (IDEMPOTENTE): columnas de ACTIVIDAD del móvil
+    # (acelerómetro Android). `act` = 'still'|'walk'|'run'|'bike'|'vehicle'|
+    # 'tilt'|'foot' (o '' si se desconoce) y `act_conf` = entero 0-100.
+    # Las BD anteriores a F5.25 no las tienen: se añaden si faltan.
+    for _col, _tipo in (("act", "TEXT"), ("act_conf", "INTEGER")):
+        try:
+            con.execute("ALTER TABLE tracks ADD COLUMN %s %s" % (_col, _tipo))
+        except Exception:
+            pass  # ya existe (migración repetible)
     con.execute("""CREATE TABLE IF NOT EXISTS eventos(
         user_id TEXT, id TEXT PRIMARY KEY, cam_id TEXT, cam_nombre TEXT,
         lat REAL, lon REAL, ts_inicio REAL, ts_fin REAL, video TEXT,
@@ -177,6 +221,12 @@ def _solo_lectura():
 if MODO_VISION:
     @app.api_route("/track", methods=["POST", "PUT", "PATCH", "DELETE"])
     async def _vision_no_track(request: Request):
+        return _solo_lectura()
+
+    # F5.25: /api/punto es un alias de /track (mismo punto + act/act_conf);
+    # en modo visión también es escritura → solo lectura.
+    @app.api_route("/api/punto", methods=["POST", "PUT", "PATCH", "DELETE"])
+    async def _vision_no_punto(request: Request):
         return _solo_lectura()
 
     @app.api_route("/api/logout", methods=["POST"])
@@ -685,9 +735,13 @@ def _cams_geo_verdes(user_id, ts_ini=None, ts_fin=None):
 
 
 # ── API: track ─────────────────────────────────────────────────────────────
-@app.post("/track")
-async def track(request: Request):
-    """APK manda posición. Requiere auth (Bearer o ?token=)."""
+async def _procesar_punto(request: Request):
+    """Guarda un punto GPS. Requiere auth (Bearer o ?token=).
+
+    Acepta los campos básicos (lat, lon, ts, acc, vel, dev) y, desde F5.25,
+    la ACTIVIDAD del móvil: `act` y `act_conf`, por body JSON o por query
+    string. Los valores fuera del contrato se descartan ('' y NULL).
+    """
     u = _auth(request)
     if not u:
         return _pedir_auth()
@@ -695,8 +749,11 @@ async def track(request: Request):
         body = await request.json()
     except Exception:
         body = {}
-    lat = body.get("lat") or request.query_params.get("lat")
-    lon = body.get("lon") or request.query_params.get("lon")
+    if not isinstance(body, dict):
+        body = {}
+    qp = request.query_params
+    lat = body.get("lat") or qp.get("lat")
+    lon = body.get("lon") or qp.get("lon")
     if lat is None or lon is None:
         return JSONResponse({"error": "faltan lat/lon"}, status_code=400)
     lat, lon = float(lat), float(lon)
@@ -704,17 +761,34 @@ async def track(request: Request):
     acc = float(body.get("acc", 0) or 0)
     vel = float(body.get("vel", 0) or 0)
     dev = str(body.get("dev", "desconocido"))[:40]
+    # F5.25 — actividad del móvil (acelerómetro), validada
+    act = _act_valida(_campo_punto(body, qp, "act"))
+    act_conf = _act_conf_valida(_campo_punto(body, qp, "act_conf"))
 
     con = get_db()
-    con.execute("INSERT INTO tracks(user_id,ts,lat,lon,acc,vel,dev) VALUES(?,?,?,?,?,?,?)",
-                (str(u["id"]), ts, lat, lon, acc, vel, dev))
+    con.execute("INSERT INTO tracks(user_id,ts,lat,lon,acc,vel,dev,act,act_conf) "
+                "VALUES(?,?,?,?,?,?,?,?,?)",
+                (str(u["id"]), ts, lat, lon, acc, vel, dev, act, act_conf))
     con.commit()
     cerca = cams_cerca(lat, lon, 1500)
     n500 = sum(1 for d, _ in cams_cerca(lat, lon, 500))
     n100 = sum(1 for d, _ in cams_cerca(lat, lon, 100))
     con.close()
     return {"ok": True, "user": u["username"], "pts": 1,
+            "act": act, "act_conf": act_conf,
             "camaras_1500": len(cerca), "camaras_500": n500, "camaras_100": n100}
+
+
+@app.post("/track")
+async def track(request: Request):
+    """APK manda posición (endpoint de ingesta). Requiere auth."""
+    return await _procesar_punto(request)
+
+
+@app.post("/api/punto")
+async def api_punto(request: Request):
+    """Alias de /track: mismo punto (lat/lon/ts/acc/vel/dev + act/act_conf)."""
+    return await _procesar_punto(request)
 
 
 def _vel_entre(pts):
@@ -784,7 +858,12 @@ def _modo_vel(v):
     return "rapido"
 
 
-_TCACHE = {}            # clave -> (ult_ts_bd, respuesta, ts_calculo)
+_TCACHE = {}
+# F5.25 — caché del map-matching: la petición al motor tarda ~6 s por traza,
+# así que se guarda por (usuario, rango, nº de puntos). Los rangos cerrados no
+# cambian, así que la caché es válida sin TTL corto.
+_MMCACHE = {}
+_MMCACHE_MAX = 24            # clave -> (ult_ts_bd, respuesta, ts_calculo)
 _TCACHE_MAX = 16        # entradas (cada una puede ser grande: se limita el nº)
 _TCACHE_TTL_VIVO = 4.0  # s de gracia con datos vivos (móvil enviando puntos)
 
@@ -838,6 +917,54 @@ def _es_incremental(request: Request) -> bool:
         return float(d) > 0
     except (TypeError, ValueError):
         return False
+
+
+def _mapmatch_respuesta(uid_datos, ts_ini, ts_fin, limpios, perfil):
+    """Devuelve la FeatureCollection con la línea pegada a la red viaria.
+
+    F5.25 — `limpios` son los puntos ya filtrados (ts, lat, lon, acc, ...).
+    Se cachea por (usuario, rango, nº de puntos, perfil) porque cada llamada al
+    motor tarda varios segundos. Devuelve None si el motor falla o no hay
+    puntos: en ese caso el mapa sigue con su polilínea GPS normal.
+    """
+    try:
+        if not limpios or len(limpios) < 5:
+            return None
+        clave = (str(uid_datos), round(float(ts_ini or 0), 1),
+                 round(float(ts_fin or 0), 1), len(limpios), perfil)
+        hit = _MMCACHE.get(clave)
+        if hit is not None:
+            return hit
+        from backend import mapmatch as _mm
+        r = _mm.matchear([(p[0], p[1], p[2], p[3] if len(p) > 3 else 0)
+                          for p in limpios], perfil=perfil)
+        if not r or not r.get("coords"):
+            return None
+        props = {"mm": True, "perfil": perfil, "n_in": r["n_in"],
+                 "n_matcheados": r["n_matcheados"], "dist_m": r["dist_m"],
+                 "matchings": r["matchings"], "n_vertices": len(r["coords"]),
+                 "n_crudos": len(limpios)}
+        resp = {"type": "FeatureCollection",
+                "features": [{"type": "Feature",
+                              "geometry": {"type": "LineString",
+                                           "coordinates": r["coords"]},
+                              "properties": props}],
+                "vel_media": None, "filtro": True, "mm": True,
+                "properties": props}
+        if len(_MMCACHE) >= _MMCACHE_MAX:
+            _MMCACHE.clear()
+        _MMCACHE[clave] = resp
+        return resp
+    except Exception as _e:
+        # el map-matching NUNCA puede tumbar el mapa, pero el fallo se registra
+        # (un except mudo aquí ya nos costó una ronda de depuración)
+        try:
+            import traceback as _tb
+            print("[mm] fallo:", type(_e).__name__, _e, flush=True)
+            print("[mm] traza:", _tb.format_exc()[-500:], flush=True)
+        except Exception:
+            pass
+        return None
 
 
 @app.get("/api/track")
@@ -894,7 +1021,7 @@ def api_track(request: Request):
         con.close()
         return _hit
 
-    q = "SELECT ts,lat,lon,acc,vel,dev,user_id FROM tracks"
+    q = "SELECT ts,lat,lon,acc,vel,dev,user_id,act,act_conf FROM tracks"
     if conds:
         q += " WHERE " + " AND ".join(conds)
     q += " ORDER BY ts ASC"
@@ -913,8 +1040,17 @@ def api_track(request: Request):
     crudos = [(r[0], r[1], r[2],
                r[3] if len(r) > 3 else 0,
                r[4] if len(r) > 4 else 0) for r in filas]
+    # F5.25 — actividad del móvil indexada por ts. Solo se construye la lista
+    # paralela si ALGÚN punto trae actividad; si no, acts=None y el filtro se
+    # comporta EXACTAMENTE como antes.
+    actos = {}
+    for r in filas:
+        a = r[7] if len(r) > 7 else ""
+        if a:
+            actos[r[0]] = (a, r[8] if len(r) > 8 else None)
+    acts_par = ([actos.get(c[0]) for c in crudos] if actos else None)
     if _es_incremental(request):
-        sel = _gf.filtro_anti_deriva(crudos, zonas=_zonas or None)
+        sel = _gf.filtro_anti_deriva(crudos, zonas=_zonas or None, acts=acts_par)
         # F5.17: el rango «Todo» del mapa manda desde=0 (antes se trataba como
         # track en vivo → sin colapso NI adelgazado → 150k pts / 31 MB por
         # carga). Si aún así la serie es enorme, adelgazar para el dibujo.
@@ -923,18 +1059,30 @@ def api_track(request: Request):
         # F5.23: unificar paradas (una estancia = 1 punto) también en el modo
         # incremental, que no pasa por limpiar_track()
         sel = _gf.unificar_estancias(sel)
+        # F5.25 — map-matching pedido explícitamente (?mm=1). Va AQUÍ también
+        # porque un rango con `desde` real entra por el camino incremental y
+        # retorna antes de llegar al bloque del modo completo.
+        if request.query_params.get("mm") in ("1", "true", "si", "sí"):
+            mm_txt = _mapmatch_respuesta(uid_datos, ts_ini, ts_fin, sel,
+                                         request.query_params.get("mm_perfil") or "car")
+            if mm_txt is not None:
+                return mm_txt
         # features directas con sus metadatos
         vels = _vel_entre([(p[0], p[1], p[2]) for p in sel])
         feats = []
         for i, p in enumerate(sel):
             v = vels[i] if i < len(vels) else None
+            props = {"ts": p[0], "acc": p[3], "vel": p[4], "v": v,
+                     "modo": _modo_vel(v), "dev": "", "user_id": u["id"]}
+            _a = actos.get(p[0])
+            if _a:
+                props["act"] = _a[0]
+                if _a[1] is not None:
+                    props["act_conf"] = _a[1]
             feats.append({"type": "Feature",
                           "geometry": {"type": "Point",
                                        "coordinates": [p[2], p[1]]},
-                          "properties": {"ts": p[0], "acc": p[3],
-                                         "vel": p[4], "v": v,
-                                         "modo": _modo_vel(v),
-                                         "dev": "", "user_id": u["id"]}})
+                          "properties": props})
         # último ts REAL de la BD (aunque el filtro lo descarte): así el
         # frontend avanza su marca de agua sin re-pedir puntos ya vistos
         ult_db = filas[-1][0] if filas else None
@@ -944,23 +1092,38 @@ def api_track(request: Request):
     # modo completo: anti-deriva (con zonas) + colapso + autocompletar.
     # Construimos un índice ts→fila original para conservar acc/vel/dev.
     por_ts = {r[0]: r for r in filas}
-    limpios = _gf.limpiar_track(crudos, zonas=_zonas or None)
+    limpios = _gf.limpiar_track(crudos, zonas=_zonas or None, acts=acts_par)
     pts = [(p[0], p[1], p[2]) for p in limpios]
     vels = _vel_entre(pts)
     feats = []
     for i, (ts, lat, lon) in enumerate(pts):
         orig = por_ts.get(ts)
         v = vels[i] if i < len(vels) else None
+        props = {"ts": ts,
+                 "acc": orig[3] if orig else 0,
+                 "vel": orig[4] if orig else 0,
+                 "v": v,
+                 "modo": _modo_vel(v),
+                 "dev": orig[5] if orig and len(orig) > 5 else "",
+                 "user_id": orig[6] if orig and len(orig) > 6 else u["id"]}
+        # F5.25: la actividad viaja en properties solo si el punto la trae
+        if orig and len(orig) > 7 and orig[7]:
+            props["act"] = orig[7]
+            if orig[8] is not None:
+                props["act_conf"] = orig[8]
         feats.append({"type": "Feature",
                       "geometry": {"type": "Point",
                                    "coordinates": [lon, lat]},
-                      "properties": {"ts": ts,
-                                     "acc": orig[3] if orig else 0,
-                                     "vel": orig[4] if orig else 0,
-                                     "v": v,
-                                     "modo": _modo_vel(v),
-                                     "dev": orig[5] if orig and len(orig) > 5 else "",
-                                     "user_id": orig[6] if orig and len(orig) > 6 else u["id"]}})
+                      "properties": props})
+    # F5.25 — map-matching opcional (?mm=1): la línea pegada a la red viaria.
+    # Los giros se reconstruyen por la CALZADA real en vez de por los puntos
+    # sueltos del GPS. Si el motor no está disponible se devuelve el track
+    # normal (el mapa nunca se rompe por esto).
+    if request.query_params.get("mm") in ("1", "true", "si", "sí"):
+        mm_txt = _mapmatch_respuesta(uid_datos, ts_ini, ts_fin, limpios,
+                                     request.query_params.get("mm_perfil") or "car")
+        if mm_txt is not None:
+            return mm_txt
     return _tcache_set(_ck, ult_ts, {"type": "FeatureCollection", "features": feats,
                                      "vel_media": None, "filtro": True,
                                      "n_crudos": len(crudos)})

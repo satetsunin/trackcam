@@ -203,6 +203,9 @@ a.dl{font-size:11px;padding:4px 9px;border-radius:7px;text-decoration:none;font-
 .cmeta b{color:var(--mut)}
 /* ────────── SELECCIÓN DE CAPAS ────────── */
 #capaWrap{position:relative;display:inline-block}
+.pill.cargando span{opacity:.6}
+.pill.dim span{opacity:.45}
+#mmInfo{font-size:12px;color:#22d3ee;margin-left:8px}
 #menuCapas{position:absolute;top:calc(100% + 7px);right:0;z-index:6000;display:none;min-width:225px;
   background:#0d1829;border:1px solid var(--line2);border-radius:12px;padding:6px;
   box-shadow:0 16px 44px rgba(0,0,0,.6)}
@@ -616,6 +619,7 @@ button.mchip.pel:hover{background:#3b1620}
       <label class="pill"><input type="radio" name="perf" value="prango"><span>Rango fechas</span></label>
     </div>
     <label class="pill" id="pillHora" title="Filtra por franja horaria dentro del rango elegido"><input type="checkbox" id="chkHora"><span>⏱ Franja hora</span></label>
+    <label class="pill" id="pillCalles" title="Ajusta la ruta a las calles reales de OpenStreetMap (map-matching): los giros se reconstruyen por la calzada"><input type="checkbox" id="chkCalles"><span>🛣 Calles</span></label><span id="mmInfo"></span>
     <div class="ctl" id="ctlRango">
       <span style="color:var(--mut)">desde</span>
       <input type="date" id="inRDesde">
@@ -843,6 +847,10 @@ function setCapa(k){
   try{localStorage.setItem('tc_capa_v1',k);}catch(e){}
 }
 (function(){let k='esriSt';try{k=localStorage.getItem('tc_capa_v1')||'esriSt';if(k==='dark'||k==='light')k='esriSt';}catch(e){}setCapa(k);})();
+// F5.25 — restaurar el ajuste a calles y enganchar su interruptor
+try{if(localStorage.getItem('tc_mm_v1')==='1')setTimeout(()=>activarCalles(true),1200);}catch(e){}
+(function(){const c=document.getElementById('chkCalles');
+ if(c)c.addEventListener('change',e=>activarCalles(e.target.checked));})();
 $('btnCapas').onclick=e=>{e.stopPropagation();menuCapas.classList.toggle('on');};
 menuCapas.querySelectorAll('.op').forEach(o=>o.onclick=()=>{setCapa(o.dataset.c);menuCapas.classList.remove('on');});
 document.addEventListener('click',e=>{if(!e.target.closest('#capaWrap'))menuCapas.classList.remove('on');});
@@ -852,6 +860,10 @@ const capaNaranja=L.layerGroup().addTo(map);   // caché persistente → naranja
 const capaMue=L.layerGroup().addTo(map);       // muertas 📵 → gris oscuro (.dotM)
 const capaZonas=L.layerGroup().addTo(map);     // 🚫 F5.8 zonas de no-monitorización (círculos rosa)
 const capaRuta=L.layerGroup().addTo(map);      // polilínea del track
+// F5.25 — capa de la línea AJUSTADA A LAS CALLES (map-matching con GraphHopper
+// + OpenStreetMap). Va encima de la ruta GPS, en cian, para comparar.
+const capaCalles=L.layerGroup().addTo(map);
+let mmActivo=false;
 let rutaLinea=null;
 const Z_EXACT=15, MAX_PUNTOS=2500;
 
@@ -1075,6 +1087,49 @@ function fichaPunto(f){
 function distMetros(ca,cb){  // ca/cb = [lon,lat] → metros
   return havKm(ca[1],ca[0],cb[1],cb[0])*1000;
 }
+/* F5.25 — línea ajustada a las calles (map-matching).
+   Pide /api/track?...&mm=1: el servidor manda la traza al motor de
+   map-matching (GraphHopper con el grafo de OpenStreetMap) y devuelve la
+   geometría pegada a la calzada. Si el motor no está disponible, el servidor
+   devuelve la ruta GPS normal y aquí no se dibuja nada de más: el mapa nunca
+   se rompe por esto. La primera petición de un rango tarda unos segundos
+   (luego el servidor la cachea). */
+async function pintarCalles(){
+  capaCalles.clearLayers();
+  if(!mmActivo)return;
+  const rango=rangoSeleccion();
+  const params=Object.assign({},
+    rango.desde!==null?{desde:rango.desde}:null,
+    rango.hasta!==null?{hasta:rango.hasta}:null,{mm:1});
+  if(S.rol==='admin'&&S.vista)params.usuario=S.vista;
+  const pill=$('pillCalles'); if(pill)pill.classList.add('cargando');
+  try{
+    const j=await api('/api/track'+qs(params));
+    if(j&&j.mm&&j.features&&j.features.length){
+      const f=j.features[0];
+      const ll=(f.geometry.coordinates||[]).map(c=>[c[1],c[0]]);
+      if(ll.length>1){
+        L.polyline(ll,{color:'#22d3ee',weight:4,opacity:.9,
+                       dashArray:null}).addTo(capaCalles);
+      }
+      const pr=j.properties||{};
+      const el=$('mmInfo');
+      if(el)el.innerHTML='🛣 Ajustada a las calles · '+
+        (pr.n_vertices||ll.length).toLocaleString('es')+' vértices · '+
+        ((pr.dist_m||0)/1000).toFixed(1)+' km por la calzada';
+    }
+  }catch(e){ /* el map-matching es opcional: nunca debe romper el mapa */ }
+  if(pill)pill.classList.remove('cargando');
+}
+
+function activarCalles(on){
+  mmActivo=!!on;
+  const c=$('chkCalles'); if(c)c.checked=mmActivo;
+  const pill=$('pillCalles'); if(pill)pill.classList.toggle('on',mmActivo);
+  try{localStorage.setItem('tc_mm_v1',mmActivo?'1':'0');}catch(e){}
+  pintarCalles();
+}
+
 function pintarRuta(){
   capaRuta.clearLayers();
   if(rutaLinea){map.removeLayer(rutaLinea);rutaLinea=null;}

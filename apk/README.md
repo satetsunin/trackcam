@@ -5,8 +5,21 @@ App compañera del servidor TrackCam. Obtiene la ubicación del teléfono con
 envía **al momento** por POST JSON al servidor:
 
 ```
-{ "lat": 43.263012, "lon": -2.935001, "ts": 1756781234.567, "acc": 4.2, "vel": 1.3, "dev": "Redmi_Note_12_Pro" }
+{ "lat": 43.263012, "lon": -2.935001, "ts": 1756781234.567, "acc": 4.2, "vel": 1.3,
+  "act": "walk", "act_conf": 82, "dev": "Redmi_Note_12_Pro" }
 ```
+
+Además de la posición, la app usa **Google Activity Recognition** (acelerómetro) para saber
+qué está haciendo el móvil y adjuntar a cada punto:
+
+| Campo | Tipo | Valor |
+|---|---|---|
+| `act` | string | `still` \| `walk` \| `run` \| `bike` \| `vehicle` \| `tilt` — `""` si se desconoce |
+| `act_conf` | int | confianza 0-100 de `act` — `0` si se desconoce |
+
+La actividad se consulta cada ~25 s (barato en batería) y cada punto GPS viaja con la última
+actividad conocida. Si el usuario **deniega el permiso de actividad**, la app sigue enviando
+puntos con normalidad, solo que con `act: ""` y `act_conf: 0`.
 
 Servidor por defecto: **https://track.satetsunin.com/track** (túnel Cloudflare del usuario).
 Para pruebas en LAN se puede poner **http://192.168.1.236:8099/track** (la app permite tráfico
@@ -82,6 +95,9 @@ preinstalado: Android Studio lo gestiona solo.
 4. Abre **TrackCam** → pulsa **INICIAR TRACKEO** y concede:
    - **Ubicación** (permite en todo momento / "Permitir siempre" — importante, no "solo con la app abierta").
    - **Notificaciones** (para ver la notificación persistente "TrackCam activo").
+   - **Actividad física / Detección de actividad** (Android 10+; en MIUI aparece como
+     *"Actividad física"*). Es **opcional**: si la deniegas, la app sigue trackeando y
+     enviando puntos, pero sin el dato `act`/`act_conf`.
 5. Verifica en el servidor que llegan puntos: `curl http://192.168.1.236:8099/api/track`.
 
 ---
@@ -130,6 +146,29 @@ trackeo **se detendrá al bloquear la pantalla**. Hazlos todos:
 > Si tras un reinicio no se relanza: comprueba que **Autostart** (4.2) sigue activo y que
 > pulsa **INICIAR TRACKEO** una vez más (el estado "activo" se guarda y se restaura en el boot).
 
+### 4.7 Permiso de "Actividad física" (detección de movimiento) en MIUI/Redmi — opcional
+
+Para enviar el dato de actividad (`act`/`act_conf`) la app necesita el permiso
+**ACTIVITY_RECOGNITION**. En Android 10+ es un permiso de runtime que la app pide al pulsar
+**INICIAR TRACKEO** (el mismo diálogo que Ubicación/Notificaciones). En **MIUI/HyperOS** el
+diálogo puede no aparecer o llamarse distinto, y algunas versiones lo tienen **denegado por
+defecto** o lo bloquean por privacidad. Si no ves el dato de actividad en el servidor, actívalo
+**a mano**:
+
+1. **Ajustes → Aplicaciones → Gestionar aplicaciones → TrackCam → Permisos**.
+2. Busca **"Actividad física"** (en algunos MIUI: **"Detección de actividad"**, **"Sensores
+   corporales"** o dentro de **"Otras acciones / Otros permisos"**).
+3. Selecciona **Permitir** (o "Permitir siempre").
+   > Ruta alternativa en MIUI: **Ajustes → Aplicaciones → TrackCam → Permisos → Otros permisos
+   > → Actividad física**.
+4. Vuelve a la app, **DETÉN** y **REINICIA** el trackeo (o reinicia el teléfono) para que el
+   servicio vuelva a registrar la detección de actividad con el permiso ya concedido.
+
+> **Importante**: este permiso es **opcional**. Si el usuario lo deniega (o el móvil no tiene
+> Google Play Services / acelerómetro), la app **no falla ni se cierra**: sigue enviando cada
+> punto GPS normalmente con `"act": ""` y `"act_conf": 0`. En Android ≤9 (API 28 o inferior)
+> el permiso es *normal* y se concede al instalar (no pide diálogo).
+
 ---
 
 ## 5. Uso de la app
@@ -150,6 +189,13 @@ trackeo **se detendrá al bloquear la pantalla**. Hazlos todos:
   al deslizar la app de recientes).
 - **GPS**: FusedLocationProvider. Prioridad alta (GPS puro) con intervalos ≤ 5 s; modo
   equilibrado (ahorro) con intervalos ≥ 10 s.
+- **Actividad (acelerómetro)**: Google Activity Recognition vía `ActivityRecognitionClient`
+  (`requestActivityUpdates`, muestra cada ~25 s). El resultado llega por `PendingIntent` al
+  propio `TrackService` (`ACTION_ACTIVITY_UPDATE`), que guarda la **última actividad conocida
+  con su confianza** (`lastActivity`/`lastActivityConf`) y la adjunta a cada punto enviado.
+  Se **registra** al arrancar el trackeo y se **desregistra** al detenerlo y en `onDestroy`
+  (`removeActivityUpdates`). Sin permiso o sin Play Services → degradación limpia: los puntos
+  salen igual con `act: ""` y `act_conf: 0`, sin excepciones ni cierres.
 - **Envío**: POST JSON inmediato en cada posición; OkHttp con timeout de 8 s; **1 reintento**
   tras fallo; si sigue fallando se re-encola (máx. 30 pendientes, descartando la más antigua);
   todo en corrutinas en `Dispatchers.IO` — nunca bloquea la UI.

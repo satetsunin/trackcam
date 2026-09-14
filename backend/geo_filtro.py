@@ -77,6 +77,17 @@ HUECO_MAX_S = 90.0          # huecos <= 90 s se autocompletan
 INTERP_S = 2.0              # paso de interpolación
 DIST_SALTO_MAX_M = 600.0    # si los extremos están a más de 600 m no interpolar
 
+# F5.25 — ACTIVIDAD del móvil (acelerómetro Android / Play Services
+# DetectedActivity). El punto puede traer `act` (string corto) y `act_conf`
+# (entero 0-100). Cuando la señal es FIABLE (act conocido y
+# act_conf >= ACT_CONF_MIN) sustituye a la heurística de rumbo + velocidad
+# mediana: act='still' → parado (modo deriva); act de movimiento → movimiento.
+# Si falta o la confianza es baja se usa EXACTAMENTE el criterio heurístico
+# actual (no cambia nada). Contrato fijo acordado con el usuario (14-09-2026).
+ACTS_VALIDAS = ("still", "walk", "run", "bike", "vehicle", "tilt", "foot")
+ACTS_MOV = ("walk", "run", "bike", "vehicle", "foot")  # en movimiento
+ACT_CONF_MIN = 60           # por debajo de esto la actividad se ignora
+
 
 def _hav(lat1, lon1, lat2, lon2):
     R = 6371000.0
@@ -92,6 +103,35 @@ def _interpolar(a, b, frac):
     return (a[0] + (b[0] - a[0]) * frac,
             a[1] + (b[1] - a[1]) * frac,
             a[2] + (b[2] - a[2]) * frac)
+
+
+def actividad_fiable(act, conf):
+    """Normaliza la ACTIVIDAD del móvil → 'still' | 'mov' | None (F5.25).
+
+    'still'      → parado (modo deriva)
+    'mov'        → en movimiento (walk/run/bike/vehicle/foot)
+    None         → sin señal fiable: usar la heurística actual
+
+    Es fiable solo si `act` está en ACTS_VALIDAS y `act_conf` es un entero
+    >= ACT_CONF_MIN (una confianza baja o un valor desconocido se descartan).
+    'tilt' (móvil en la mano) no dice nada del desplazamiento → None.
+    """
+    if not act:
+        return None
+    a = str(act).strip().lower()
+    if a not in ACTS_VALIDAS:
+        return None
+    try:
+        c = int(conf)
+    except (TypeError, ValueError):
+        return None
+    if c < ACT_CONF_MIN:
+        return None
+    if a == "still":
+        return "still"
+    if a in ACTS_MOV:
+        return "mov"
+    return None
 
 
 def _vel_mediana(pts, i, k=40, dt_min_s=0.5):
@@ -201,11 +241,18 @@ def filtro_anti_deriva(pts, vel_mov=VEL_MOVIMIENTO,
                        min_rumb_der=MIN_RUMB_DER,
                        latido_est_s=LATIDO_ESTANCIA_S,
                        r_estancia_m=RADIO_ESTANCIA_M,
-                       t_estancia_s=T_ESTANCIA_S):
+                       t_estancia_s=T_ESTANCIA_S,
+                       acts=None):
     """pts: [(ts, lat, lon, acc, vel), ...] cronológico.
 
     Devuelve los puntos que representan movimiento real (y latidos muy
     espaciados cuando estás quieto).
+
+    acts: lista PARALELA a pts (opcional, F5.25) con la actividad del móvil.
+    Cada elemento puede ser None, un string ('still', 'walk'…) o una tupla
+    (act, act_conf). No cambia la firma de las tuplas de puntos que consumen
+    otros módulos. Cuando acts es None el comportamiento es EXACTAMENTE el
+    mismo que antes de F5.25.
 
     F5.20 — CRITERIO DE COHERENCIA DE TRAYECTORIA (sustituye al de radio):
     el usuario: «patrones erráticos quieren decir que es problema de recepción
@@ -236,6 +283,20 @@ def filtro_anti_deriva(pts, vel_mov=VEL_MOVIMIENTO,
     if not pts:
         return []
     n = len(pts)
+    # F5.25 — normalizar la señal de actividad (lista paralela opcional).
+    # actv[i] ∈ {'still', 'mov', None}; None → heurística de siempre.
+    actv = None
+    if acts is not None:
+        actv = []
+        for _i in range(n):
+            _a = acts[_i] if _i < len(acts) else None
+            if isinstance(_a, dict):
+                actv.append(actividad_fiable(_a.get("act"), _a.get("act_conf")))
+            elif isinstance(_a, (tuple, list)) and len(_a) >= 2:
+                actv.append(actividad_fiable(_a[0], _a[1]))
+            else:
+                # string suelto → se asume confianza alta (100)
+                actv.append(actividad_fiable(_a, 100) if _a else None)
     # recorrido acumulado entre puntos consecutivos (para la eficiencia)
     pref = [0.0] * n
     for k in range(1, n):
@@ -287,15 +348,33 @@ def filtro_anti_deriva(pts, vel_mov=VEL_MOVIMIENTO,
         # velocidad sí son robustos.
         mov_corto = (vel_med >= min_vel_mov) \
             or (rumb >= min_rumb_mov and vel_med >= 45.0)
+        # F5.25 — actividad del móvil: si es fiable MANDA sobre la heurística
+        av = actv[i] if actv is not None else None
+        if av == "still":
+            mov_corto = False       # fiable: parado
+        elif av == "mov":
+            mov_corto = True        # fiable: en movimiento
         en_zona = bool(zonas) and _en_zona_lista(zonas, la, lo)
         # 1) coherencia de trayectoria: ¿el criterio dice movimiento o deriva?
-        if mov_corto or (ef >= ef_mov and neto >= min_neto_m and rec >= min_rec_mov):
+        if av == "still":
+            mov_ok = False
+        elif av == "mov":
+            mov_ok = True
+        else:
+            mov_ok = mov_corto or (ef >= ef_mov and neto >= min_neto_m
+                                   and rec >= min_rec_mov)
+        if mov_ok:
             if mov_consec == 0:
                 mov_ini_ts = ts_i
             mov_consec += 1
         else:
             mov_consec = 0
             mov_ini_ts = 0
+        # Con actividad de movimiento la confianza es alta: no exigir la
+        # histéresis de `conf_mov` puntos (si no, se perderían los primeros
+        # segundos de cada arranque tras una parada).
+        if av == "mov" and mov_consec < conf_mov:
+            mov_consec = conf_mov
         # F5.24: deriva = recorrido acumulado bajo. Si te moviste mucho
         # (>= min_rec_der2), NO es deriva aunque vuelvas al punto de partida.
         # F5.24: deriva = te mueves DESPACIO (velocidad media baja). Un
@@ -305,6 +384,10 @@ def filtro_anti_deriva(pts, vel_mov=VEL_MOVIMIENTO,
         # rápido: un coche en curva tiene rumbo bajo pero velocidad muy alta
         es_der = (vel_med <= min_vel_der) \
             or (rumb < min_rumb_der and vel_med < min_vel_mov)
+        if av == "still":
+            es_der = True           # fiable: parado (deriva)
+        elif av == "mov":
+            es_der = False          # fiable: en movimiento
         if modo == "mov":
             if es_der:
                 modo = "der"
@@ -346,7 +429,9 @@ def filtro_anti_deriva(pts, vel_mov=VEL_MOVIMIENTO,
         # y eso colapsaba los paseos de ida y vuelta (dar vueltas en una plaza,
         # ir y volver por la misma calle: movimiento real que no se aleja): la
         # llegada a Gernika perdía el 88 % de sus puntos y sus giros.
-        if modo != "der" and rumb < min_rumb_der \
+        # F5.25: la señal de actividad fiable manda: con 'mov' NO se puede
+        # declarar parado por la red de seguridad por radio.
+        if av != "mov" and modo != "der" and rumb < min_rumb_der \
                 and ts_i - pts[j_cap][0] >= t_estancia_s \
                 and _hav(pts[j_cap][1], pts[j_cap][2], la, lo) <= r_estancia_m:
             modo = "der"
@@ -592,19 +677,33 @@ def unificar_estancias(pts, radio_m=200.0, min_dur_s=600.0, min_neto_m=150.0,
     return out
 
 
-def limpiar_track(filas, zonas=None):
+def limpiar_track(filas, zonas=None, acts=None):
     """Pipeline completo. filas: [(ts, lat, lon, acc, vel), ...] cronológico.
     Devuelve [(ts, lat, lon), ...] filtrado + colapsado + autocompletado.
 
     zonas: lista de zonas {lat, lon, radio_m} (no-monitorización). El
     anti-deriva no deja latidos dentro de zona; las estancias largas fuera
     de zona se colapsan a entrada+salida.
+
+    acts: lista PARALELA a filas (opcional, F5.25) con la actividad del móvil
+    (None | 'still' | 'walk'… | (act, act_conf)). Se pasa al anti-deriva; con
+    acts=None el pipeline es idéntico al de antes de F5.25.
     """
     pts = [(r[0], r[1], r[2],
             r[3] if len(r) > 3 else 0,
             r[4] if len(r) > 4 else 0) for r in filas]
-    pts = filtro_saltos(pts)                 # 1º: saltos de red (ida y vuelta)
-    limpios = filtro_anti_deriva(pts, zonas=zonas)   # 2º: anti-deriva + zonas
+    if acts is None:
+        pts = filtro_saltos(pts)             # 1º: saltos de red (ida y vuelta)
+        limpios = filtro_anti_deriva(pts, zonas=zonas)
+    else:
+        # filtro_saltos puede DESCARTAR puntos: se reindexa la actividad por
+        # ts para que siga alineada con la serie que entra en el anti-deriva.
+        _mapa_act = {}
+        for _i, _p in enumerate(pts):
+            _mapa_act[_p[0]] = acts[_i] if _i < len(acts) else None
+        pts = filtro_saltos(pts)
+        limpios = filtro_anti_deriva(
+            pts, zonas=zonas, acts=[_mapa_act.get(p[0]) for p in pts])
     limpios = [(p[0], p[1], p[2]) for p in limpios]
     # RENDIMIENTO (F5.16): el colapso de estancias cuesta ~n·k (k = puntos en
     # una burbuja de 8 min). Con rangos enormes («todo»: semanas, 150k+ pts)
