@@ -40,6 +40,10 @@ VENT_COHERENCIA_S = 300.0   # ventana de análisis (5 min)
 EF_MOV = 0.40               # neto/recorrido >= 0,40 y neto >= 50 m → moviendo
 EF_DER = 0.25               # neto/recorrido < 0,25 → deriva errática (parado)
 MIN_NETO_M = 50.0           # desplazamiento neto mínimo para hablar de movimiento
+CONF_MOV_M = 3              # puntos seguidos para CONFIRMAR movimiento (histéresis)
+RADIO_SALIDA_ESTANCIA_M = 200.0  # para SALIR de una estancia hay que alejarse
+                            # 200 m del sitio: la deriva oscila dentro y no la
+                            # rompe en trozos (daba 42 puntos en vez de 1)
 RADIO_SALIDA_M = 130.0      # (legado del criterio de radio)
 CONF_SALIDA = 4             # (legado)
 HUECO_MAX_S = 90.0          # huecos <= 90 s se autocompletan
@@ -69,6 +73,8 @@ def filtro_anti_deriva(pts, vel_mov=VEL_MOVIMIENTO,
                        vent_coherencia_s=VENT_COHERENCIA_S,
                        ef_mov=EF_MOV, ef_der=EF_DER,
                        min_neto_m=MIN_NETO_M,
+                       conf_mov=CONF_MOV_M,
+                       r_sal_est=RADIO_SALIDA_ESTANCIA_M,
                        latido_est_s=LATIDO_ESTANCIA_S,
                        r_estancia_m=RADIO_ESTANCIA_M,
                        t_estancia_s=T_ESTANCIA_S):
@@ -115,6 +121,9 @@ def filtro_anti_deriva(pts, vel_mov=VEL_MOVIMIENTO,
     out = [] if _en_z0 else [pts[0]]
     ult_guardado_ts = pts[0][0]
     modo = "mov"
+    der_emitido = False
+    mov_consec = 0              # puntos seguidos con criterio de movimiento
+    est_lat, est_lon = pts[0][1], pts[0][2]
     j0 = 0                      # inicio de la ventana de coherencia
     j_cap = 0                   # inicio de la ventana del criterio de radio
     for i in range(1, n):
@@ -126,32 +135,51 @@ def filtro_anti_deriva(pts, vel_mov=VEL_MOVIMIENTO,
         neto = _hav(pts[j0][1], pts[j0][2], la, lo)
         ef = (neto / rec) if rec > 1.0 else 0.0
         en_zona = bool(zonas) and _en_zona_lista(zonas, la, lo)
-        # 1) coherencia de trayectoria
+        # 1) coherencia de trayectoria: ¿el criterio dice movimiento o deriva?
         if ef >= ef_mov and neto >= min_neto_m:
-            modo = "mov"
-        elif ef < ef_der or rec < 30.0 or neto < min_neto_m:
-            # deriva/parado: además de la eficiencia baja, si en 5 min NO te has
-            # desplazado ni MIN_NETO_M metros estás quieto (la deriva "en línea"
-            # puede dar eficiencia alta en tramos cortos). Verificado: esto
-            # quita los tramos densos dentro de una estancia (mediana de
-            # separación 5 s → 241 s) sin perder movimiento.
-            modo = "der"
-        # 2) red de seguridad por radio (parado: sin alejarse del ancla en
+            mov_consec += 1
+        else:
+            mov_consec = 0
+        es_der = (ef < ef_der) or (rec < 30.0) or (neto < min_neto_m)
+        if modo == "mov":
+            if es_der:
+                modo = "der"
+                der_emitido = False
+                est_lat, est_lon = la, lo      # sitio de la estancia
+        else:
+            # EN ESTANCIA: solo se sale si te ALEJAS de verdad del sitio
+            # (r_sal_est) y el movimiento se confirma conf_mov puntos seguidos.
+            # Así la deriva (que oscila dentro del radio) no rompe la estancia
+            # en trozos, que era lo que dejaba 42 puntos en la estancia de
+            # Gernika en lugar de 1.
+            if mov_consec >= conf_mov and _hav(est_lat, est_lon, la, lo) >= r_sal_est:
+                modo = "mov"
+        # 2) red de seguridad por radio (parado: sin alejarse del punto de hace
         #    t_estancia_s aunque la eficiencia salga alta por casualidad)
         ts_cap = ts_i - t_estancia_s
         while j_cap < i and pts[j_cap][0] < ts_cap:
             j_cap += 1
-        if _hav(pts[j_cap][1], pts[j_cap][2], la, lo) <= r_estancia_m:
-            if modo != "der" and ts_i - pts[j_cap][0] >= t_estancia_s:
-                modo = "der"
+        if modo != "der" and ts_i - pts[j_cap][0] >= t_estancia_s \
+                and _hav(pts[j_cap][1], pts[j_cap][2], la, lo) <= r_estancia_m:
+            modo = "der"
+            der_emitido = False
+            est_lat, est_lon = la, lo
         if modo == "mov":
             if not en_zona:
                 out.append(pts[i])
                 ult_guardado_ts = ts_i
-        elif ts_i - ult_guardado_ts >= latido_est_s and not en_zona:
-            # estancia: 1 punto cada ~4 min (deriva colapsada)
-            out.append(pts[i])
-            ult_guardado_ts = ts_i
+            der_emitido = False
+        elif not der_emitido:
+            # F5.22 UNIFICACIÓN: una estancia = UN SOLO PUNTO (el sitio donde
+            # te quedaste). Antes se emitían latidos cada 4 min y, como la
+            # deriva del GPS cae en posiciones distintas, la línea dibujaba
+            # hasta 1.800 m de recorrido falso y una nube de decenas de puntos
+            # dentro de un radio de 170 m (medido en la estancia de Gernika).
+            # Con un único punto: la línea llega, se queda y sale del sitio.
+            if not en_zona:
+                out.append(pts[i])
+                ult_guardado_ts = ts_i
+            der_emitido = True
     return out
 
 

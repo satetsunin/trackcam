@@ -1093,7 +1093,7 @@ function pintarRuta(){
     if(dt<=300)continue;
     const ca=a.geometry.coordinates,cb=b.geometry.coordinates;
     const dm=distMetros(ca,cb);
-    if(dm<150){
+    if(dm<300){   // F5.22: la estancia unificada puede separar los puntos ~250 m
       // si la parada cae dentro de una zona de no-monitorización del
       // usuario (casa/bar marcada) NO se pinta: la zona ya la silencia
       const enZ=(S.zonas||[]).some(z=>{
@@ -1125,7 +1125,7 @@ function pintarRuta(){
     if(prev&&b==='g'){
       const dtp=f.properties.ts-prev.ts;
       const dp=distMetros(prev.c,c);
-      if(dtp>300&&dp<150&&cur){b=cur.b;}
+      if(dtp>300&&dp<300&&cur){b=cur.b;}
     }
     if(!cur||cur.b!==b){
       cur={b,ll:[],fs:[],f1:f};
@@ -1136,7 +1136,7 @@ function pintarRuta(){
       if(prev){
         const dtp=f.properties.ts-prev.ts;
         const dp=distMetros(prev.c,c);
-        if(dtp<300||dp<150){
+        if(dtp<300||dp<300){
           cur.ll.push([prev.c[1],prev.c[0]]);
           cur.fs.push(prev.f);
         }
