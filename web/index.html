@@ -1108,9 +1108,24 @@ async function pintarCalles(){
     if(j&&j.mm&&j.features&&j.features.length){
       const f=j.features[0];
       const ll=(f.geometry.coordinates||[]).map(c=>[c[1],c[0]]);
+      const vv=(j.properties&&j.properties.vels)||[];
       if(ll.length>1){
-        L.polyline(ll,{color:'#22d3ee',weight:4,opacity:.9,
-                       dashArray:null}).addTo(capaCalles);
+        // F5.25b: mismo criterio de color por velocidad que la ruta GPS
+        // (bucketVel/VCOL): la línea por la calzada cambia de color según la
+        // velocidad — gris parado, azul andando, verde bici, ámbar urbano,
+        // naranja carretera, rojo rápido.
+        let ini=0, bAct=null;
+        for(let i=0;i<ll.length;i++){
+          const b=bucketVel(vv[i]);
+          if(bAct===null)bAct=b;
+          else if(b!==bAct){
+            const seg=ll.slice(Math.max(0,ini-1),i+1);
+            if(seg.length>1)L.polyline(seg,{color:VCOL[bAct],weight:5,opacity:.95}).addTo(capaCalles);
+            ini=i; bAct=b;
+          }
+        }
+        const seg=ll.slice(Math.max(0,ini-1));
+        if(seg.length>1)L.polyline(seg,{color:VCOL[bAct]||'#22d3ee',weight:5,opacity:.95}).addTo(capaCalles);
       }
       const pr=j.properties||{};
       const el=$('mmInfo');

@@ -74,6 +74,7 @@ MM_URL = os.environ.get("TRACKCAM_MM_URL", "http://127.0.0.1:8098/match")
 MM_GPS_ACC_MIN = 60.0        # suelo
 MM_GPS_ACC_MAX = 120.0       # techo
 MM_GPS_ACC_DEF = 80.0        # si no hay dato de precisión en los puntos
+VENTANA_VEL = 60             # ventana de búsqueda del punto GPS más cercano
 
 # Salto de tiempo (s) que corta la traza en tramos independientes. GraphHopper
 # no tiene un `gaps=split` como OSRM, así que el corte se hace aquí: un hueco
@@ -316,7 +317,56 @@ def _precision_de(puntos):
     return max(MM_GPS_ACC_MIN, min(MM_GPS_ACC_MAX, med))
 
 
-def matchear(puntos, perfil="car", url=None, timeout=20.0):
+def _alinear(vels, n):
+    """Ajusta la lista de velocidades a exactamente n elementos (rellena None)."""
+    v = list(vels or [])
+    if len(v) < n:
+        v.extend([None] * (n - len(v)))
+    return v[:n]
+
+
+def _vels_por_vertice(coords, puntos, vels):
+    """Velocidad (km/h) de cada vértice = la del punto GPS más cercano.
+
+    F5.25b — para pintar la línea matcheada con el COLOR DE LA VELOCIDAD (igual
+    que la ruta GPS). La geometría y la traza avanzan en paralelo a lo largo del
+    recorrido, así que basta con dos punteros (coste lineal) en vez de comparar
+    cada vértice con todos los puntos.
+    """
+    if not vels or not puntos:
+        return [None] * len(coords)
+    n = len(puntos)
+    k = 0
+    out = []
+    for c in coords:
+        # PITFALL (medido): con descenso local (avanzar solo si el punto
+        # siguiente está más cerca) el índice se quedaba atascado al principio
+        # y TODA la línea heredaba la velocidad de los primeros metros (medido:
+        # 1.199 vértices de un trayecto a 69 km/h salían a 1,2 km/h). Hay que
+        # buscar el mínimo en una VENTANA hacia delante, sin retroceder: la
+        # geometría y la traza avanzan en el mismo sentido.
+        fin = min(n, k + VENTANA_VEL)
+        mejor = k
+        dmin = _dist2(c[0], c[1], puntos[k][2], puntos[k][1])
+        for j in range(k + 1, fin):
+            d = _dist2(c[0], c[1], puntos[j][2], puntos[j][1])
+            if d < dmin:
+                dmin = d
+                mejor = j
+        k = mejor
+        v = vels[k] if k < len(vels) else None
+        out.append(round(float(v), 1) if isinstance(v, (int, float)) else None)
+    return out
+
+
+def _dist2(lon1, lat1, lon2, lat2):
+    """Distancia al cuadrado aproximada (equirectangular, escala local)."""
+    dx = (lon1 - lon2) * 111320.0 * math.cos(math.radians((lat1 + lat2) / 2.0))
+    dy = (lat1 - lat2) * 110540.0
+    return dx * dx + dy * dy
+
+
+def matchear(puntos, perfil="car", url=None, timeout=20.0, vels=None):
     """Pega una traza GPS a la red viaria vía el motor de map-matching.
 
     Parámetros
@@ -330,6 +380,9 @@ def matchear(puntos, perfil="car", url=None, timeout=20.0):
         Endpoint `/match`. Por defecto ``TRACKCAM_MM_URL``.
     timeout : float
         Segundos por petición (por tramo).
+    vels : list | None
+        Velocidad (km/h) de cada punto, para devolver `vels` por vértice y poder
+        pintar la línea con el color de la velocidad.
 
     Devuelve
     --------
@@ -351,6 +404,8 @@ def matchear(puntos, perfil="car", url=None, timeout=20.0):
             return None
 
         coords = []
+        vv_out = []
+        n_pts_prev = 0
         n_mat = 0
         dist = 0.0
         matchings = 0
@@ -373,6 +428,18 @@ def matchear(puntos, perfil="car", url=None, timeout=20.0):
                     continue
                 resuelto = True
                 matchings += 1
+                # F5.25b: velocidad de cada vértice por reparto PROPORCIONAL a lo
+                # largo del tramo. La proximidad espacial fallaba cuando la
+                # geometría es más densa que la traza (medido: en un rango largo
+                # todos los vértices heredaban velocidades de los primeros
+                # metros y la línea entera salía azul/verde en vez de naranja).
+                if vels:
+                    m_pts = len(tramo)
+                    m_c = len(cs)
+                    for _j in range(m_c):
+                        _idx = n_pts_prev + int(round(_j * (m_pts - 1) / max(1, m_c - 1)))
+                        _v = vels[_idx] if 0 <= _idx < len(vels) else None
+                        vv_out.append(round(float(_v), 1) if isinstance(_v, (int, float)) else None)
                 # Concatenar sin duplicar el punto de unión entre tramos.
                 if coords and cs[0] == coords[-1]:
                     coords.extend(cs[1:])
@@ -385,10 +452,15 @@ def matchear(puntos, perfil="car", url=None, timeout=20.0):
                     dist += _longitud(cs)
             if resuelto:
                 n_mat += len(tramo)
+            n_pts_prev += len(tramo)
 
         if not coords:
             return None
         return {"coords": coords,
+                # las velocidades tienen que ir SIEMPRE alineadas con la
+                # geometría (el frontend colorea por índice); si por lo que sea
+                # falta alguno se rellena con None en vez de perder el color
+                "vels": _alinear(vv_out, len(coords)),
                 "n_in": len(pts),
                 "n_matcheados": n_mat,
                 "dist_m": round(dist, 1),

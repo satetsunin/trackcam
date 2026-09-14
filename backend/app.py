@@ -936,14 +936,21 @@ def _mapmatch_respuesta(uid_datos, ts_ini, ts_fin, limpios, perfil):
         if hit is not None:
             return hit
         from backend import mapmatch as _mm
+        # F5.25b: mismas velocidades que usa el mapa para colorear la ruta, para
+        # que la línea ajustada a las calles se pinte con el mismo criterio.
+        try:
+            vels = _vel_entre([(p[0], p[1], p[2]) for p in limpios])
+        except Exception:
+            vels = None
         r = _mm.matchear([(p[0], p[1], p[2], p[3] if len(p) > 3 else 0)
-                          for p in limpios], perfil=perfil)
+                          for p in limpios], perfil=perfil, vels=vels)
         if not r or not r.get("coords"):
             return None
         props = {"mm": True, "perfil": perfil, "n_in": r["n_in"],
                  "n_matcheados": r["n_matcheados"], "dist_m": r["dist_m"],
                  "matchings": r["matchings"], "n_vertices": len(r["coords"]),
-                 "n_crudos": len(limpios)}
+                 "n_crudos": len(limpios),
+                 "vels": r.get("vels") or []}
         resp = {"type": "FeatureCollection",
                 "features": [{"type": "Feature",
                               "geometry": {"type": "LineString",
