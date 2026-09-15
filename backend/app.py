@@ -911,7 +911,13 @@ def _vel_entre(pts):
         d = haversine(pts[j][1], pts[j][2], pts[i][1], pts[i][2])
         if d > 1000:  # salto GPS
             continue
-        vels[i] = (d / dt) * 3.6
+        # F5.27: tope de cordura. Sin esto las estadísticas del mapa mostraban
+        # 1.064 km/h (una distancia de 596 m en 2 s se colaba en la ventana de
+        # 5 s). Mismo umbral que el filtro (geo_filtro.VMAX_KMH).
+        _v = (d / dt) * 3.6
+        if _v > 180.0:
+            continue
+        vels[i] = _v
     out = []
     V = 2  # mediana móvil de 5 (ventana ±2)
     for i in range(n):

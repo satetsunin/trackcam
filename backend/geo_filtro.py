@@ -70,6 +70,13 @@ MIN_DMAX_MOV = 60.0         # haberse alejado >=60 m del inicio de la ventana
 MIN_REC_MOV = 60.0          # equivalente en recorrido para la ventana corta
 MIN_REC_DER = 60.0          # equivalente en recorrido para la ventana larga
 MIN_REC_DER2 = 250.0
+# F5.27 — CALIDAD DEL PUNTO. Medido en la traza real del 14-09: 13 saltos que
+# implicaban hasta 1.064 km/h (596 m en 2 s) y el mapa mostraba tramos a 250-622
+# km/h. En TODOS ellos la precisión reportada por el GPS era pésima (150, 162,
+# 494 m): es multipath (rebote de la señal en edificios). Un punto así no vale
+# ni para la línea ni para la velocidad.
+ACC_MAX_M = 100.0           # precisión GPS peor que esto = punto inservible
+VMAX_KMH = 180.0            # velocidad imposible punto a punto = salto de GPS
 MIN_NETO_CORTO = 60.0       # desplazamiento neto en 2 min para considerar movimiento
 RADIO_SALIDA_M = 130.0      # (legado del criterio de radio)
 CONF_SALIDA = 4             # (legado)
@@ -132,6 +139,63 @@ def actividad_fiable(act, conf):
     if a in ACTS_MOV:
         return "mov"
     return None
+
+
+def sin_basura_idx(pts, acc_max=ACC_MAX_M, vmax_kmh=VMAX_KMH):
+    """Índices de los puntos que SÍ valen (ver `sin_basura`)."""
+    if not pts:
+        return []
+    keep = [0]
+    for i in range(1, len(pts)):
+        p = pts[i]
+        acc = p[3] if len(p) > 3 else 0
+        if acc and acc > acc_max:
+            continue
+        q = pts[keep[-1]]
+        dt = p[0] - q[0]
+        if dt > 0.5:
+            v = (_hav(q[1], q[2], p[1], p[2]) / dt) * 3.6
+            if v > vmax_kmh:
+                continue
+        keep.append(i)
+    # si el descarte se lleva demasiado (>15 %), algo va mal con los umbrales:
+    # es más seguro servir la traza original que una vacía
+    if len(keep) < len(pts) * 0.85:
+        return list(range(len(pts)))
+    return keep
+
+
+def sin_basura(pts, acc_max=ACC_MAX_M, vmax_kmh=VMAX_KMH):
+    """Quita puntos de GPS inservibles ANTES de filtrar (F5.27).
+
+    Dos descartes, medidos con datos reales (14-09-2026):
+      1. precisión peor que `acc_max` (multipath: el punto cae a cientos de
+         metros de donde estás);
+      2. saltos que implican una velocidad imposible (> `vmax_kmh`) respecto al
+         último punto ACEPTADO: son pérdidas/reenganches del GPS, no movimiento.
+    Sin esto el mapa dibujaba tramos a 622 km/h (real: el coche a 120).
+
+    Devuelve la lista limpia (si vacía o casi, devuelve la original sin tocar).
+    """
+    if not pts:
+        return pts
+    out = [pts[0]]
+    for p in pts[1:]:
+        acc = p[3] if len(p) > 3 else 0
+        if acc and acc > acc_max:
+            continue
+        q = out[-1]
+        dt = p[0] - q[0]
+        if dt > 0.5:
+            v = (_hav(q[1], q[2], p[1], p[2]) / dt) * 3.6
+            if v > vmax_kmh:
+                continue
+        out.append(p)
+    # si el descarte se ha llevado demasiado (>15 %), algo va mal con los
+    # umbrales: es más seguro servir la traza original que una vacía
+    if len(out) < len(pts) * 0.85:
+        return pts
+    return out
 
 
 def _vel_mediana(pts, i, k=40, dt_min_s=0.5):
@@ -282,7 +346,18 @@ def filtro_anti_deriva(pts, vel_mov=VEL_MOVIMIENTO,
     """
     if not pts:
         return []
+    # F5.27 — PRIMERO: fuera los puntos de GPS inservibles (multipath y
+    # reenganches). Va aquí, antes de cualquier suma o ventana, porque un punto
+    # malo contamina el recorrido acumulado y la velocidad. La lista paralela de
+    # actividad se filtra con los MISMOS índices para no desalinearla.
+    _idx = sin_basura_idx(pts)
+    if len(_idx) != len(pts):
+        pts = [pts[k] for k in _idx]
+        if acts is not None:
+            acts = [acts[k] if k < len(acts) else None for k in _idx]
     n = len(pts)
+    if n < 2:
+        return list(pts)
     # F5.25 — normalizar la señal de actividad (lista paralela opcional).
     # actv[i] ∈ {'still', 'mov', None}; None → heurística de siempre.
     actv = None
@@ -419,6 +494,25 @@ def filtro_anti_deriva(pts, vel_mov=VEL_MOVIMIENTO,
             vel_sal = (pref[i] - pref[j_sal]) / max(1.0, (ts_i - pts[j_sal][0]) / 60.0)
             if mov_consec >= conf_mov and mov_corto:
                 modo = "mov"
+                # F5.27 — EMPALME DEL ARRANQUE: la histéresis que confirma el
+                # movimiento descartaba los primeros metros de cada arranque y
+                # la línea saltaba 50-130 m desde la parada (medido: 15 casos en
+                # un día; el usuario: "hace un salto como si no hubiera
+                # registrado"). Se recuperan AHORA los puntos crudos desde que
+                # empezó la racha de movimiento: son movimiento real, con su
+                # forma, y no vuelven a meter el garabato de la estancia (esos
+                # son anteriores a la racha).
+                if mov_ini_ts:
+                    k = i
+                    while k > 0 and pts[k - 1][0] >= mov_ini_ts:
+                        k -= 1
+                    for kk in range(k, i):
+                        if pts[kk][0] <= ult_guardado_ts:
+                            continue
+                        if zonas and _en_zona_lista(zonas, pts[kk][1], pts[kk][2]):
+                            continue
+                        out.append(pts[kk])
+                        ult_guardado_ts = pts[kk][0]
         # 2) red de seguridad por radio (parado: sin alejarse del punto de hace
         #    t_estancia_s aunque la eficiencia salga alta por casualidad)
         ts_cap = ts_i - t_estancia_s
