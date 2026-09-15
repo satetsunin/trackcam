@@ -71,6 +71,25 @@ private val JSON_MEDIA = "application/json; charset=utf-8".toMediaType()
 class TrackService : LifecycleService() {
 
     companion object {
+        /**
+         * F5.27b — PULSO EN PARADO.
+         *
+         * Android deja de entregar posiciones cuando el móvil está quieto (es
+         * ahorro de batería del sistema, no de la app) y la traza quedaba con
+         * huecos de hasta 42 minutos: al reanudar el movimiento la línea
+         * "saltaba" 50-130 m porque el último punto enviado era muy antiguo
+         * (medido en la traza real del 14-09: 15 casos en un día; el usuario lo
+         * describió como "hace un salto como si no hubiera registrado").
+         *
+         * Si no ha llegado ningún fix en PULSO_S se pide una posición puntual de
+         * bajo consumo (sirve la de red/wifi, no hace falta GPS fino) y se
+         * envía, así el hueco nunca pasa de ~2 minutos.
+         */
+        private const val PULSO_S = 120_000L
+
+        /** F5.27b — Job del pulso en parado (evita huecos largos en la traza). */
+        @Volatile var pulsoJob: Job? = null
+
         const val ACTION_START = "com.trackcam.app.action.START"
         const val ACTION_STOP = "com.trackcam.app.action.STOP"
 
@@ -179,6 +198,46 @@ class TrackService : LifecycleService() {
     private var wifiHueJob: Job? = null
 
     private val sendScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    /**
+     * Comprueba cada [PULSO_S] si el último envío es antiguo y, en ese caso,
+     * pide una posición puntual y la envía. Se cancela al parar el seguimiento.
+     */
+    private fun startPulsoParado() {
+        if (pulsoJob?.isActive == true) return
+        pulsoJob = sendScope.launch {
+            while (isActive) {
+                delay(PULSO_S)
+                if (!tracking) return@launch
+                val desde = System.currentTimeMillis() - lastSendAtMillis
+                if (lastSendAtMillis > 0L && desde < PULSO_S) continue
+                try {
+                    // Posición puntual de bajo consumo (sirve la de red/wifi):
+                    // solo queremos un punto para que el hueco no crezca.
+                    fusedLocationClient.getCurrentLocation(
+                        com.google.android.gms.location.Priority.PRIORITY_BALANCED_POWER_ACCURACY,
+                        null
+                    ).addOnSuccessListener { loc ->
+                        if (loc != null) {
+                            Log.i(TAG, "Pulso: sin fixes desde hace ${desde / 1000} s -> enviar posicion puntual")
+                            enqueue(loc)
+                        } else {
+                            Log.i(TAG, "Pulso: el sistema no dio posicion (seguimos esperando)")
+                        }
+                    }.addOnFailureListener { e ->
+                        Log.w(TAG, "Pulso: fallo al pedir posicion (${e.message})")
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Pulso: ${e.message}")
+                }
+            }
+        }
+    }
+
+    private fun stopPulsoParado() {
+        pulsoJob?.cancel()
+        pulsoJob = null
+    }
     private val queueLock = Any()
     private val queue = ArrayDeque<Location>()
     private val workerRunning = AtomicBoolean(false)
@@ -261,11 +320,13 @@ class TrackService : LifecycleService() {
     }
 
     override fun onDestroy() {
+        stopPulsoParado()
         sendScope.cancel()
         // Quitar la detección de actividad (deja de llegar el PendingIntent)
         stopActivityRecognition()
         // Parar el bucle de escaneo wifi
         stopWifiHueLoop()
+        stopPulsoParado()
         if (::wakeLock.isInitialized && wakeLock.isHeld) {
             try {
                 wakeLock.release()
@@ -295,6 +356,7 @@ class TrackService : LifecycleService() {
         startActivityRecognition()
         // Contexto wifi (SSID + huella de redes visibles): opcional, degrada en silencio
         startWifiHueLoop()
+        startPulsoParado()
         reuseLastKnownPosition()
         broadcastStatus()
         // Config remota (OTA): descargar al arrancar + reenviar puntos offline
