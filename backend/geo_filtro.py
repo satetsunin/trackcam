@@ -76,7 +76,17 @@ MIN_REC_DER2 = 250.0
 # 494 m): es multipath (rebote de la señal en edificios). Un punto así no vale
 # ni para la línea ni para la velocidad.
 ACC_MAX_M = 100.0           # precisión GPS peor que esto = punto inservible
-VMAX_KMH = 180.0            # velocidad imposible punto a punto = salto de GPS
+# F5.28 — el criterio pasa a ser FÍSICO (lo pidió el usuario: "a veces voy a más
+# de 150 km/h en carretera y de antes ya vengo a 120, 130, 140... no paso de 0 a
+# 150"). Un tope de velocidad absoluta es un proxy tosco: puede tirar puntos
+# reales de autopista. Lo correcto es la DISTANCIA MÁXIMA que el coche puede
+# recorrer en ese tiempo:
+#     d_max = v0·Δt + ½·a_max·Δt²
+#   · 170 km/h sostenidos: en 2 s son 94 m → d_max 106 m → REAL, se dibuja.
+#   · de 55 km/h aparecen 328 m en 6 s (197 km/h) → d_max 198 m → imposible.
+#   · parado, aparece un punto a 596 m en 2 s → d_max 12 m → descartado.
+AMAX_MS2 = 6.0              # aceleración máxima del vehículo (0-100 en ~4,6 s)
+VMAX_ABS_KMH = 300.0        # red de seguridad: por encima de esto, imposible
 MIN_NETO_CORTO = 60.0       # desplazamiento neto en 2 min para considerar movimiento
 RADIO_SALIDA_M = 130.0      # (legado del criterio de radio)
 CONF_SALIDA = 4             # (legado)
@@ -141,11 +151,12 @@ def actividad_fiable(act, conf):
     return None
 
 
-def sin_basura_idx(pts, acc_max=ACC_MAX_M, vmax_kmh=VMAX_KMH):
+def sin_basura_idx(pts, acc_max=ACC_MAX_M, amax_ms2=AMAX_MS2):
     """Índices de los puntos que SÍ valen (ver `sin_basura`)."""
     if not pts:
         return []
     keep = [0]
+    vs = []                     # velocidades de los últimos tramos ACEPTADOS
     for i in range(1, len(pts)):
         p = pts[i]
         acc = p[3] if len(p) > 3 else 0
@@ -154,9 +165,18 @@ def sin_basura_idx(pts, acc_max=ACC_MAX_M, vmax_kmh=VMAX_KMH):
         q = pts[keep[-1]]
         dt = p[0] - q[0]
         if dt > 0.5:
-            v = (_hav(q[1], q[2], p[1], p[2]) / dt) * 3.6
-            if v > vmax_kmh:
+            d = _hav(q[1], q[2], p[1], p[2])
+            v_impl = (d / dt) * 3.6
+            # velocidad de la que venías: MEDIANA de los últimos tramos (robusta
+            # a un punto suelto malo), acotada al tope absoluto
+            v0 = 0.0
+            if vs:
+                _m = sorted(vs[-5:])
+                v0 = min(_m[len(_m) // 2] / 3.6, VMAX_ABS_KMH / 3.6)
+            d_max = v0 * dt + 0.5 * AMAX_MS2 * dt * dt
+            if d > d_max or v_impl > VMAX_ABS_KMH:
                 continue
+            vs.append(v_impl)
         keep.append(i)
     # si el descarte se lleva demasiado (>15 %), algo va mal con los umbrales:
     # es más seguro servir la traza original que una vacía
@@ -165,36 +185,23 @@ def sin_basura_idx(pts, acc_max=ACC_MAX_M, vmax_kmh=VMAX_KMH):
     return keep
 
 
-def sin_basura(pts, acc_max=ACC_MAX_M, vmax_kmh=VMAX_KMH):
-    """Quita puntos de GPS inservibles ANTES de filtrar (F5.27).
+def sin_basura(pts, acc_max=ACC_MAX_M):
+    """Quita puntos de GPS inservibles ANTES de filtrar (F5.27/F5.28).
 
     Dos descartes, medidos con datos reales (14-09-2026):
       1. precisión peor que `acc_max` (multipath: el punto cae a cientos de
          metros de donde estás);
-      2. saltos que implican una velocidad imposible (> `vmax_kmh`) respecto al
-         último punto ACEPTADO: son pérdidas/reenganches del GPS, no movimiento.
+      2. saltos imposibles FÍSICAMENTE respecto al último punto aceptado: más
+         lejos de lo que el vehículo podría haber recorrido en ese tiempo
+         (d_max = v0·Δt + ½·a·Δt²) o por encima del tope absoluto de cordura.
+         Son pérdidas/reenganches del GPS, no movimiento.
     Sin esto el mapa dibujaba tramos a 622 km/h (real: el coche a 120).
 
     Devuelve la lista limpia (si vacía o casi, devuelve la original sin tocar).
     """
     if not pts:
         return pts
-    out = [pts[0]]
-    for p in pts[1:]:
-        acc = p[3] if len(p) > 3 else 0
-        if acc and acc > acc_max:
-            continue
-        q = out[-1]
-        dt = p[0] - q[0]
-        if dt > 0.5:
-            v = (_hav(q[1], q[2], p[1], p[2]) / dt) * 3.6
-            if v > vmax_kmh:
-                continue
-        out.append(p)
-    # si el descarte se ha llevado demasiado (>15 %), algo va mal con los
-    # umbrales: es más seguro servir la traza original que una vacía
-    if len(out) < len(pts) * 0.85:
-        return pts
+    out = [pts[k] for k in sin_basura_idx(pts, acc_max=acc_max)]
     return out
 
 
