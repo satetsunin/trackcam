@@ -845,8 +845,30 @@ async def _procesar_punto(request: Request):
     wifi_ssid = _wifi_ssid_valido(_campo_punto(body, qp, "wifi_ssid"))
     wifi_hue = _wifi_hue_valida(_campo_punto(body, qp, "wifi_hue"))
 
-    con = get_db()
-    con.execute("INSERT INTO tracks(user_id,ts,lat,lon,acc,vel,dev,act,act_conf,"
+    # F5.30 — GUARDARRAÍL ANTI-BUCLE. Medido: el 09-10 se llegaron a enviar
+    # 53.628 puntos en una hora (un punto cada 0,07 s) y el día entero acumuló
+    # 164.576 filas; con el deduplicado se quedó en 21.603. La ventana se mide
+    # con el ts DEL PROPIO punto, así el vaciado legítimo de la cola offline
+    # (puntos viejos) NO se bloquea.
+    try:
+        _recientes = con.execute(
+            "SELECT COUNT(*) FROM tracks WHERE user_id=? AND ts>?",
+            (str(u["id"]), ts - 60.0)).fetchone()[0]
+    except Exception:
+        _recientes = 0
+    if _recientes > MAX_PTS_MIN:
+        con.close()
+        return JSONResponse(
+            {"error": "demasiados puntos por minuto para este usuario",
+             "en_el_ultimo_minuto": _recientes, "limite": MAX_PTS_MIN},
+            status_code=429)
+
+    # F5.30 — INSERT OR IGNORE: la tabla tiene un índice ÚNICO
+    # (user_id, ts, lat, lon). El móvil ha llegado a enviar el mismo punto con el
+    # mismo ts hasta 108 veces (medido: 147.448 filas duplicadas = un tercio de
+    # la base). Con OR IGNORE el duplicado se descarta en silencio (sin 500) y
+    # las estadísticas no se inflan.
+    con.execute("INSERT OR IGNORE INTO tracks(user_id,ts,lat,lon,acc,vel,dev,act,act_conf,"
                 "dev_id,wifi_ssid,wifi_hue) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
                 (str(u["id"]), ts, lat, lon, acc, vel, dev, act, act_conf,
                  dev_id, wifi_ssid, wifi_hue))
@@ -951,6 +973,9 @@ _TCACHE = {}
 # F5.25 — caché del map-matching: la petición al motor tarda ~6 s por traza,
 # así que se guarda por (usuario, rango, nº de puntos). Los rangos cerrados no
 # cambian, así que la caché es válida sin TTL corto.
+# F5.30 — techo de puntos por minuto y usuario (5/s: muy por encima de los 2/s
+# normales y del pulso de 1/2 min). Protege contra un móvil en bucle.
+MAX_PTS_MIN = 300
 _MMCACHE = {}
 _MMCACHE_MAX = 24            # clave -> (ult_ts_bd, respuesta, ts_calculo)
 _TCACHE_MAX = 16        # entradas (cada una puede ser grande: se limita el nº)
