@@ -1789,6 +1789,28 @@ def api_estado(request: Request):
                         (str(u["id"]),)).fetchone()[0]
         n_ev = con.execute("SELECT COUNT(*) FROM eventos WHERE user_id=?",
                            (str(u["id"]),)).fetchone()[0]
+    # F5.29 — estado del CONTEXTO del móvil en las últimas 24 h: el mapa avisa
+    # si los puntos no traen actividad (permiso denegado en MIUI) o wifi, porque
+    # sin esa señal el servidor tiene que adivinar con el GPS.
+    _uid = str(vid) if (u["rol"] == "admin" and vid) else (
+        None if u["rol"] == "admin" else str(u["id"]))
+    _hace24 = time.time() - 86400
+    if _uid:
+        _p24 = con.execute("SELECT COUNT(*) FROM tracks WHERE user_id=? AND ts>?",
+                           (_uid, _hace24)).fetchone()[0]
+        _a24 = con.execute(
+            "SELECT COUNT(*) FROM tracks WHERE user_id=? AND ts>? AND act<>''",
+            (_uid, _hace24)).fetchone()[0]
+        _w24 = con.execute(
+            "SELECT COUNT(*) FROM tracks WHERE user_id=? AND ts>? AND wifi_hue<>''",
+            (_uid, _hace24)).fetchone()[0]
+    else:
+        _p24 = con.execute("SELECT COUNT(*) FROM tracks WHERE ts>?",
+                           (_hace24,)).fetchone()[0]
+        _a24 = con.execute("SELECT COUNT(*) FROM tracks WHERE ts>? AND act<>''",
+                           (_hace24,)).fetchone()[0]
+        _w24 = con.execute("SELECT COUNT(*) FROM tracks WHERE ts>? AND wifi_hue<>''",
+                           (_hace24,)).fetchone()[0]
     con.close()
 
     def tam(p):
@@ -1818,8 +1840,8 @@ def api_estado(request: Request):
         "retencion_cache_dias": motor.cfg["retencion_cache_dias"],
         "umbral_dedup": motor.cfg["umbral_dedup"],
         "cuota_temps_mb": motor.cfg["cuota_temps_mb"],
-        "usuarios_trackeando": est["usuarios_trackeando"],
-    }
+        "usuarios_trackeando": est["usuarios_trackeando"],    "puntos_24h": _p24, "act_24h": _a24, "wifi_24h": _w24,
+}
 
 
 @app.get("/api/diag")
@@ -2137,8 +2159,8 @@ async def api_ajustes_set(request: Request):
 
 # ── OTA (F4/F5): versión y descarga de la APK ───────────────────────────
 APK_FILE = os.path.join(BASE, "apk", "trackcam-release.apk")
-APK_VERSION_CODE = 10
-APK_VERSION_NAME = "1.12"
+APK_VERSION_CODE = 11
+APK_VERSION_NAME = "1.13"
 
 @app.get("/api/apk/version")
 def apk_version():

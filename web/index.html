@@ -203,6 +203,10 @@ a.dl{font-size:11px;padding:4px 9px;border-radius:7px;text-decoration:none;font-
 .cmeta b{color:var(--mut)}
 /* ────────── SELECCIÓN DE CAPAS ────────── */
 #capaWrap{position:relative;display:inline-block}
+#avisoAct{position:absolute;top:52px;left:12px;right:12px;z-index:1200;display:none;
+  align-items:center;gap:8px;padding:8px 12px;border-radius:10px;
+  background:rgba(245,158,11,.14);border:1px solid rgba(245,158,11,.55);
+  color:var(--txt);font-size:12.5px;line-height:1.35}
 .pill.cargando span{opacity:.6}
 .pill.dim span{opacity:.45}
 #mmInfo{font-size:12px;color:#22d3ee;margin-left:8px}
@@ -674,6 +678,7 @@ button.mchip.pel:hover{background:#3b1620}
       <button data-tab="hist">📅 Historial</button>
       <button data-tab="perfil">👤 Perfil</button>
     </div>
+    <div id="avisoAct" style="display:none"></div>
     <div id="scrol">
       <div id="vistaEvs"></div>
       <div id="vistaHist" style="display:none"></div>
@@ -2292,6 +2297,26 @@ $('btnRefrescar').onclick=()=>{autoFit=false;refreshTodo();};
 function pintaEstado(st){
   if(!st)return;
   S._estado=st;
+  // F5.29 — aviso de CONTEXTO DEL MÓVIL: si en 24 h hay puntos pero NINGUNO
+  // trae la actividad (acelerómetro), el permiso de "actividad física" está
+  // denegado en el móvil (en MIUI es fácil que pase) y el servidor tiene que
+  // adivinar si estás parado o andando solo con el GPS: de ahí los puntos
+  // falsos estando quieto. Se avisa aquí, donde el usuario lo ve seguro.
+  try{
+    const av=document.getElementById('avisoAct');
+    if(av){
+      const p24=st.puntos_24h||0, a24=st.act_24h||0;
+      if(p24>200 && a24===0){
+        av.style.display='flex';
+        av.innerHTML='⚠️ <b>El móvil no está enviando la actividad</b> (parado/andando/coche): el mapa tiene que adivinarlo con el GPS. '+
+          'Concédele el permiso <b>Actividad física</b>: Ajustes → Aplicaciones → TrackCam → Permisos. '+
+          '<span style="opacity:.75">(wifi: '+(st.wifi_24h||0).toLocaleString('es')+' de '+p24.toLocaleString('es')+' puntos)</span>';
+      }else{
+        av.style.display='none';
+      }
+    }
+  }catch(e){}
+
   S.retDias=st.retencion_cache_dias!=null?st.retencion_cache_dias:30;
   S.cuotaCacheG=st.cuota_cache_gb||30;
   const gb=st.cuota_eventos_gb||0, gbMax=st.cuota_eventos_gb_max||gb, tmb=st.cuota_temps_mb||0;

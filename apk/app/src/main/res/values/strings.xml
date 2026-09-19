@@ -104,4 +104,9 @@
         <item>30 s</item>
         <item>60 s</item>
     </string-array>
+    <string name="dlg_act_titulo">Falta el permiso de actividad física</string>
+    <string name="dlg_act_texto">Sin este permiso la app no puede saber si estás parado, andando o en coche, y el servidor tiene que adivinarlo con el GPS: de ahí salen los puntos falsos cuando estás quieto.\n\nEn MIUI (Xiaomi) está en: Ajustes → Aplicaciones → TrackCam → Permisos → Actividad física.</string>
+    <string name="dlg_act_ajustes">Abrir ajustes</string>
+    <string name="dlg_act_pedir">Pedir permiso</string>
+    <string name="dlg_act_luego">Ahora no</string>
 </resources>

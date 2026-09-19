@@ -1,6 +1,7 @@
 package com.trackcam.app
 
 import android.Manifest
+import android.app.AlertDialog
 import android.content.BroadcastReceiver
 import android.content.ComponentName
 import android.content.Context
@@ -78,6 +79,10 @@ class MainActivity : AppCompatActivity() {
         btnExencion = findViewById(R.id.btnExencion)
         btnOta = findViewById(R.id.btnOta)
         btnLogout = findViewById(R.id.btnLogout)
+
+        // F5.29: si falta el permiso de actividad física, avisar con un diálogo
+        // (el toast de antes pasaba desapercibido: 5 días sin datos de actividad)
+        avisoPermisoActividad()
         chkGps = findViewById(R.id.chkGps)
         chkWifi = findViewById(R.id.chkWifi)
         chkRed = findViewById(R.id.chkRed)
@@ -303,6 +308,45 @@ class MainActivity : AppCompatActivity() {
      * simplemente los envía con act="" y act_conf=0.
      * En Android ≤9 el permiso de Google es "normal" (no pide diálogo).
      */
+    /**
+     * F5.29 — AVISO INSISTENTE DEL PERMISO DE ACTIVIDAD.
+     *
+     * El permiso de "actividad física" es el que permite saber si estás parado,
+     * andando o en coche (acelerómetro). Sin él los puntos se envían con
+     * act="" y el servidor tiene que adivinarlo con el GPS, que es justo el
+     * problema de los puntos falsos estando quieto.
+     *
+     * Un toast se pierde: medido en la BD, 5 días seguidos con 0 puntos con
+     * actividad porque el usuario no vio (o MIUI no volvió a preguntar) el
+     * aviso. Esto muestra un DIÁLOGO con dos salidas: pedir el permiso otra vez
+     * o abrir los ajustes de la app (en MIUI está en Ajustes → Aplicaciones →
+     * TrackCam → Permisos → Actividad física).
+     */
+    private fun avisoPermisoActividad() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
+        if (ContextCompat.checkSelfPermission(
+                this, Manifest.permission.ACTIVITY_RECOGNITION
+            ) == PackageManager.PERMISSION_GRANTED) return
+        AlertDialog.Builder(this)
+            .setTitle(R.string.dlg_act_titulo)
+            .setMessage(R.string.dlg_act_texto)
+            .setPositiveButton(R.string.dlg_act_ajustes) { _, _ ->
+                try {
+                    startActivity(Intent(
+                        Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        Uri.parse("package:$packageName")
+                    ))
+                } catch (e: Exception) {
+                    maybeRequestActivityPermission()
+                }
+            }
+            .setNegativeButton(R.string.dlg_act_pedir) { _, _ ->
+                maybeRequestActivityPermission()
+            }
+            .setNeutralButton(R.string.dlg_act_luego, null)
+            .show()
+    }
+
     private fun maybeRequestActivityPermission() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
         if (ContextCompat.checkSelfPermission(
