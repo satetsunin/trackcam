@@ -18,6 +18,11 @@ import secrets
 import hashlib
 import hmac
 import threading
+import asyncio
+try:                                     # F5.36 — motor de diagnóstico
+    from backend import diag as _diag
+except ImportError:                      # ejecutado como script suelto
+    import diag as _diag               # type: ignore
 from datetime import datetime, timezone
 from fastapi import FastAPI, Request
 from fastapi.responses import (JSONResponse, FileResponse, PlainTextResponse,
@@ -2334,6 +2339,71 @@ def api_zonas_list(request: Request):
     else:
         uid = u["id"]
     return {"zonas": _zonas_usuario(uid)}
+
+
+# ─────────────────── F5.36 DIAGNÓSTICO (panel 🩺) ───────────────────
+# Comprueba TODOS los parámetros del sistema (servicios, red, túneles, móvil,
+# ingesta, motor, datos, ajuste a calles) y devuelve problemas accionables.
+# Va en hilos aparte porque cada chequeo lanza comandos externos: si bloqueara
+# el bucle de eventos, el panel dejaría de responder mientras se comprueba.
+
+@app.get("/api/diagnostico")
+async def api_diag(request: Request):
+    """Informe de diagnóstico completo. Solo admin."""
+    u = _auth(request)
+    if not u:
+        return _pedir_auth()
+    if u["rol"] != "admin":
+        return JSONResponse({"error": "requiere rol admin"}, status_code=403)
+    informe = await asyncio.to_thread(_diag.diagnosticar)
+    return JSONResponse(informe)
+
+
+@app.post("/api/diagnostico/accion")
+async def api_diag_accion(request: Request):
+    """Ejecuta UNA acción de reparación de la lista blanca. Solo admin."""
+    u = _auth(request)
+    if not u:
+        return _pedir_auth()
+    if u["rol"] != "admin":
+        return JSONResponse({"error": "requiere rol admin"}, status_code=403)
+    try:
+        b = await request.json()
+    except Exception:
+        return JSONResponse({"error": "JSON inválido"}, status_code=400)
+    accion = str(b.get("accion") or "")
+    parametro = str(b.get("parametro") or "")
+    if accion not in _diag.ACCIONES_PERMITIDAS:
+        return JSONResponse({"error": f"acción no permitida: {accion}"}, status_code=400)
+    r = await asyncio.to_thread(_diag.ejecutar_accion, accion, parametro)
+    return JSONResponse(r)
+
+
+@app.post("/api/diagnostico/reparar")
+async def api_diag_reparar(request: Request):
+    """Ejecuta las reparaciones automáticas de todo lo que esté mal. Solo admin.
+
+    Solo corre acciones de la lista blanca y sin parámetros libres: reinicia
+    servicios vigilados, limpia duplicados y rehace comprobaciones. Nada que
+    venga del cliente se ejecuta tal cual.
+    """
+    u = _auth(request)
+    if not u:
+        return _pedir_auth()
+    if u["rol"] != "admin":
+        return JSONResponse({"error": "requiere rol admin"}, status_code=403)
+    informe = await asyncio.to_thread(_diag.diagnosticar)
+    hechas = []
+    for pr in informe.get("problemas", []):
+        acc = pr.get("accion")
+        if not acc:
+            continue
+        partes = acc.split(":", 1)
+        r = await asyncio.to_thread(_diag.ejecutar_accion,
+                                    partes[0], partes[1] if len(partes) > 1 else "")
+        hechas.append({"problema": pr["titulo"], "accion": acc,
+                       "ok": r.get("ok"), "salida": r.get("salida")})
+    return JSONResponse({"reparaciones": hechas, "total": len(hechas)})
 
 
 @app.post("/api/zonas")
