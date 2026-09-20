@@ -196,9 +196,16 @@ def chk_red() -> dict:
 
     rc, out = _run(["warp-cli", "--accept-tos", "status"], timeout=4)
     conectado = "Connected" in out
+    sin_demonio = "No such file or directory" in out or "daemon" in out and rc != 0
+    if sin_demonio:
+        valor = "desactivado (no hay demonio)"
+    elif out.strip():
+        valor = out.strip().splitlines()[0]
+    else:
+        valor = "no instalado"
     items.append({
         "nombre": "Cloudflare WARP", "estado": "aviso" if conectado else "ok",
-        "valor": out.strip().splitlines()[0] if out.strip() else "no instalado",
+        "valor": valor,
         "detalle": "Conectado: puede tumbar los túneles (ver historial)" if conectado else "desactivado, como debe estar",
     })
     if conectado:

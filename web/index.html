@@ -677,12 +677,14 @@ button.mchip.pel:hover{background:#3b1620}
       <button data-tab="evs" class="on">🎥 Eventos (rango)</button>
       <button data-tab="hist">📅 Historial</button>
       <button data-tab="perfil">👤 Perfil</button>
+      <button data-tab="diag">🩺 Debug</button>
     </div>
     <div id="avisoAct" style="display:none"></div>
     <div id="scrol">
       <div id="vistaEvs"></div>
       <div id="vistaHist" style="display:none"></div>
       <div id="vistaPerfil" style="display:none"><div id="estado"></div><div id="zonasSec"></div></div>
+      <div id="vistaDiag" style="display:none"></div>
     </div>
     <div id="velPanel">
       <div class="vpT">
@@ -2404,14 +2406,163 @@ function switchTab(t){
   $('vistaEvs').style.display=(t==='evs')?'':'none';
   $('vistaHist').style.display=(t==='hist')?'':'none';
   $('vistaPerfil').style.display=(t==='perfil')?'':'none';
+  $('vistaDiag').style.display=(t==='diag')?'':'none';
   if(t==='hist')renderHist();
   if(t==='perfil'&&S._estado)pintaEstado(S._estado);   // repinta al instante desde la última lectura
+  if(t==='diag'){renderDiag();diagAuto(true);}else diagAuto(false);   // 🩺 solo se auto-refresca con su pestaña visible
   actualizarBotonesFlot();
 }
 $('chipUser').onclick=()=>{ $('panel').classList.remove('oculto'); switchTab('perfil'); ajustarVel(); };
 $('chipUser').addEventListener('keydown',e=>{ if(e.key==='Enter'||e.key===' '){e.preventDefault();$('chipUser').click();} });
 $('btnCerrar').onclick=()=>{ $('panel').classList.add('oculto'); ajustarVel(); };
 $('fabPanel').onclick=()=>{ $('panel').classList.remove('oculto'); ajustarVel(); };
+
+/* ═══════════════ PESTAÑA 🩺 DEBUG (diagnóstico del sistema) ═══════════════ */
+/* El backend ya devuelve el informe en /api/diagnostico: aquí solo se pinta.
+   Regla de color del panel: verde = ok, naranja = aviso, rojo = fallo,
+   gris = sin datos. Ningún color se usa para otra cosa. */
+const DIAG_COL={ok:'var(--grn)', aviso:'var(--amb)', fallo:'var(--red)', sin_datos:'var(--mut2)'};
+const DIAG_TXT={ok:'todo bien', aviso:'con avisos', fallo:'con fallos', sin_datos:'sin datos'};
+const DIAG_SEV={alta:'var(--red)', media:'var(--amb)', baja:'var(--mut2)'};
+let diagTimer=null;      // identificador del auto-refresco (solo actúa si S.tab==='diag')
+let diagAviso=null;      // salida de la última acción/reparación, o el error de lectura
+let diagCargando=false;
+
+/* "clave:parametro" → {accion,parametro}; corta por el PRIMER ':' (sin ':' ⇒ parámetro vacío) */
+function diagSep(a){
+  a=String(a==null?'':a);
+  const i=a.indexOf(':');
+  return i<0?{accion:a,parametro:''}:{accion:a.slice(0,i),parametro:a.slice(i+1)};
+}
+function diagLuz(est,px){                 // semáforo: reutiliza .dot y los colores de estado
+  const c=DIAG_COL[est]||'var(--mut2)', n=px||8;
+  return `<span class="dot" style="background:${c};width:${n}px;height:${n}px;margin:0;flex:none" title="${D(est||'')}"></span>`;
+}
+function diagMono(c){return `font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:${c||'var(--txt)'}`;}
+/* la acción viaja en data-act (escapada) para no romper el HTML con comillas */
+function diagBtn(a,txt){return `<button class="mini" data-act="${D(a)}" onclick="diagAccion(this.dataset.act)">${txt||'🛠'}</button>`;}
+function diagItemHTML(it){
+  const c=DIAG_COL[it.estado]||'var(--mut2)';
+  const val=String(it.valor==null?'':it.valor);
+  /* «unidad» llega a veces como unidad real (MB, %) y a veces como el nombre de
+     la unidad systemd: se muestra aparte, en gris, para que el valor quede limpio */
+  return `<div style="display:flex;gap:7px;align-items:baseline;flex-wrap:wrap;padding:2px 0">
+    ${diagLuz(it.estado,8)}
+    <span style="font-size:11.5px;color:var(--mut)">${D(it.nombre)}</span>
+    <span style="${diagMono(c)};font-size:11.5px;font-weight:700">${D(val)}</span>
+    ${it.unidad?`<span style="${diagMono('var(--mut2)')};font-size:10.5px">· ${D(it.unidad)}</span>`:''}
+    ${it.detalle?`<span style="font-size:10.5px;color:var(--mut2)">${D(it.detalle)}</span>`:''}
+    ${(it.accion&&it.estado!=='ok')?diagBtn(it.accion):''}
+  </div>`;
+}
+function diagBloqueHTML(b){
+  const c=DIAG_COL[b.estado]||'var(--mut2)';
+  const items=(b.items||[]).map(diagItemHTML).join('');
+  return `<div class="dia">
+    <div class="dCab" style="cursor:default">
+      ${diagLuz(b.estado,10)}
+      <span class="fecha" style="color:${c}">${D(b.nombre)}</span>
+      <span class="cnt">${D(b.resumen||'')}</span>
+    </div>
+    <div class="dCuerpo">${items||'<div class="mnote">sin datos</div>'}</div>
+  </div>`;
+}
+function diagProblemaHTML(p){
+  const c=DIAG_SEV[p.severidad]||'var(--mut2)';
+  return `<div class="cuota" style="border-color:${c}">
+    <div class="txt"><span class="lab" style="color:${c};font-weight:700">● ${D(String(p.severidad||'').toUpperCase())} · ${D(p.bloque||'')}</span>
+      ${p.accion?diagBtn(p.accion,'🛠 Arreglar'):''}</div>
+    ${p.titulo?`<div style="font-size:12px;font-weight:600;margin:1px 0">${D(p.titulo)}</div>`:''}
+    ${p.detalle?`<div style="font-size:11px;color:var(--mut2);line-height:1.45">${D(p.detalle)}</div>`:''}
+  </div>`;
+}
+function diagAvisoHTML(){
+  if(!diagAviso)return '';
+  const c=diagAviso.ok===true?'var(--grn)':diagAviso.ok===false?'var(--red)':'var(--amb)';
+  return `<div class="aviso" style="color:${c};border-color:${c}">${diagAviso.html?diagAviso.html:D(diagAviso.texto||'')}</div>`;
+}
+function diagVistaHTML(d){
+  if(!d)return `${diagAvisoHTML()}<div class="vacio">${diagCargando?'<span class="spin"></span>analizando…':'Todavía no hay informe. Pulsa «🔄 Actualizar».'}</div>`;
+  const eg=d.estado_global, c=DIAG_COL[eg]||'var(--mut2)';
+  const ps=d.problemas||[], bs=d.bloques||[];
+  return `
+   <div class="cuota" style="display:flex;align-items:center;gap:9px;flex-wrap:wrap">
+     <span style="width:20px;height:20px;border-radius:50%;background:${c};box-shadow:0 0 11px ${c};flex:none" title="Estado global"></span>
+     <span style="font-weight:800;font-size:13px;color:${c}">${D(String(DIAG_TXT[eg]||eg||'sin datos').toUpperCase())}</span>
+     <span style="font-size:11px;color:var(--mut)">informe de las <b style="${diagMono('var(--txt)')}">${D(d.hora||'—')}</b></span>
+     ${d.cuando?`<span style="font-size:10.5px;color:var(--mut2)">${D(fmtF(d.cuando))}</span>`:''}
+     ${diagCargando?'<span style="font-size:11px;color:var(--mut2)"><span class="spin"></span>analizando…</span>':''}
+     <span style="margin-left:auto;display:flex;gap:6px">
+       <button class="mini" onclick="diagRefrescar()" title="Volver a analizar el sistema ahora">🔄 Actualizar</button>
+       <button class="mini" onclick="diagReparar()" title="Intentar arreglar automáticamente lo que se pueda">🛠 Reparar lo que pueda</button>
+     </span>
+   </div>
+   ${diagAvisoHTML()}
+   ${ps.length?`<div class="seccion"><span>⚠️ Problemas detectados</span><span>${ps.length}</span></div>`+ps.map(diagProblemaHTML).join('')
+              :'<div class="seccion"><span>✅ Sin problemas detectados</span></div>'}
+   <div class="seccion"><span>🔎 Bloques del sistema</span><span>${bs.length}</span></div>
+   ${bs.map(diagBloqueHTML).join('')}`;
+}
+function pintaDiag(d){
+  const v=$('vistaDiag'); if(!v)return;
+  const sc=$('scrol'), y=sc?sc.scrollTop:0;
+  v.innerHTML=diagVistaHTML(d);
+  if(sc)sc.scrollTop=y;                 // no se pierde la posición al refrescar
+}
+async function renderDiag(forzar){
+  if(S.tab!=='diag'&&!forzar)return;    // el auto-refresco nunca toca otras pestañas
+  if(!$('vistaDiag'))return;
+  if(diagCargando)return;
+  diagCargando=true;
+  pintaDiag(S._diag);                   // sigue mostrando lo último mientras llega el informe nuevo
+  try{
+    S._diag=await api('/api/diagnostico');
+  }catch(e){
+    diagAviso={ok:false,texto:'No se pudo leer el diagnóstico: '+e.message};   // error DENTRO de la vista
+  }finally{
+    diagCargando=false;
+    if(S.tab==='diag')pintaDiag(S._diag);
+  }
+}
+function diagRefrescar(){ diagAviso=null; renderDiag(true); }
+function diagAuto(si){
+  if(si){ if(!diagTimer)diagTimer=setInterval(()=>{ if(S.tab==='diag'&&!diagCargando)renderDiag(); },30000); }
+  else if(diagTimer){ clearInterval(diagTimer); diagTimer=null; }
+}
+async function diagAccion(a){
+  const p=diagSep(a); if(!p.accion)return;
+  if(!confirm('¿Ejecutar la acción «'+p.accion+'»'+(p.parametro?' ('+p.parametro+')':'')+'?'))return;
+  diagAviso={texto:'🛠 ejecutando '+p.accion+(p.parametro?' '+p.parametro:'')+' …'};
+  pintaDiag(S._diag);
+  try{
+    const r=await api('/api/diagnostico/accion',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({accion:p.accion,parametro:p.parametro})});
+    diagAviso={ok:!!(r&&r.ok),texto:(r&&r.ok?'✅ ':'❌ ')+((r&&r.salida)?String(r.salida):'(sin salida)')};
+  }catch(e){
+    diagAviso={ok:false,texto:'No se pudo ejecutar la acción: '+e.message};
+  }
+  await renderDiag(true);               // tras una acción, refresca el informe
+}
+async function diagReparar(){
+  if(!confirm('¿Intentar reparar automáticamente todo lo que se pueda?'))return;
+  diagAviso={texto:'🛠 reparando…'};
+  pintaDiag(S._diag);
+  try{
+    const r=await api('/api/diagnostico/reparar',{method:'POST'});
+    const reps=(r&&r.reparaciones)||[];
+    const filas=reps.length?reps.map(x=>`<div style="padding:2px 0">${x.ok?'✅':'❌'} <b>${D(x.problema||'')}</b>
+      <span style="${diagMono('var(--mut)')};font-size:10.5px">${D(x.accion||'')}</span>
+      ${x.salida?`<div style="color:var(--mut2);font-size:10.5px;line-height:1.45">${D(x.salida)}</div>`:''}</div>`).join('')
+      :'<div>No había nada que reparar.</div>';
+    diagAviso={ok:!reps.some(x=>!x.ok),html:`<b>🛠 Reparar lo que pueda</b> · ${reps.length} reparación${reps.length===1?'':'es'}`
+      +(r&&r.total!=null?` <span style="color:var(--mut2)">(total ${D(String(r.total))})</span>`:'')
+      +`<div style="margin-top:4px">${filas}</div>`};
+  }catch(e){
+    diagAviso={ok:false,texto:'No se pudo reparar: '+e.message};
+  }
+  await renderDiag(true);
+}
+window.diagRefrescar=diagRefrescar; window.diagAccion=diagAccion; window.diagReparar=diagReparar;
 
 /* ═══════════════ LISTA DE EVENTOS (rango) ═══════════════ */
 function tarjetaEvento(e,expandido){
