@@ -846,18 +846,35 @@ async def _procesar_punto(request: Request):
     wifi_hue = _wifi_hue_valida(_campo_punto(body, qp, "wifi_hue"))
 
     con = get_db()
-    # F5.30 — GUARDARRAÍL ANTI-BUCLE. Medido: el 09-10 se llegaron a enviar
-    # 53.628 puntos en una hora (un punto cada 0,07 s) y el día entero acumuló
-    # 164.576 filas; con el deduplicado se quedó en 21.603. La ventana se mide
-    # con el ts DEL PROPIO punto, así el vaciado legítimo de la cola offline
-    # (puntos viejos) NO se bloquea.
+    # F5.32 — DUPLICADO CONOCIDO: si este punto exacto ya está guardado se
+    # responde ok sin tocar nada. Es CRÍTICO que la respuesta sea ok y no un
+    # error: la app sólo borra el punto de su cola offline cuando recibe ok, así
+    # que un error la deja reenviándolo para siempre (medido el 20-09: el móvil
+    # reenvió el MISMO punto de las 02:22 durante horas, 2 de cada 3 peticiones
+    # rechazadas, y el usuario lo veía como "fallido, fallido, ok" en pantalla).
+    try:
+        _ya = con.execute(
+            "SELECT 1 FROM tracks WHERE user_id=? AND ts=? AND lat=? AND lon=? LIMIT 1",
+            (str(u["id"]), ts, lat, lon)).fetchone()
+    except Exception:
+        _ya = None
+    if _ya:
+        con.close()
+        return JSONResponse({"ok": True, "duplicado": True, "pts": 0})
+
+    # F5.30/F5.32 — GUARDARRAÍL ANTI-BUCLE. Medido: el 09-10 se llegaron a enviar
+    # 53.628 puntos en una hora (uno cada 0,07 s). El ritmo se mide con la hora
+    # REAL del servidor y sólo cuentan los puntos con ts fresco: así el vaciado
+    # legítimo de la cola offline (ts viejo) NO se bloquea — el diseño anterior
+    # medía la ventana del ts del punto y contaba miles de puntos ajenos.
     try:
         _recientes = con.execute(
             "SELECT COUNT(*) FROM tracks WHERE user_id=? AND ts>?",
-            (str(u["id"]), ts - 60.0)).fetchone()[0]
+            (str(u["id"]), time.time() - 60.0)).fetchone()[0]
     except Exception:
         _recientes = 0
     if _recientes > MAX_PTS_MIN:
+        print(f"[GUARDARRAIL] RECHAZO user={u['id']!r} puntos_ultimo_minuto={_recientes}", flush=True)
         con.close()
         return JSONResponse(
             {"error": "demasiados puntos por minuto para este usuario",
@@ -976,7 +993,7 @@ _TCACHE = {}
 # cambian, así que la caché es válida sin TTL corto.
 # F5.30 — techo de puntos por minuto y usuario (5/s: muy por encima de los 2/s
 # normales y del pulso de 1/2 min). Protege contra un móvil en bucle.
-MAX_PTS_MIN = 300
+MAX_PTS_MIN = 600
 _MMCACHE = {}
 _MMCACHE_MAX = 24            # clave -> (ult_ts_bd, respuesta, ts_calculo)
 _TCACHE_MAX = 16        # entradas (cada una puede ser grande: se limita el nº)
