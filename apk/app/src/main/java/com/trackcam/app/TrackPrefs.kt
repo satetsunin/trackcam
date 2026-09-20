@@ -254,6 +254,15 @@ object TrackPrefs {
             f.readLines().asSequence().filter { it.isNotBlank() }
                 .mapNotNull { puntoDeLinea(it) }.toList()
         } catch (e: Exception) {
+            // F5.38 — No se pudo leer la cola: se APARTA el fichero en vez de
+            // dejarlo para que el siguiente guardado lo sobrescriba (así los
+            // puntos, aunque ilegibles, no se destruyen en silencio).
+            try {
+                f.renameTo(java.io.File(ctx.filesDir, "$FICHERO_COLA.bad"))
+                prefs(ctx).edit().putInt(KEY_COLA_N, 0).remove(KEY_COLA_ULT_TS).apply()
+            } catch (e2: Exception) {
+                // sin permisos para apartarlo: se sigue
+            }
             emptyList()
         }
     }
@@ -270,10 +279,15 @@ object TrackPrefs {
     /** Último ts guardado (permite deduplicar sin releer la cola). */
     fun colaOfflineUltimoTs(ctx: Context): Long = prefs(ctx).getLong(KEY_COLA_ULT_TS, 0L)
 
-    /** Añade un punto a la cola (append: O(1), sin reescribir la cola). */
+    /** Añade un punto a la cola (append: O(1), sin reescribir la cola).
+     *
+     * F5.38 — El dedupe por ts vive AQUÍ, dentro del lock: antes se comprobaba
+     * fuera (en el servicio) y dos llamadas concurrentes con el mismo fix
+     * podían colar la copia (carrera TOCTOU). */
     fun colaOfflineAdd(ctx: Context, ts: Long, lat: Double, lon: Double,
                        acc: Float, vel: Float): Boolean = synchronized(lockCola) {
         migrarColaAntigua(ctx)
+        if (prefs(ctx).getLong(KEY_COLA_ULT_TS, 0L) == ts) return false   // ya está
         try {
             var n = prefs(ctx).getInt(KEY_COLA_N, 0)
             val tope = cfgColaMax(ctx)
@@ -378,6 +392,14 @@ object TrackPrefs {
     // ── Sesión Cloudflare Access (WebView) ──────────────────────────────
 
     /** true = el usuario completó el SSO de Cloudflare en el WebView. */
+    /** F5.38 — El trackeo se paró por un 401 y hay que reanudarlo tras el login. */
+    fun relanzarTrasLogin(ctx: Context): Boolean =
+        prefs(ctx).getBoolean("relanzar_tras_login", false)
+
+    fun setRelanzarTrasLogin(ctx: Context, si: Boolean) {
+        prefs(ctx).edit().putBoolean("relanzar_tras_login", si).apply()
+    }
+
     fun cfAuthed(ctx: Context): Boolean =
         prefs(ctx).getBoolean("cf_authed", false)
 

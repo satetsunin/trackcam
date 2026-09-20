@@ -120,6 +120,9 @@ class TrackService : LifecycleService() {
         private const val HTTP_TIMEOUT_S = 6L
         private const val MAX_ATTEMPTS = 2
 
+        /** F5.38 — Cada cuánto se reintenta vaciar la cola mientras no hay red. */
+        private const val REINTENTO_S = 20_000L
+
         /** Cada cuánto pide Google una muestra de actividad (~25 s: barato). */
         private const val ACTIVITY_INTERVAL_MS = 25_000L
         private const val ACTIVITY_PI_REQUEST = 42
@@ -143,6 +146,24 @@ class TrackService : LifecycleService() {
         @Volatile var lastSendAtMillis = 0L
             private set
         @Volatile var pendingCount = 0
+            private set
+
+        /**
+         * F5.38 — Cuándo empezó el corte actual (0 = todo bien). Sin esto, la
+         * app decía «sin conexión desde las HH:MM» usando la hora del ÚLTIMO
+         * intento fallido, que se refresca constantemente: parecía que el corte
+         * acababa de empezar aunque llevara media hora.
+         */
+        @Volatile var sinConexionDesdeMillis = 0L
+            private set
+
+        /**
+         * F5.38 — Último fallo, para poder decir QUÉ pasa: 0 = ninguno,
+         * -1 = no hay red (ni se llegó al servidor), > 0 = el servidor contestó
+         * con ese código HTTP (500, 429, HTML de Cloudflare…). Sin esto, la app
+         * rotulaba «sin conexión» cualquier fallo, incluso los del servidor.
+         */
+        @Volatile var ultimoErrorCodigo = 0
             private set
 
         /**
@@ -213,6 +234,25 @@ class TrackService : LifecycleService() {
     private var wifiHueJob: Job? = null
 
     private val sendScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    // ── F5.38: guardado en disco fuera del hilo del GPS y sin carreras ──────
+    /**
+     * Un único hilo para escribir la cola offline: el callback de ubicación
+     * corre en el hilo principal, y escribir ahí cada 2 s (peor: reescribiendo
+     * la cola si estaba llena) podía dar tirones. Con un solo hilo, el orden de
+     * inserción se mantiene y el hilo de la UI queda libre.
+     */
+    private val ejecutorGuardado =
+        java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+            Thread(r, "trackcam-guardado").apply { isDaemon = true }
+        }
+
+    /** Evita que haya dos reintentos periódicos a la vez. */
+    private val reintentoActivo = java.util.concurrent.atomic.AtomicBoolean(false)
+    /** Evita que dos vaciados de la cola se solapen (se duplicaban puntos). */
+    private val flushActivo = java.util.concurrent.atomic.AtomicBoolean(false)
+    /** ts del último fix aceptado: el pulso y la alarma reusan el mismo fix. */
+    @Volatile private var lastTsEnviado = 0L
 
     /**
      * Comprueba cada [PULSO_S] si el último envío es antiguo y, en ese caso,
@@ -345,11 +385,18 @@ class TrackService : LifecycleService() {
                 // F5.31 — la alarma anti-Doze ha despertado al móvil: se manda un
                 // punto y se reprograma la siguiente. Si el trackeo ya no está
                 // activo, se apaga el servicio (no se resucita solo).
+                // F5.38 — Si el proceso había muerto, `tracking` es false y
+                // antes se hacía stopSelf() SIN reprogramar: la cadena de
+                // alarmas moría justo en el caso para el que existe (madrugada
+                // con la app dormida). Ahora se reanuda el trackeo y, pase lo
+                // que pase, la siguiente alarma queda puesta.
+                if (!tracking && TrackPrefs.running(this)) startTracking()
                 if (tracking) {
                     pulsoPorAlarma()
                     AlarmReceiver.programar(this)
                     return START_STICKY
                 }
+                AlarmReceiver.programar(this)
                 stopSelf()
                 return START_NOT_STICKY
             }
@@ -371,6 +418,12 @@ class TrackService : LifecycleService() {
     }
 
     override fun onDestroy() {
+        // F5.38 — Cerrar el hilo de guardado (los puntos ya quedan en el fichero)
+        try {
+            ejecutorGuardado.shutdown()
+        } catch (e: Exception) {
+            // ya estaba cerrado
+        }
         stopPulsoParado()
         // F5.31 — sin trackeo no hay alarma que valga
         AlarmReceiver.cancelar(this)
@@ -471,7 +524,13 @@ class TrackService : LifecycleService() {
         stopActivityRecognition()
         // Parar el bucle de escaneo wifi y olvidar la última huella
         stopWifiHueLoop()
+        // F5.38 — Los puntos que queden en memoria SIN enviar no se tiran: se
+        // pasan a la cola offline (antes se perdían hasta 240 puntos al parar).
         synchronized(queueLock) {
+            while (true) {
+                val p = queue.pollFirst() ?: break
+                guardarOffline(p)
+            }
             queue.clear()
         }
         pendingCount = 0
@@ -848,17 +907,68 @@ class TrackService : LifecycleService() {
         // de la ruta perdida, y en carretera, que es donde están las cámaras).
         // Si el último envío falló, el punto va DIRECTO a la cola offline
         // persistente (sin límite práctico) y se reenvía al recuperar la red.
-        if (lastOk == false && lastSendAtMillis > 0L) {
-            guardarOffline(loc)
+        // F5.38 — Un fix repetido (el pulso y la alarma piden «la última
+        // conocida», que puede ser la misma) no se encola dos veces.
+        val tsMs = if (loc.time > 0) loc.time else System.currentTimeMillis()
+        if (tsMs == lastTsEnviado) {
+            Log.d(TAG, "Fix repetido (ts=$tsMs): no se vuelve a encolar")
             return
         }
+        lastTsEnviado = tsMs
+
+        if (lastOk == false && lastSendAtMillis > 0L) {
+            // Sin red: el punto va DIRECTO a la cola offline (no se pierde ni
+            // espera turno) … pero hay que garantizar que el envío en vivo se
+            // REANUDE. Si sólo se guardara, ningún punto volvería a entrar en la
+            // cola en memoria y el worker no se relanzaría nunca → la app se
+            // quedaba muda para siempre tras el primer fallo (bug real de la
+            // v1.15: el usuario tenía que reiniciar el móvil para volver a enviar).
+            guardarEnDisco(loc)
+            programarReintento()
+            return
+        }
+        var desalojado: Location? = null
         val startWorker = synchronized(queueLock) {
-            if (queue.size >= MAX_PENDING) queue.removeFirst() // cola llena: se descarta la más antigua
+            if (queue.size >= MAX_PENDING) desalojado = queue.removeFirst()
             queue.addLast(loc)
             !workerRunning.getAndSet(true)
         }
+        // F5.38 — Lo que se desaloja de la cola en memoria NO se tira: se guarda
+        // en la cola offline (antes se perdía un punto por cada punto que
+        // llegaba con el servidor por detrás).
+        desalojado?.let { guardarEnDisco(it) }
         if (startWorker) {
             sendScope.launch { senderLoop() }
+        }
+    }
+
+    /**
+     * F5.38 — Reintenta el vaciado de la cola cada [REINTENTO_S] mientras no
+     * haya red. Es la pieza que devuelve la vida al envío en vivo: cuando un
+     * vaciado tiene éxito, `lastOk` vuelve a true y los siguientes fixes entran
+     * por el camino normal.
+     */
+    private fun programarReintento() {
+        if (!reintentoActivo.compareAndSet(false, true)) return
+        sendScope.launch {
+            try {
+                while (isActive && tracking && lastOk == false) {
+                    delay(REINTENTO_S)
+                    if (!tracking) break
+                    flushOfflineCola()
+                }
+            } finally {
+                reintentoActivo.set(false)
+            }
+        }
+    }
+
+    /** Escribe un punto en la cola offline fuera del hilo del GPS. */
+    private fun guardarEnDisco(loc: Location) {
+        try {
+            ejecutorGuardado.execute { guardarOffline(loc) }
+        } catch (e: Exception) {
+            guardarOffline(loc)      // ejecutor cerrado: se hace en línea
         }
     }
 
@@ -889,11 +999,25 @@ class TrackService : LifecycleService() {
     /** Reenvía los puntos guardados sin cobertura (cola offline persistente). */
     private suspend fun flushOfflineCola() {
         if (!TrackPrefs.cfgColaOffline(this)) return
+        // F5.38 — Un solo vaciado a la vez: antes podían coincidir el del
+        // arranque y el del bucle de envío, hacer la misma foto y mandar los
+        // mismos puntos dos veces (duplicados en el servidor).
+        if (!flushActivo.compareAndSet(false, true)) return
+        try {
+            flushOfflineColaSinLock()
+        } finally {
+            flushActivo.set(false)
+        }
+    }
+
+    private suspend fun flushOfflineColaSinLock() {
         // F5.37 — Se lee la cola UNA vez y se reescribe solo lo que quede.
         // Antes se sacaba punto a punto: cada extracción reescribía la cola
         // completa (O(n²) con miles de pendientes) y, si un envío fallaba, el
         // punto volvía al FINAL de la cola, desordenando el recorrido.
-        val pendientes = TrackPrefs.colaOffline(this)
+        // Ordenados por la hora del fix: así un guardado fuera de orden no
+        // descoloca el recorrido al reenviarlo.
+        val pendientes = TrackPrefs.colaOffline(this).sortedBy { it[0] }
         if (pendientes.isEmpty()) return
         val quedan = ArrayList<DoubleArray>(pendientes.size)
         var enviados = 0
@@ -917,7 +1041,11 @@ class TrackService : LifecycleService() {
                 break
             }
         }
-        TrackPrefs.colaOfflineReescribir(this, quedan)
+        // F5.38 — Se reescribe con lo que queda DE VERDAD: los puntos que se
+        // guardaron MIENTRAS se vaciaba no estaban en la foto inicial y la
+        // reescritura los destruía (se perdían justo al recuperar la red).
+        val actuales = TrackPrefs.colaOffline(this)
+        TrackPrefs.colaOfflineReescribir(this, actuales.drop(minOf(enviados, actuales.size)))
         if (enviados > 0) {
             Log.i(TAG, "Cola offline: $enviados enviados · quedan ${quedan.size}")
         }
@@ -931,11 +1059,9 @@ class TrackService : LifecycleService() {
         val tsMs = if (loc.time > 0) loc.time else System.currentTimeMillis()
         // Dedupe: si el último punto de la cola ya tiene este ts exacto (mismo
         // fix repetido por el GPS), no guardar otra copia.
-        // F5.37 — Dedupe sin releer la cola: el último ts guardado va en prefs
-        if (TrackPrefs.colaOfflineUltimoTs(this) == tsMs) {
-            Log.d(TAG, "Fix duplicado (ts=$tsMs): se omite guardar offline")
-            return
-        }
+        // F5.38 — El dedupe por ts se comprueba DENTRO de TrackPrefs.colaOfflineAdd
+        // (bajo el mismo lock que la escritura): hacerlo aquí fuera dejaba una
+        // carrera por la que dos llamadas con el mismo fix colaban la copia.
         val ok = TrackPrefs.colaOfflineAdd(
             this,
             tsMs,
@@ -983,16 +1109,32 @@ class TrackService : LifecycleService() {
 
                 val response = okHttpClient.newCall(request).execute()
                 val code = response.code
+                // F5.38 — Se LEE el cuerpo. Mirar sólo el código daba por bueno
+                // un 200 con el HTML de login de Cloudflare Access: la cola se
+                // vaciaba contra una página de login y la app decía «OK».
+                val cuerpo = try {
+                    response.body?.string().orEmpty()
+                } catch (e: Exception) {
+                    ""
+                }
                 response.close()
 
                 if (code == 401) {
                     Log.w(TAG, "HTTP 401: token inválido o expirado → volver al login")
                     handleUnauthorized()
-                    return true
+                    return false            // el punto NO se da por enviado
                 }
-                if (code !in 200..299) throw IOException("HTTP $code")
+                if (code !in 200..299) {
+                    ultimoErrorCodigo = code        // el servidor contestó: no es «sin red»
+                    throw IOException("HTTP $code")
+                }
+                if (cuerpo.trimStart().startsWith("<")) {
+                    throw IOException("respuesta HTML en /track (¿sesión de Cloudflare caducada?)")
+                }
 
                 lastOk = true
+                sinConexionDesdeMillis = 0L
+                ultimoErrorCodigo = 0
                 lastSendAtMillis = System.currentTimeMillis()
                 lastOkAtMillis = lastSendAtMillis
                 lastEnviado = doubleArrayOf(loc.latitude, loc.longitude)
@@ -1016,6 +1158,9 @@ class TrackService : LifecycleService() {
         }
 
         lastOk = false
+        if (ultimoErrorCodigo == 0) ultimoErrorCodigo = -1   // no se llegó al servidor
+        // F5.38 — Se marca CUÁNDO empezó el corte, no la hora del último intento
+        if (sinConexionDesdeMillis == 0L) sinConexionDesdeMillis = System.currentTimeMillis()
         lastSendAtMillis = System.currentTimeMillis()
         broadcastStatus()
         updateNotification()
@@ -1030,6 +1175,9 @@ class TrackService : LifecycleService() {
      */
     private fun handleUnauthorized() {
         Log.w(TAG, "Sesión no autorizada: limpiando token y deteniendo servicio")
+        // F5.38 — Dejar marcado que había trackeo en marcha: al volver a
+        // iniciar sesión la app lo reanuda sola (antes se quedaba parada).
+        TrackPrefs.setRelanzarTrasLogin(this, true)
         TrackPrefs.clearSession(this)
         broadcastUnauthorized()
         stopTracking()
@@ -1121,7 +1269,11 @@ class TrackService : LifecycleService() {
         // veía "30 pendientes" aunque tuviera miles guardados).
         val pend = pendientesTotales(this)
         if (lastSendAtMillis == 0L) return getString(R.string.notif_waiting)
-        val t = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(lastSendAtMillis))
+        // F5.38 — Si hay corte, la hora que se muestra es la de su INICIO, no la
+        // del último intento fallido (que se refresca cada pocos segundos y hacía
+        // parecer que el corte acababa de empezar).
+        val marca = if (sinConexionDesdeMillis > 0L) sinConexionDesdeMillis else lastSendAtMillis
+        val t = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(marca))
         return if (lastOk == true) {
             getString(R.string.notif_sent_ok, t)
         } else {

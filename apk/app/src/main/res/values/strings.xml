@@ -23,6 +23,7 @@
     <string name="err_login_cf">Cloudflare pide autenticación: pulsa primero \"🔐 Autenticar con Cloudflare\" y vuelve a intentarlo</string>
     <string name="err_login_server">Error del servidor (HTTP %1$d)</string>
     <string name="sesion_expirada">La sesión ha expirado. Inicia sesión de nuevo.</string>
+    <string name="toast_trackeo_reanudado">🔄 Trackeo reanudado automáticamente (venías trackeando antes de que caducara la sesión)</string>
 
     <!-- Pantalla principal -->
     <string name="sesion_info">Conectado como %1$s · %2$s</string>
@@ -72,10 +73,13 @@
     <string name="estado_trackeando">Trackeando · último envío hace %1$s</string>
     <string name="ahora_mismo">ahora</string>
 
-    <!-- Conexión -->
+    <!-- Conexión (F5.38: estado honesto — sin la palabra «FALLIDO»: los puntos
+         no se pierden nunca, se guardan y se reenvían solos al volver la red) -->
     <string name="conexion_ninguno">Último envío: —</string>
     <string name="conexion_ok">Último envío: OK a las %1$s</string>
+    <string name="conexion_ok_pend">Último envío: OK a las %1$s · %2$d puntos por enviar (se envían solos)</string>
     <string name="conexion_fail">📴 Sin conexión desde las %1$s · %2$d puntos guardados (se envían solos al volver)</string>
+    <string name="conexion_fail_servidor">⚠️ El servidor no responde (error %1$d) — último intento a las %2$s · %3$d puntos guardados (se envían solos al volver)</string>
 
     <!-- Posición -->
     <string name="posicion">Posición: %1$s, %2$s · precisión %3$d m · vel %4$d m/s</string>
@@ -92,7 +96,7 @@
     <string name="notif_title">TrackCam activo</string>
     <string name="notif_waiting">Enviando última posición…</string>
     <string name="notif_sent_ok">Último envío OK %1$s</string>
-    <string name="notif_sent_fail">Sin conexión desde %1$s · %2$d puntos guardados</string>
+    <string name="notif_sent_fail">📴 Sin conexión · %2$d puntos guardados (último intento a las %1$s)</string>
     <string name="notif_stop">Detener</string>
 
     <!-- Selector de intervalo -->

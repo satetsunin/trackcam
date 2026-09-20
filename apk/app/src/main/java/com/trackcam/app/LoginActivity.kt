@@ -1,6 +1,7 @@
 package com.trackcam.app
 
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import android.view.View
 import android.view.inputmethod.EditorInfo
@@ -88,6 +89,7 @@ class LoginActivity : AppCompatActivity() {
 
         // Ya hay sesión guardada → panel de control directo
         if (!TrackPrefs.token(this).isNullOrBlank()) {
+            reanudarTrackeoSiPendiente()
             openMain()
             return
         }
@@ -249,6 +251,10 @@ class LoginActivity : AppCompatActivity() {
         when {
             out.status in 200..299 -> {
                 TrackPrefs.saveSession(this, out.token, out.username)
+                // F5.38 — Tras un 401 el servicio se detuvo y dejó marcado que
+                // hay que reanudar el trackeo: se hace AQUÍ, con la sesión
+                // nueva, para que el seguimiento no se quede parado sin avisar.
+                reanudarTrackeoSiPendiente()
                 openMain()
             }
             out.status == 401 -> showError(getString(R.string.err_login_credenciales))
@@ -290,6 +296,40 @@ class LoginActivity : AppCompatActivity() {
     }
 
     // ── Navegación / UI ────────────────────────────────────────────────────
+
+    /**
+     * F5.38 — REANUDAR EL TRACKEO TRAS UN 401.
+     *
+     * Cuando el token caduca, TrackService para el seguimiento y deja marcado
+     * `TrackPrefs.relanzarTrasLogin = true` («había trackeo en marcha»). Antes
+     * esa marca no la leía nadie: el usuario volvía a entrar y el trackeo se
+     * quedaba parado en silencio, sin enviar nada hasta pulsar INICIAR a mano.
+     *
+     * Aquí, con la sesión nueva ya guardada, se arranca el servicio otra vez
+     * (ACTION_START con startForegroundService, igual que MainActivity) y se
+     * limpia la marca. Si no había trackeo en marcha, la marca es false y no se
+     * arranca NADA (no se le enciende el GPS a quien no lo había pedido).
+     */
+    private fun reanudarTrackeoSiPendiente() {
+        if (!TrackPrefs.relanzarTrasLogin(this)) return
+        // Se limpia ANTES de arrancar: si el arranque falla, el siguiente login
+        // no debe arrastrar una marca vieja.
+        TrackPrefs.setRelanzarTrasLogin(this, false)
+        val svcIntent = Intent(this, TrackService::class.java)
+            .setAction(TrackService.ACTION_START)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(svcIntent)
+            } else {
+                startService(svcIntent)
+            }
+            Toast.makeText(this, R.string.toast_trackeo_reanudado, Toast.LENGTH_LONG).show()
+        } catch (e: Exception) {
+            // Sin permiso de ubicación o servicio no disponible: se avisa y el
+            // usuario puede arrancarlo a mano desde el panel.
+            Toast.makeText(this, R.string.err_start, Toast.LENGTH_LONG).show()
+        }
+    }
 
     private fun openMain() {
         startActivity(

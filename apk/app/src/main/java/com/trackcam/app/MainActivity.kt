@@ -53,6 +53,14 @@ class MainActivity : AppCompatActivity() {
 
     private val intervalValues = intArrayOf(1, 2, 5, 10, 30, 60)
 
+    /**
+     * F5.38 — true = se abrieron los Ajustes de «instalar apps desconocidas»
+     * desde el flujo OTA: al volver a la app se sigue con la actualización.
+     * (Antes este permiso se pedía al pulsar INICIAR TRACKEO, que abría los
+     * Ajustes del sistema CADA vez sin tener nada que ver con el trackeo.)
+     */
+    private var otaEsperandoPermiso = false
+
     /** Recibe los broadcasts del servicio: refresca la UI o vuelve al login (401). */
     private val statusReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -120,7 +128,7 @@ class MainActivity : AppCompatActivity() {
         }
         btnBateria.setOnClickListener { openBatterySettings() }
         btnExencion.setOnClickListener { requestIgnoreBatteryOptimization() }
-        btnOta.setOnClickListener { OtaUpdater.comprobar(this, silenciosoSiActual = false) }
+        btnOta.setOnClickListener { comprobarOta() }
         btnLogout.setOnClickListener { logout() }
 
         // Si se cambia el intervalo con el trackeo activo, se aplica al momento
@@ -172,6 +180,16 @@ class MainActivity : AppCompatActivity() {
             ContextCompat.RECEIVER_NOT_EXPORTED
         )
         refreshUi()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // F5.38 — Volvemos de los Ajustes de «instalar apps desconocidas» del
+        // flujo OTA: si ya está concedido, se sigue con la comprobación.
+        if (otaEsperandoPermiso) {
+            otaEsperandoPermiso = false
+            if (puedeInstalarApks()) OtaUpdater.comprobar(this, silenciosoSiActual = false)
+        }
     }
 
     override fun onStop() {
@@ -229,7 +247,6 @@ class MainActivity : AppCompatActivity() {
         maybeRequestNotificationPermission()
         // Paso 3 (Android 10+): detección de actividad (acelerómetro) — opcional
         maybeRequestActivityPermission()
-        maybeRequestInstallPackages()
         doStart()
     }
 
@@ -261,23 +278,45 @@ class MainActivity : AppCompatActivity() {
         )
     }
 
-    /** Para OTA: si no puede instalar apps de orígenes desconocidos, avisar
-     *  y ofrecer abrir el ajuste (Redmi: "Instalar apps desconocidas"). */
-    private fun maybeRequestInstallPackages() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
-            !packageManager.canRequestPackageInstalls()
-        ) {
-            try {
-                startActivity(
-                    Intent(
-                        Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-                        Uri.parse("package:$packageName")
-                    )
-                )
-            } catch (e: Exception) {
+    // ── Actualización OTA ───────────────────────────────────────────────────
+
+    /**
+     * F5.38 — Flujo del botón «📲 Buscar actualización (OTA)».
+     *
+     * El permiso de «instalar apps desconocidas» SOLO hace falta para instalar
+     * una versión nueva, así que se comprueba aquí y no al iniciar el trackeo.
+     * Si falta, se abren los Ajustes y, al volver, onResume retoma la
+     * actualización (ver [otaEsperandoPermiso]).
+     */
+    private fun comprobarOta() {
+        if (!puedeInstalarApks()) {
+            otaEsperandoPermiso = true
+            if (!abrirAjustesInstalacion()) {
+                // No se pudieron abrir los Ajustes: se avisa y no se sigue.
+                otaEsperandoPermiso = false
                 Toast.makeText(this, R.string.toast_ota_permiso, Toast.LENGTH_LONG).show()
             }
+            return
         }
+        OtaUpdater.comprobar(this, silenciosoSiActual = false)
+    }
+
+    /** true si la app puede instalar APKs (permiso de orígenes desconocidos). */
+    private fun puedeInstalarApks(): Boolean =
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.O ||
+            packageManager.canRequestPackageInstalls()
+
+    /** Abre los Ajustes de «Instalar apps desconocidas» (Redmi). */
+    private fun abrirAjustesInstalacion(): Boolean = try {
+        startActivity(
+            Intent(
+                Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                Uri.parse("package:$packageName")
+            )
+        )
+        true
+    } catch (e: Exception) {
+        false
     }
 
     private fun hasLocationPermission(): Boolean =
@@ -438,15 +477,49 @@ class MainActivity : AppCompatActivity() {
             else -> getString(R.string.estado_trackeando, formatAgo(TrackService.lastSendAtMillis))
         }
 
+        // ── F5.38: estado de conexión HONESTO ───────────────────────────────
+        //  · Pendientes REALES (memoria + cola offline en disco).
+        //  · Si todo va bien pero queda cola, se dice (antes no se mostraba).
+        //  · Se distingue «no hay red» de «el servidor contesta con error»:
+        //    antes cualquier fallo se rotulaba «sin conexión».
+        //  · La hora del corte es la de CUÁNDO EMPEZÓ (sinConexionDesdeMillis),
+        //    no la del último intento, que se refresca en cada intento.
+        val pendientes = TrackService.pendientesTotales(this)
         tvConexion.text = when {
             TrackService.lastOk == null -> getString(R.string.conexion_ninguno)
             TrackService.lastOk == true ->
-                getString(R.string.conexion_ok, formatTime(TrackService.lastSendAtMillis))
-            else -> getString(
-                R.string.conexion_fail,
-                formatTime(TrackService.lastSendAtMillis),
-                TrackService.pendientesTotales(this)
-            )
+                if (pendientes > 0) {
+                    getString(
+                        R.string.conexion_ok_pend,
+                        formatTime(TrackService.lastSendAtMillis),
+                        pendientes
+                    )
+                } else {
+                    getString(R.string.conexion_ok, formatTime(TrackService.lastSendAtMillis))
+                }
+            else -> {
+                // Hora del corte: la de su INICIO; si el servicio no la tiene
+                // (estado viejo o carrera), la del último intento como último
+                // recurso.
+                val desde = if (TrackService.sinConexionDesdeMillis > 0L) {
+                    TrackService.sinConexionDesdeMillis
+                } else {
+                    TrackService.lastSendAtMillis
+                }
+                val codigo = TrackService.ultimoErrorCodigo
+                if (codigo > 0) {
+                    // El servidor SÍ contestó: 500, 429, HTML de Cloudflare…
+                    getString(
+                        R.string.conexion_fail_servidor,
+                        codigo,
+                        formatTime(TrackService.lastSendAtMillis),
+                        pendientes
+                    )
+                } else {
+                    // -1 (o 0 sin código): no se llegó al servidor → sin red.
+                    getString(R.string.conexion_fail, formatTime(desde), pendientes)
+                }
+            }
         }
 
         val lat = TrackService.lastLat
