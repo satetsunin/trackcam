@@ -102,6 +102,13 @@
             android:foregroundServiceType="location"
             android:stopWithTask="false" />
 
+        <!-- F5.31 — Despierta la app cuando Android la tiene dormida (Doze).
+             Es el mecanismo que Android reserva para salir de Doze; no lleva
+             filtro de intent porque la manda la propia app (exported=false). -->
+        <receiver
+            android:name=".AlarmReceiver"
+            android:exported="false" />
+
         <!-- Relanza el servicio al arrancar el teléfono o tras actualizar la app -->
         <receiver
             android:name=".BootReceiver"

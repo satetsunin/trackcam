@@ -96,6 +96,13 @@ class TrackService : LifecycleService() {
         /** Broadcast de estado que escucha MainActivity. */
         const val ACTION_STATUS = "com.trackcam.app.action.STATUS"
 
+        /**
+         * F5.31 — Punto forzado por la alarma anti-Doze (AlarmReceiver).
+         * Android duerme la app de madrugada y deja huecos de horas; la alarma
+         * despierta el proceso y aquí se envía un punto.
+         */
+        const val ACTION_PULSO_ALARMA = "com.trackcam.app.action.PULSO_ALARMA"
+
         /** Broadcast: 401 → sesión caducada, volver al login. */
         const val ACTION_UNAUTHORIZED = "com.trackcam.app.action.UNAUTHORIZED"
 
@@ -203,6 +210,30 @@ class TrackService : LifecycleService() {
      * Comprueba cada [PULSO_S] si el último envío es antiguo y, en ese caso,
      * pide una posición puntual y la envía. Se cancela al parar el seguimiento.
      */
+    /**
+     * F5.31 — Un punto forzado por la alarma anti-Doze (cada
+     * [AlarmReceiver.ALARMA_MIN] minutos). A diferencia del pulso por corrutina
+     * —que respeta el último envío— aquí se pide posición SIEMPRE: si la alarma
+     * ha despertado el móvil, ese punto es justo lo que evita el hueco.
+     */
+    private fun pulsoPorAlarma() {
+        try {
+            fusedLocationClient.getCurrentLocation(
+                com.google.android.gms.location.Priority.PRIORITY_BALANCED_POWER_ACCURACY,
+                null
+            ).addOnSuccessListener { loc ->
+                if (loc != null) {
+                    Log.i(TAG, "Alarma anti-Doze: enviando punto forzado")
+                    enqueue(loc)
+                } else {
+                    Log.i(TAG, "Alarma anti-Doze: el sistema no dio posicion")
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Alarma anti-Doze: fallo pidiendo posicion: ${e.message}")
+        }
+    }
+
     private fun startPulsoParado() {
         if (pulsoJob?.isActive == true) return
         pulsoJob = sendScope.launch {
@@ -302,6 +333,18 @@ class TrackService : LifecycleService() {
                 stopTracking()
                 return START_NOT_STICKY
             }
+            ACTION_PULSO_ALARMA -> {
+                // F5.31 — la alarma anti-Doze ha despertado al móvil: se manda un
+                // punto y se reprograma la siguiente. Si el trackeo ya no está
+                // activo, se apaga el servicio (no se resucita solo).
+                if (tracking) {
+                    pulsoPorAlarma()
+                    AlarmReceiver.programar(this)
+                    return START_STICKY
+                }
+                stopSelf()
+                return START_NOT_STICKY
+            }
             ACTION_ACTIVITY_UPDATE -> {
                 // Resultado de Activity Recognition: SOLO actualiza la última
                 // actividad; nunca arranca ni detiene el trackeo. Si el servicio
@@ -321,12 +364,16 @@ class TrackService : LifecycleService() {
 
     override fun onDestroy() {
         stopPulsoParado()
+        // F5.31 — sin trackeo no hay alarma que valga
+        AlarmReceiver.cancelar(this)
         sendScope.cancel()
         // Quitar la detección de actividad (deja de llegar el PendingIntent)
         stopActivityRecognition()
         // Parar el bucle de escaneo wifi
         stopWifiHueLoop()
         stopPulsoParado()
+        // F5.31 — sin trackeo no hay alarma que valga
+        AlarmReceiver.cancelar(this)
         if (::wakeLock.isInitialized && wakeLock.isHeld) {
             try {
                 wakeLock.release()
@@ -357,6 +404,8 @@ class TrackService : LifecycleService() {
         // Contexto wifi (SSID + huella de redes visibles): opcional, degrada en silencio
         startWifiHueLoop()
         startPulsoParado()
+        // F5.31 — alarma que despierta al móvil en Doze (madrugada)
+        AlarmReceiver.programar(this)
         reuseLastKnownPosition()
         broadcastStatus()
         // Config remota (OTA): descargar al arrancar + reenviar puntos offline

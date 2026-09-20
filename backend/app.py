@@ -845,6 +845,7 @@ async def _procesar_punto(request: Request):
     wifi_ssid = _wifi_ssid_valido(_campo_punto(body, qp, "wifi_ssid"))
     wifi_hue = _wifi_hue_valida(_campo_punto(body, qp, "wifi_hue"))
 
+    con = get_db()
     # F5.30 — GUARDARRAÍL ANTI-BUCLE. Medido: el 09-10 se llegaron a enviar
     # 53.628 puntos en una hora (un punto cada 0,07 s) y el día entero acumuló
     # 164.576 filas; con el deduplicado se quedó en 21.603. La ventana se mide
@@ -2184,8 +2185,8 @@ async def api_ajustes_set(request: Request):
 
 # ── OTA (F4/F5): versión y descarga de la APK ───────────────────────────
 APK_FILE = os.path.join(BASE, "apk", "trackcam-release.apk")
-APK_VERSION_CODE = 11
-APK_VERSION_NAME = "1.13"
+APK_VERSION_CODE = 12
+APK_VERSION_NAME = "1.14"
 
 @app.get("/api/apk/version")
 def apk_version():
