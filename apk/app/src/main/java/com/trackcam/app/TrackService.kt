@@ -116,8 +116,8 @@ class TrackService : LifecycleService() {
         private const val TAG = "TrackCamService"
         private const val NOTIF_CHANNEL_ID = "trackcam_channel"
         private const val NOTIF_ID = 1
-        private const val MAX_PENDING = 30
-        private const val HTTP_TIMEOUT_S = 8L
+        private const val MAX_PENDING = 240
+        private const val HTTP_TIMEOUT_S = 6L
         private const val MAX_ATTEMPTS = 2
 
         /** Cada cuánto pide Google una muestra de actividad (~25 s: barato). */
@@ -831,6 +831,19 @@ class TrackService : LifecycleService() {
     // ── Cola de envíos ──────────────────────────────────────────────────────
 
     private fun enqueue(loc: Location) {
+        // ── F5.35 SIN RED: PERSISTIR YA, SIN PASAR POR EL WORKER ────────────
+        // Medido el 20-09-2026: con el servidor inalcanzable el envío tarda
+        // ~33 s (2 intentos × [8 s conexión + 8 s lectura] + 1 s de espera) y
+        // el worker procesa UN punto por vuelta, mientras el GPS entrega uno
+        // cada 2 s. Como la cola en memoria es de solo MAX_PENDING=30, todo lo
+        // demás SE DESCARTABA: en el corte se guardó 1 punto cada 34 s (el 94 %
+        // de la ruta perdida, y en carretera, que es donde están las cámaras).
+        // Si el último envío falló, el punto va DIRECTO a la cola offline
+        // persistente (sin límite práctico) y se reenvía al recuperar la red.
+        if (lastOk == false && lastSendAtMillis > 0L) {
+            guardarOffline(loc)
+            return
+        }
         val startWorker = synchronized(queueLock) {
             if (queue.size >= MAX_PENDING) queue.removeFirst() // cola llena: se descarta la más antigua
             queue.addLast(loc)
