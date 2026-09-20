@@ -111,7 +111,7 @@ object TrackPrefs {
         "intervalo_andando_s" to 10.0,  // andando: cada 10 s
         "intervalo_parado_s" to 600.0,  // parado: cada 10 min
         "cola_offline" to true,         // guardar sin cobertura
-        "cola_max" to 5000.0,
+        "cola_max" to 200000.0,
         "radio_cache_m" to 2000.0,
     )
 
@@ -175,53 +175,169 @@ object TrackPrefs {
         else -> cfgIntervaloParadoS(ctx)
     }
 
-    // ── Cola offline persistente (sin cobertura → se guarda y reenvía) ────
+    // ── Cola offline persistente (F5.37: fichero append-only) ──────────
+    //
+    // ANTES: una única cadena JSON en SharedPreferences. Cada punto guardado
+    // obligaba a leer y REESCRIBIR la cola completa (O(n) por punto) y con
+    // miles de pendientes el fichero de preferencias se volvía inmanejable
+    // (el JSON viajaba entero en cada operación y en cada vuelta del envío).
+    // AHORA: un fichero de texto con una línea por punto "ts,lat,lon,acc,vel".
+    // Guardar es un append (O(1)); el envío lee la cola UNA vez y reescribe
+    // solo lo que quede pendiente. El contador se lleva aparte para poder
+    // preguntar cuántos hay sin leer el fichero.
 
-    private const val KEY_COLA = "cola_offline_json"
+    private const val FICHERO_COLA = "cola_offline.csv"
+    private const val KEY_COLA_VIEJA = "cola_offline_json"   // formato antiguo
+    private const val KEY_COLA_N = "cola_offline_n"          // nº de puntos guardados
+    private const val KEY_COLA_ULT_TS = "cola_offline_ult_ts"
+    private val lockCola = Any()
 
-    /** Puntos pendientes [ts,lat,lon,acc,vel] guardados sin conexión. */
-    fun colaOffline(ctx: Context): List<DoubleArray> {
-        val raw = prefs(ctx).getString(KEY_COLA, null) ?: return emptyList()
-        return try {
-            val arr = org.json.JSONArray(raw)
-            (0 until arr.length()).map { i ->
-                val o = arr.getJSONArray(i)
-                doubleArrayOf(o.getDouble(0), o.getDouble(1), o.getDouble(2),
-                    o.getDouble(3), o.getDouble(4))
-            }
-        } catch (e: Exception) { emptyList() }
+    private fun ficheroCola(ctx: Context) = java.io.File(ctx.filesDir, FICHERO_COLA)
+
+    private fun lineaPunto(p: DoubleArray): String =
+        "${p[0].toLong()},${p[1]},${p[2]},${p[3]},${p[4]}\n"
+
+    private fun puntoDeLinea(l: String): DoubleArray? = try {
+        val c = l.trim().split(',')
+        if (c.size < 5) null
+        else doubleArrayOf(c[0].toDouble(), c[1].toDouble(), c[2].toDouble(),
+                           c[3].toDouble(), c[4].toDouble())
+    } catch (e: Exception) {
+        null
     }
 
-    fun colaOfflineSize(ctx: Context): Int = colaOffline(ctx).size
+    /** Pasa (una sola vez) la cola del formato antiguo al fichero nuevo. */
+    private fun migrarColaAntigua(ctx: Context) {
+        val viejo = prefs(ctx).getString(KEY_COLA_VIEJA, null) ?: return
+        try {
+            val arr = org.json.JSONArray(viejo)
+            val sb = StringBuilder()
+            for (i in 0 until arr.length()) {
+                val o = arr.getJSONArray(i)
+                sb.append(o.getDouble(0).toLong()).append(',')
+                    .append(o.getDouble(1)).append(',')
+                    .append(o.getDouble(2)).append(',')
+                    .append(o.getDouble(3)).append(',')
+                    .append(o.getDouble(4)).append('\n')
+            }
+            if (sb.isNotEmpty()) {
+                ficheroCola(ctx).appendText(sb.toString())
+                val n = prefs(ctx).getInt(KEY_COLA_N, 0) + arr.length()
+                prefs(ctx).edit().putInt(KEY_COLA_N, n)
+                    .putLong(KEY_COLA_ULT_TS, arr.getJSONArray(arr.length() - 1).getDouble(0).toLong())
+                    .apply()
+            }
+        } catch (e: Exception) {
+            // cola antigua ilegible: se descarta (mejor seguir trackeando)
+        }
+        prefs(ctx).edit().remove(KEY_COLA_VIEJA).apply()
+    }
 
-    /** Añade un punto a la cola offline (respeta cola_max). */
+    /** Cuenta de verdad los puntos del fichero (por si el contador se desajustó). */
+    fun colaOfflineContar(ctx: Context): Int = synchronized(lockCola) {
+        val f = ficheroCola(ctx)
+        val n = if (!f.exists()) 0 else try {
+            f.readLines().count { it.isNotBlank() }
+        } catch (e: Exception) {
+            0
+        }
+        prefs(ctx).edit().putInt(KEY_COLA_N, n).apply()
+        n
+    }
+
+    /** Puntos pendientes [ts,lat,lon,acc,vel], del más antiguo al más nuevo. */
+    fun colaOffline(ctx: Context): List<DoubleArray> = synchronized(lockCola) {
+        migrarColaAntigua(ctx)
+        val f = ficheroCola(ctx)
+        if (!f.exists()) return emptyList()
+        try {
+            f.readLines().asSequence().filter { it.isNotBlank() }
+                .mapNotNull { puntoDeLinea(it) }.toList()
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    /** Nº de puntos pendientes sin leer el fichero entero. */
+    fun colaOfflineSize(ctx: Context): Int {
+        migrarColaAntigua(ctx)
+        val f = ficheroCola(ctx)
+        if (!f.exists() || f.length() == 0L) return 0
+        val n = prefs(ctx).getInt(KEY_COLA_N, -1)
+        return if (n >= 0) n else colaOfflineContar(ctx)
+    }
+
+    /** Último ts guardado (permite deduplicar sin releer la cola). */
+    fun colaOfflineUltimoTs(ctx: Context): Long = prefs(ctx).getLong(KEY_COLA_ULT_TS, 0L)
+
+    /** Añade un punto a la cola (append: O(1), sin reescribir la cola). */
     fun colaOfflineAdd(ctx: Context, ts: Long, lat: Double, lon: Double,
-                       acc: Float, vel: Float): Boolean {
-        val items = colaOffline(ctx).toMutableList()
-        if (items.size >= cfgColaMax(ctx)) items.removeAt(0)
-        items.add(doubleArrayOf(ts.toDouble(), lat, lon, acc.toDouble(), vel.toDouble()))
-        colaOfflineSet(ctx, items)
-        return true
+                       acc: Float, vel: Float): Boolean = synchronized(lockCola) {
+        migrarColaAntigua(ctx)
+        try {
+            var n = prefs(ctx).getInt(KEY_COLA_N, 0)
+            val tope = cfgColaMax(ctx)
+            if (n >= tope) {
+                // Cola llena: se tira lo más ANTIGUO (perder lo viejo es menos
+                // malo que quedarse sin lo reciente).
+                val restantes = colaOffline(ctx).takeLast(tope - 1)
+                colaOfflineReescribirLocked(ctx, restantes)
+                n = restantes.size
+            }
+            ficheroCola(ctx).appendText(
+                lineaPunto(doubleArrayOf(ts.toDouble(), lat, lon, acc.toDouble(), vel.toDouble())))
+            prefs(ctx).edit().putInt(KEY_COLA_N, n + 1)
+                .putLong(KEY_COLA_ULT_TS, ts).apply()
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /** Reescribe la cola con los puntos que quedan pendientes. */
+    fun colaOfflineReescribir(ctx: Context, quedan: List<DoubleArray>) {
+        synchronized(lockCola) { colaOfflineReescribirLocked(ctx, quedan) }
+    }
+
+    private fun colaOfflineReescribirLocked(ctx: Context, quedan: List<DoubleArray>) {
+        val f = ficheroCola(ctx)
+        try {
+            if (quedan.isEmpty()) {
+                if (f.exists()) f.delete()
+                prefs(ctx).edit().putInt(KEY_COLA_N, 0).remove(KEY_COLA_ULT_TS).apply()
+                return
+            }
+            val tmp = java.io.File(ctx.filesDir, "$FICHERO_COLA.tmp")
+            tmp.writeText(quedan.joinToString("") { lineaPunto(it) })
+            if (f.exists() && !f.delete()) {
+                // no se pudo borrar: se escribe encima
+                f.writeText(quedan.joinToString("") { lineaPunto(it) })
+                tmp.delete()
+            } else if (!tmp.renameTo(f)) {
+                f.writeText(quedan.joinToString("") { lineaPunto(it) })
+                tmp.delete()
+            }
+            prefs(ctx).edit().putInt(KEY_COLA_N, quedan.size)
+                .putLong(KEY_COLA_ULT_TS, quedan.last()[0].toLong()).apply()
+        } catch (e: Exception) {
+            // si falló la escritura, el contador no se toca (se recontará)
+        }
     }
 
     fun colaOfflineRemoveFirst(ctx: Context): DoubleArray? {
-        val items = colaOffline(ctx).toMutableList()
+        val items = colaOffline(ctx)
         if (items.isEmpty()) return null
-        val first = items.removeAt(0)
-        colaOfflineSet(ctx, items)
+        val first = items.first()
+        colaOfflineReescribir(ctx, items.drop(1))
         return first
     }
 
     fun colaOfflineClear(ctx: Context) {
-        prefs(ctx).edit().remove(KEY_COLA).apply()
-    }
-
-    private fun colaOfflineSet(ctx: Context, items: List<DoubleArray>) {
-        val arr = org.json.JSONArray()
-        items.forEach { p ->
-            arr.put(org.json.JSONArray().put(p[0]).put(p[1]).put(p[2]).put(p[3]).put(p[4]))
+        synchronized(lockCola) {
+            val f = ficheroCola(ctx)
+            if (f.exists()) f.delete()
+            prefs(ctx).edit().putInt(KEY_COLA_N, 0).remove(KEY_COLA_ULT_TS).apply()
         }
-        prefs(ctx).edit().putString(KEY_COLA, arr.toString()).apply()
     }
 
     // ── Servicios de ubicación (GPS / WiFi / red / movimiento) ──────────

@@ -75,7 +75,7 @@
     <!-- Conexión -->
     <string name="conexion_ninguno">Último envío: —</string>
     <string name="conexion_ok">Último envío: OK a las %1$s</string>
-    <string name="conexion_fail">Último envío: FALLIDO a las %1$s · %2$d pendientes</string>
+    <string name="conexion_fail">📴 Sin conexión desde las %1$s · %2$d puntos guardados (se envían solos al volver)</string>
 
     <!-- Posición -->
     <string name="posicion">Posición: %1$s, %2$s · precisión %3$d m · vel %4$d m/s</string>
@@ -92,7 +92,7 @@
     <string name="notif_title">TrackCam activo</string>
     <string name="notif_waiting">Enviando última posición…</string>
     <string name="notif_sent_ok">Último envío OK %1$s</string>
-    <string name="notif_sent_fail">Último envío FALLIDO %1$s · %2$d pendientes</string>
+    <string name="notif_sent_fail">Sin conexión desde %1$s · %2$d puntos guardados</string>
     <string name="notif_stop">Detener</string>
 
     <!-- Selector de intervalo -->

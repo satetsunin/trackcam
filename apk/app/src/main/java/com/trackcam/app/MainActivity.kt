@@ -445,7 +445,7 @@ class MainActivity : AppCompatActivity() {
             else -> getString(
                 R.string.conexion_fail,
                 formatTime(TrackService.lastSendAtMillis),
-                TrackService.pendingCount
+                TrackService.pendientesTotales(this)
             )
         }
 

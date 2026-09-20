@@ -144,6 +144,14 @@ class TrackService : LifecycleService() {
             private set
         @Volatile var pendingCount = 0
             private set
+
+        /**
+         * F5.37 — Puntos pendientes de verdad: los que están en memoria esperando
+         * turno más los que ya están guardados en la cola offline (que es donde
+         * van a parar cuando no hay cobertura).
+         */
+        fun pendientesTotales(ctx: android.content.Context): Int =
+            pendingCount + TrackPrefs.colaOfflineSize(ctx)
         @Volatile var lastLat: Double? = null
             private set
         @Volatile var lastLon: Double? = null
@@ -881,23 +889,37 @@ class TrackService : LifecycleService() {
     /** Reenvía los puntos guardados sin cobertura (cola offline persistente). */
     private suspend fun flushOfflineCola() {
         if (!TrackPrefs.cfgColaOffline(this)) return
-        while (coroutineContext.isActive && tracking) {
-            val p = TrackPrefs.colaOfflineRemoveFirst(this) ?: break
-            val loc = Location("offline").apply {
-                latitude = p[1]; longitude = p[2]
-                accuracy = p[3].toFloat()
-                speed = p[4].toFloat()
-                // Restaurar la hora EXACTA del fix original (buildJson la usa)
-                time = p[0].toLong()
-            }
-            val ok = sendWithRetry(loc, guardarSiFalla = false)
-            if (!ok) {
-                // Sin red todavía: devolver el punto a la cola y esperar
-                TrackPrefs.colaOfflineAdd(
-                    this, p[0].toLong(), p[1], p[2], p[3].toFloat(), p[4].toFloat()
-                )
+        // F5.37 — Se lee la cola UNA vez y se reescribe solo lo que quede.
+        // Antes se sacaba punto a punto: cada extracción reescribía la cola
+        // completa (O(n²) con miles de pendientes) y, si un envío fallaba, el
+        // punto volvía al FINAL de la cola, desordenando el recorrido.
+        val pendientes = TrackPrefs.colaOffline(this)
+        if (pendientes.isEmpty()) return
+        val quedan = ArrayList<DoubleArray>(pendientes.size)
+        var enviados = 0
+        for ((i, p) in pendientes.withIndex()) {
+            if (!coroutineContext.isActive || !tracking) {
+                quedan.addAll(pendientes.drop(i))
                 break
             }
+            val loc = Location("offline").apply {
+                latitude = p[1]
+                longitude = p[2]
+                accuracy = p[3].toFloat()
+                speed = p[4].toFloat()
+                time = p[0].toLong()      // hora EXACTA del fix original
+            }
+            if (sendWithRetry(loc, guardarSiFalla = false)) {
+                enviados++
+            } else {
+                // Sin red: este punto y los siguientes se quedan, EN SU ORDEN
+                quedan.addAll(pendientes.drop(i))
+                break
+            }
+        }
+        TrackPrefs.colaOfflineReescribir(this, quedan)
+        if (enviados > 0) {
+            Log.i(TAG, "Cola offline: $enviados enviados · quedan ${quedan.size}")
         }
         broadcastStatus()
     }
@@ -909,8 +931,8 @@ class TrackService : LifecycleService() {
         val tsMs = if (loc.time > 0) loc.time else System.currentTimeMillis()
         // Dedupe: si el último punto de la cola ya tiene este ts exacto (mismo
         // fix repetido por el GPS), no guardar otra copia.
-        val cola = TrackPrefs.colaOffline(this)
-        if (cola.isNotEmpty() && cola.last()[0].toLong() == tsMs) {
+        // F5.37 — Dedupe sin releer la cola: el último ts guardado va en prefs
+        if (TrackPrefs.colaOfflineUltimoTs(this) == tsMs) {
             Log.d(TAG, "Fix duplicado (ts=$tsMs): se omite guardar offline")
             return
         }
@@ -982,7 +1004,14 @@ class TrackService : LifecycleService() {
                 throw e
             } catch (e: Exception) {
                 Log.w(TAG, "Intento $attempts/$MAX_ATTEMPTS fallido: ${e.message}")
-                if (attempts < MAX_ATTEMPTS) delay(1000L)
+                // F5.37 — Si el fallo es de RED (sin DNS, conexión rechazada o
+                // sin respuesta), reintentar no aporta nada y sí cuesta tiempo:
+                // cada intento son 6 s de espera que retrasan el siguiente
+                // punto. Se sale y el punto va a la cola offline.
+                val sinRed = e is java.net.UnknownHostException ||
+                             e is java.net.ConnectException ||
+                             e is java.net.NoRouteToHostException
+                if (attempts < MAX_ATTEMPTS && !sinRed) delay(1000L) else break
             }
         }
 
@@ -1087,7 +1116,10 @@ class TrackService : LifecycleService() {
     }
 
     private fun notificationText(): String {
-        val pend = synchronized(queueLock) { queue.size }
+        // F5.37 — Pendientes REALES: la cola en memoria más lo guardado en disco
+        // (antes solo se contaba la memoria, topada en MAX_PENDING: el usuario
+        // veía "30 pendientes" aunque tuviera miles guardados).
+        val pend = pendientesTotales(this)
         if (lastSendAtMillis == 0L) return getString(R.string.notif_waiting)
         val t = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(lastSendAtMillis))
         return if (lastOk == true) {
